@@ -29,9 +29,12 @@ defmodule Pinventory.Items do
         do:
           from(item in q,
             where: fragment("? % ?", item.name, ^opts[:name]),
-            order_by: [desc: fragment("? % ?", item.name, ^opts[:name])]
+            order_by: [
+              desc: fragment("similarity(?, ?)", item.name, ^opts[:name]),
+              asc: item.name
+            ]
           ),
-        else: q
+        else: from(item in q, order_by: [asc: item.name])
 
     Repo.all(q)
   end
