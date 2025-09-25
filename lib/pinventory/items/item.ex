@@ -15,7 +15,7 @@ defmodule Pinventory.Items.Item do
   def changeset(item, attrs) do
     item
     |> cast(attrs, [:name, :quantity])
-    |> validate_required([:name])
+    |> validate_required([:name, :quantity])
     |> validate_length(:name, min: 2)
     |> unique_constraint(:name)
     |> validate_number(:quantity, greater_than_or_equal_to: 0)
