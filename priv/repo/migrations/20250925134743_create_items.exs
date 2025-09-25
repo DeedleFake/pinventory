@@ -11,5 +11,8 @@ defmodule Pinventory.Repo.Migrations.CreateItems do
     end
 
     create unique_index(:items, [:name])
+
+    execute "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+    create index(:items, [~s("name" gin_trgm_ops)], using: "GIN")
   end
 end
