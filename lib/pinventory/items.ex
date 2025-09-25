@@ -13,9 +13,26 @@ defmodule Pinventory.Items do
 
     q =
       from item in Item,
-        where: fragment("? % ?", item.name, ^partial_name),
+        select: %{
+          id: item.id,
+          score:
+            fragment(
+              "CASE WHEN ? ILIKE ? THEN 2.0 ELSE similarity(?, ?) END",
+              item.name,
+              ^"#{partial_name}%",
+              item.name,
+              ^partial_name
+            )
+        },
+        where:
+          ilike(item.name, ^"#{partial_name}%") or fragment("? % ?", item.name, ^partial_name)
+
+    q =
+      from item in Item,
+        join: score in subquery(q),
+        on: item.id == score.id,
         order_by: [
-          desc: fragment("similarity(?, ?)", item.name, ^partial_name),
+          desc: score.score,
           asc: item.name
         ],
         limit: ^opts[:limit]
