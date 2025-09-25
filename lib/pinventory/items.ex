@@ -8,33 +8,17 @@ defmodule Pinventory.Items do
 
   alias Pinventory.Items.Item
 
-  @doc """
-  Returns the list of items.
-
-  ## Examples
-
-      iex> list_items()
-      [%Item{}, ...]
-
-  """
-  def list_items(opts \\ []) do
-    opts = Keyword.validate!(opts, [:name, limit: 100])
+  def suggest_items(partial_name, opts \\ []) do
+    opts = Keyword.validate!(opts, limit: 10)
 
     q =
       from item in Item,
+        where: fragment("? % ?", item.name, ^partial_name),
+        order_by: [
+          desc: fragment("similarity(?, ?)", item.name, ^partial_name),
+          asc: item.name
+        ],
         limit: ^opts[:limit]
-
-    q =
-      if opts[:name],
-        do:
-          from(item in q,
-            where: fragment("? % ?", item.name, ^opts[:name]),
-            order_by: [
-              desc: fragment("similarity(?, ?)", item.name, ^opts[:name]),
-              asc: item.name
-            ]
-          ),
-        else: from(item in q, order_by: [asc: item.name])
 
     Repo.all(q)
   end
