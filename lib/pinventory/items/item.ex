@@ -12,12 +12,25 @@ defmodule Pinventory.Items.Item do
   end
 
   @doc false
-  def changeset(item, attrs) do
+  def create_changeset(item, attrs) do
     item
     |> cast(attrs, [:name, :quantity])
-    |> validate_required([:name, :quantity])
+    |> validate_required([:name])
     |> validate_length(:name, min: 2)
     |> unique_constraint(:name)
+    |> validate_quantity()
+  end
+
+  @doc false
+  def update_quantity_changeset(item, attrs) do
+    item
+    |> cast(attrs, [:quantity])
+    |> validate_quantity()
+  end
+
+  defp validate_quantity(changeset) do
+    changeset
+    |> validate_required([:quantity])
     |> validate_number(:quantity, greater_than_or_equal_to: 0)
   end
 end
