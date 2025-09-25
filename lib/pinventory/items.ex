@@ -13,29 +13,39 @@ defmodule Pinventory.Items do
 
     q =
       from item in Item,
-        select: %{
-          id: item.id,
-          score:
+        where:
+          ilike(item.name, ^"#{partial_name}%") or fragment("? % ?", item.name, ^partial_name),
+        order_by: [
+          desc:
             fragment(
               "CASE WHEN ? ILIKE ? THEN 2.0 ELSE similarity(?, ?) END",
               item.name,
               ^"#{partial_name}%",
               item.name,
               ^partial_name
-            )
-        },
-        where:
-          ilike(item.name, ^"#{partial_name}%") or fragment("? % ?", item.name, ^partial_name)
-
-    q =
-      from item in Item,
-        join: score in subquery(q),
-        on: item.id == score.id,
-        order_by: [
-          desc: score.score,
+            ),
           asc: item.name
         ],
         limit: ^opts[:limit]
+
+    Repo.all(q)
+  end
+
+  def list_items(opts \\ []) do
+    opts = Keyword.validate!(opts, [:filter, limit: 100])
+
+    filter =
+      if opts[:filter] do
+        dynamic([item], ilike(item.name, ^"%#{opts[:filter]}%"))
+      else
+        true
+      end
+
+    q =
+      from item in Item,
+        where: ^filter,
+        limit: ^opts[:limit],
+        order_by: [asc: item.name]
 
     Repo.all(q)
   end

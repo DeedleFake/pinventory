@@ -17,7 +17,9 @@ defmodule PinventoryWeb.Router do
   scope "/", PinventoryWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live_session :items do
+      live "/", ItemsLive, :index
+    end
   end
 
   # Other scopes may use custom stacks.
