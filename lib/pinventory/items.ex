@@ -17,8 +17,23 @@ defmodule Pinventory.Items do
       [%Item{}, ...]
 
   """
-  def list_items do
-    Repo.all(Item)
+  def list_items(opts \\ []) do
+    opts = Keyword.validate!(opts, [:name, limit: 100])
+
+    q =
+      from item in Item,
+        limit: ^opts[:limit]
+
+    q =
+      if opts[:name],
+        do:
+          from(item in q,
+            where: fragment("? % ?", item.name, ^opts[:name]),
+            order_by: [desc: fragment("? % ?", item.name, ^opts[:name])]
+          ),
+        else: q
+
+    Repo.all(q)
   end
 
   @doc """
