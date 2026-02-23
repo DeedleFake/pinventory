@@ -19,6 +19,9 @@ defmodule PinventoryWeb.Router do
 
     live_session :items do
       live "/", ItemsLive, :index
+
+      live "/item", EditItemLive, :new
+      live "/item/:item_id", EditItemLive, :edit
     end
   end
 
