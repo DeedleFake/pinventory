@@ -60,7 +60,7 @@ defmodule Pinventory.Items do
     |> Repo.insert()
   end
 
-  def update_item_quantity(item, location, quantity) do
+  def update_quantity(item, location, quantity) do
     item_id = get_id(item)
     location_id = get_id(location)
 
