@@ -7,6 +7,8 @@ defmodule Pinventory.Items do
   alias Pinventory.Repo
 
   alias Pinventory.Items.Item
+  alias Pinventory.Items.ItemLocation
+  alias Pinventory.Locations.Location
 
   def suggest_items(partial_name, opts \\ []) do
     opts = Keyword.validate!(opts, limit: 10)
@@ -58,13 +60,28 @@ defmodule Pinventory.Items do
     |> Repo.insert()
   end
 
-  def update_item_quantity(%Item{} = item, quantity) do
-    item
-    |> Item.update_quantity_changeset(quantity: quantity)
-    |> Repo.update()
+  def update_item_quantity(item, location, quantity) do
+    item_id = get_id(item)
+    location_id = get_id(location)
+
+    %ItemLocation{}
+    |> ItemLocation.changeset(item_id: item_id, location_id: location_id, quantity: quantity)
+    |> Repo.insert(
+      on_conflict: [
+        set: [
+          quantity: quantity
+        ]
+      ],
+      conflict_target: [:item_id, :location_id],
+      returning: true
+    )
   end
 
   def delete_item(%Item{} = item) do
     Repo.delete(item)
   end
+
+  defp get_id(%Item{id: id}), do: id
+  defp get_id(%Location{id: id}), do: id
+  defp get_id(id) when is_binary(id), do: id
 end
