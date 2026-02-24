@@ -22,6 +22,8 @@ defmodule PinventoryWeb.Router do
 
       live "/item", EditItemLive, :new
       live "/item/:item_id", EditItemLive, :edit
+
+      live "/locations", LocationsLive, :index
     end
   end
 
