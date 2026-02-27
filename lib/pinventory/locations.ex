@@ -4,14 +4,19 @@ defmodule Pinventory.Locations do
 
   alias Pinventory.Locations.Location
 
-  def create_changeset(attrs \\ %{}) do
-    %Location{}
-    |> Location.changeset(attrs)
+  def change_location(%Location{} = location, attrs \\ %{}) do
+    Location.changeset(location, attrs)
   end
 
-  def create(changeset) do
+  def create(%Ecto.Changeset{} = changeset) do
     changeset
     |> Repo.insert(returning: true)
+  end
+
+  def create(attrs) do
+    %Location{}
+    |> change_location(attrs)
+    |> create()
   end
 
   def list() do
