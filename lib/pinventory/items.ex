@@ -56,7 +56,7 @@ defmodule Pinventory.Items do
 
   def create_item(attrs) do
     %Item{}
-    |> Item.create_changeset(attrs)
+    |> Item.changeset(attrs)
     |> Repo.insert()
   end
 

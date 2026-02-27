@@ -16,8 +16,10 @@ defmodule Pinventory.Items.ItemLocation do
   @doc false
   def changeset(item_location, attrs) do
     item_location
-    |> cast(attrs, [:item_id, :location_id, :quantity])
-    |> validate_required([:item_id, :location_id, :quantity])
+    |> cast(attrs, [:quantity])
+    |> cast_assoc(:item, with: &Pinventory.Items.Item.changeset/2)
+    |> cast_assoc(:location, with: &Pinventory.Locations.change_location/2)
+    |> validate_required([:quantity])
     |> validate_number(:quantity, greater_than_or_equal_to: 0)
     |> unique_constraint([:item_id, :location_id])
   end

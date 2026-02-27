@@ -14,7 +14,7 @@ defmodule Pinventory.Items.Item do
   end
 
   @doc false
-  def create_changeset(item, attrs) do
+  def changeset(item, attrs) do
     item
     |> cast(attrs, [:name])
     |> validate_required([:name])
