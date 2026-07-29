@@ -44,24 +44,55 @@ defmodule Pinventory.Items do
     Repo.all(q)
   end
 
+  @doc """
+  Lists items ordered by name.
+
+  Each item includes virtual `total_quantity` (sum of stock) and
+  `location_count` (number of locations with stock).
+
+  Options:
+
+    * `:filter` - case-insensitive name substring match
+    * `:location_id` - only items with stock at this location
+    * `:limit` - max rows (default 100)
+  """
   def list_items(opts \\ []) do
-    opts = Keyword.validate!(opts, [:filter, limit: 100])
+    opts = Keyword.validate!(opts, [:filter, :location_id, limit: 100])
 
-    filter =
-      if opts[:filter] do
-        dynamic([item], ilike(item.name, ^"%#{opts[:filter]}%"))
-      else
-        true
-      end
-
-    q =
-      from item in Item,
-        where: ^filter,
-        limit: ^opts[:limit],
-        order_by: [asc: item.name]
-
-    Repo.all(q)
+    Item
+    |> from(as: :item)
+    |> join(:left, [item: item], il in assoc(item, :item_locations), as: :item_location)
+    |> maybe_filter_name(opts[:filter])
+    |> maybe_filter_location(opts[:location_id])
+    |> group_by([item: item], item.id)
+    |> order_by([item: item], asc: item.name)
+    |> limit(^opts[:limit])
+    |> select_merge([item_location: il], %{
+      total_quantity: coalesce(sum(il.quantity), 0),
+      location_count: count(il.id)
+    })
+    |> Repo.all()
   end
+
+  defp maybe_filter_name(query, filter) when is_binary(filter) and filter != "" do
+    where(query, [item: item], ilike(item.name, ^"%#{filter}%"))
+  end
+
+  defp maybe_filter_name(query, _), do: query
+
+  defp maybe_filter_location(query, location_id)
+       when is_binary(location_id) and location_id != "" do
+    where(
+      query,
+      [item: item],
+      exists(
+        from il in ItemLocation,
+          where: il.item_id == parent_as(:item).id and il.location_id == ^location_id
+      )
+    )
+  end
+
+  defp maybe_filter_location(query, _), do: query
 
   def get_item!(id) do
     Item

@@ -93,4 +93,52 @@ defmodule Pinventory.ItemsTest do
       refute "Hammer" in names
     end
   end
+
+  describe "list_items/1" do
+    test "returns stock totals and location counts" do
+      {:ok, garage} = Locations.create(%{name: "Garage"})
+      {:ok, shelf} = Locations.create(%{name: "Shelf"})
+
+      assert {:ok, _} =
+               Items.create_item(%{name: "Screws"}, %{garage.id => 5, shelf.id => 3})
+
+      assert {:ok, _} = Items.create_item(%{name: "Empty Box"})
+
+      by_name = Map.new(Items.list_items(), &{&1.name, &1})
+
+      assert by_name["Screws"].total_quantity == 8
+      assert by_name["Screws"].location_count == 2
+      assert by_name["Empty Box"].total_quantity == 0
+      assert by_name["Empty Box"].location_count == 0
+    end
+
+    test "filters by name substring" do
+      assert {:ok, _} = Items.create_item(%{name: "Box Nails"})
+      assert {:ok, _} = Items.create_item(%{name: "Hammer"})
+
+      names = Enum.map(Items.list_items(filter: "nail"), & &1.name)
+
+      assert names == ["Box Nails"]
+    end
+
+    test "filters by location with stock" do
+      {:ok, garage} = Locations.create(%{name: "Garage"})
+      {:ok, shelf} = Locations.create(%{name: "Shelf"})
+
+      assert {:ok, _} = Items.create_item(%{name: "Drill"}, %{garage.id => 1})
+      assert {:ok, _} = Items.create_item(%{name: "Tape"}, %{shelf.id => 2})
+      assert {:ok, _} = Items.create_item(%{name: "Empty"})
+
+      names = Enum.map(Items.list_items(location_id: garage.id), & &1.name)
+
+      assert names == ["Drill"]
+    end
+
+    test "orders items by name" do
+      assert {:ok, _} = Items.create_item(%{name: "Zebra"})
+      assert {:ok, _} = Items.create_item(%{name: "Apple"})
+
+      assert Enum.map(Items.list_items(), & &1.name) == ["Apple", "Zebra"]
+    end
+  end
 end

@@ -79,8 +79,7 @@ defmodule PinventoryWeb.EditItemLive do
                     "inline-flex shrink-0 items-center gap-1 rounded-full",
                     "bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary"
                   ]}>
-                    Open
-                    <.icon name="hero-arrow-right" class="size-3" />
+                    Open <.icon name="hero-arrow-right" class="size-3" />
                   </span>
                 </button>
               </div>
