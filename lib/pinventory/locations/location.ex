@@ -6,6 +6,7 @@ defmodule Pinventory.Locations.Location do
   @foreign_key_type :binary_id
   schema "locations" do
     field :name, :string
+    field :item_count, :integer, virtual: true, default: 0
 
     has_many :item_locations, Pinventory.Items.ItemLocation
     has_many :items, through: [:item_locations, :item]

@@ -1,4 +1,8 @@
 defmodule Pinventory.Locations do
+  @moduledoc """
+  Context for storage locations and location-level queries.
+  """
+
   import Ecto.Query, warn: false
   alias Pinventory.Repo
 
@@ -9,8 +13,7 @@ defmodule Pinventory.Locations do
   end
 
   def create(%Ecto.Changeset{} = changeset) do
-    changeset
-    |> Repo.insert(returning: true)
+    Repo.insert(changeset)
   end
 
   def create(attrs) do
@@ -19,10 +22,35 @@ defmodule Pinventory.Locations do
     |> create()
   end
 
-  def list() do
+  def update(%Ecto.Changeset{} = changeset) do
+    Repo.update(changeset)
+  end
+
+  def update(%Location{} = location, attrs) do
+    location
+    |> change_location(attrs)
+    |> update()
+  end
+
+  def list do
     query =
       from location in Location,
         order_by: [asc: location.name]
+
+    Repo.all(query)
+  end
+
+  @doc """
+  Returns locations ordered by name, each with `item_count` set to the number
+  of distinct item types stored at that location.
+  """
+  def list_with_item_counts do
+    query =
+      from location in Location,
+        left_join: item_location in assoc(location, :item_locations),
+        group_by: location.id,
+        order_by: [asc: location.name],
+        select_merge: %{item_count: count(item_location.id)}
 
     Repo.all(query)
   end

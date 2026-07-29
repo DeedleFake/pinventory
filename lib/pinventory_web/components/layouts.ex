@@ -45,7 +45,12 @@ defmodule PinventoryWeb.Layouts do
       <div class="flex-none">
         <ul class="flex flex-column px-1 space-x-4 items-center">
           <li>
-            <.link href={~p"/item"} class="btn btn-primary">New Item</.link>
+            <.link navigate={~p"/locations"} class="btn btn-ghost btn-soft">
+              Locations
+            </.link>
+          </li>
+          <li>
+            <.link navigate={~p"/item"} class="btn btn-primary">New Item</.link>
           </li>
           <li>
             <.theme_toggle />
