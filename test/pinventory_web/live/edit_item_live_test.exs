@@ -143,6 +143,10 @@ defmodule PinventoryWeb.EditItemLiveTest do
     {:ok, view, _html} = live(conn, ~p"/item")
 
     view
+    |> element("#item_name")
+    |> render_focus()
+
+    view
     |> form("#item-form", item: %{name: "Screw"})
     |> render_change()
 
@@ -156,11 +160,70 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert_redirect(view, "/item/#{existing.id}")
   end
 
+  test "hides name suggestions when the name field is blurred", %{conn: conn} do
+    {:ok, _existing} = Items.create_item(%{name: "Screwdriver set"})
+
+    {:ok, view, _html} = live(conn, ~p"/item")
+
+    view
+    |> element("#item_name")
+    |> render_focus()
+
+    view
+    |> form("#item-form", item: %{name: "Screw"})
+    |> render_change()
+
+    assert has_element?(view, "#item-suggestions")
+
+    view
+    |> element("#item_name")
+    |> render_blur()
+
+    send(view.pid, :hide_name_suggestions)
+    html = render(view)
+
+    refute html =~ ~s(id="item-suggestions")
+  end
+
+  test "does not reopen suggestions when editing quantities after blur", %{conn: conn} do
+    {:ok, garage} = Locations.create(%{name: "Garage"})
+    {:ok, _existing} = Items.create_item(%{name: "Paper towels"})
+
+    {:ok, view, _html} = live(conn, ~p"/item")
+
+    view
+    |> element("#item_name")
+    |> render_focus()
+
+    view
+    |> form("#item-form", item: %{name: "Paper"})
+    |> render_change()
+
+    assert has_element?(view, "#item-suggestions")
+
+    view
+    |> element("#item_name")
+    |> render_blur()
+
+    send(view.pid, :hide_name_suggestions)
+    _ = render(view)
+
+    view
+    |> form("#item-form", item: %{name: "Paper"}, quantities: %{garage.id => "2"})
+    |> render_change()
+
+    refute has_element?(view, "#item-suggestions")
+  end
+
   test "does not show suggestions while editing", %{conn: conn} do
     {:ok, item} = Items.create_item(%{name: "Wrench"})
     {:ok, _other} = Items.create_item(%{name: "Wrench set"})
 
     {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    view
+    |> element("#item_name")
+    |> render_focus()
 
     view
     |> form("#item-form", item: %{name: "Wrench"})

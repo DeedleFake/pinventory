@@ -32,6 +32,8 @@ defmodule PinventoryWeb.EditItemLive do
               placeholder="Item name..."
               autocomplete="off"
               phx-debounce="300"
+              phx-focus="name_focus"
+              phx-blur="name_blur"
               wrapperclass="mb-0"
             />
 
@@ -39,27 +41,49 @@ defmodule PinventoryWeb.EditItemLive do
               :if={@live_action == :new and @suggestions != []}
               id="item-suggestions"
               class={[
-                "absolute z-20 mt-1 w-full overflow-hidden rounded-xl border",
-                "border-base-300 bg-base-100 shadow-lg"
+                "absolute z-30 mt-1.5 w-full overflow-hidden rounded-xl",
+                "border-2 border-primary/50 bg-base-100 shadow-2xl",
+                "ring-4 ring-primary/15"
               ]}
               role="listbox"
               aria-label="Matching items"
             >
-              <button
-                :for={suggestion <- @suggestions}
-                type="button"
-                id={"item-suggestion-#{suggestion.id}"}
-                role="option"
-                class={[
-                  "flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm",
-                  "transition-colors hover:bg-primary/10 focus:bg-primary/10 focus:outline-none"
-                ]}
-                phx-click="select_suggestion"
-                phx-value-id={suggestion.id}
-              >
-                <span class="font-medium">{suggestion.name}</span>
-                <span class="text-xs opacity-60">Open</span>
-              </button>
+              <div class={[
+                "flex items-center gap-2 border-b border-primary/20",
+                "bg-primary/10 px-3 py-2 text-xs font-semibold tracking-wide",
+                "text-primary uppercase"
+              ]}>
+                <.icon name="hero-magnifying-glass" class="size-3.5 shrink-0 opacity-80" />
+                <span>Similar items already exist</span>
+              </div>
+
+              <div class="max-h-56 divide-y divide-base-300/80 overflow-y-auto">
+                <button
+                  :for={suggestion <- @suggestions}
+                  type="button"
+                  id={"item-suggestion-#{suggestion.id}"}
+                  role="option"
+                  class={[
+                    "flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm",
+                    "transition-colors hover:bg-primary/15 focus:bg-primary/15 focus:outline-none"
+                  ]}
+                  phx-click="select_suggestion"
+                  phx-value-id={suggestion.id}
+                >
+                  <.icon
+                    name="hero-cube"
+                    class="size-4 shrink-0 text-primary/70"
+                  />
+                  <span class="min-w-0 flex-1 truncate font-medium">{suggestion.name}</span>
+                  <span class={[
+                    "inline-flex shrink-0 items-center gap-1 rounded-full",
+                    "bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary"
+                  ]}>
+                    Open
+                    <.icon name="hero-arrow-right" class="size-3" />
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -290,11 +314,16 @@ defmodule PinventoryWeb.EditItemLive do
     """
   end
 
+  # Delay hide so a click on a suggestion can run before the list is removed.
+  @hide_suggestions_ms 200
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      socket
      |> assign(:suggestions, [])
+     |> assign(:show_suggestions?, false)
+     |> assign(:hide_suggestions_ref, nil)
      |> assign(:move_from, nil)
      |> assign(:move_to, nil)
      |> assign(:move_amount, 1)
@@ -318,7 +347,7 @@ defmodule PinventoryWeb.EditItemLive do
       |> assign(:baseline_quantities, quantities)
       |> assign(:quantities, quantities)
       |> assign(:form, to_item_form(Items.change_item(item)))
-      |> assign(:suggestions, [])
+      |> clear_suggestions()
       |> clear_move()
       |> sync_unsaved()
 
@@ -340,7 +369,7 @@ defmodule PinventoryWeb.EditItemLive do
       |> assign(:baseline_quantities, quantities)
       |> assign(:quantities, quantities)
       |> assign(:form, to_item_form(Items.change_item(item)))
-      |> assign(:suggestions, [])
+      |> clear_suggestions()
       |> clear_move()
       |> sync_unsaved()
 
@@ -358,7 +387,12 @@ defmodule PinventoryWeb.EditItemLive do
       |> Map.put(:action, :validate)
       |> to_item_form()
 
-    suggestions = load_suggestions(socket.assigns.live_action, name)
+    suggestions =
+      if socket.assigns.show_suggestions? do
+        load_suggestions(socket.assigns.live_action, name)
+      else
+        []
+      end
 
     {:noreply,
      socket
@@ -366,6 +400,23 @@ defmodule PinventoryWeb.EditItemLive do
      |> assign(:quantities, quantities)
      |> assign(:suggestions, suggestions)
      |> sync_unsaved()}
+  end
+
+  def handle_event("name_focus", _params, socket) do
+    name = current_name(socket)
+
+    {:noreply,
+     socket
+     |> cancel_hide_suggestions()
+     |> assign(:show_suggestions?, true)
+     |> assign(:suggestions, load_suggestions(socket.assigns.live_action, name))}
+  end
+
+  def handle_event("name_blur", _params, socket) do
+    socket = cancel_hide_suggestions(socket)
+    ref = Process.send_after(self(), :hide_name_suggestions, @hide_suggestions_ms)
+
+    {:noreply, assign(socket, :hide_suggestions_ref, ref)}
   end
 
   def handle_event("adjust", %{"location-id" => location_id, "delta" => delta}, socket) do
@@ -449,6 +500,8 @@ defmodule PinventoryWeb.EditItemLive do
   def handle_event("select_suggestion", %{"id" => id}, socket) do
     {:noreply,
      socket
+     |> cancel_hide_suggestions()
+     |> clear_suggestions()
      |> assign(:dirty?, false)
      |> assign(:unsaved?, false)
      |> push_event("unsaved-changes", %{dirty: false})
@@ -489,7 +542,7 @@ defmodule PinventoryWeb.EditItemLive do
             |> assign(:baseline_quantities, quantities)
             |> assign(:quantities, quantities)
             |> assign(:form, to_item_form(Items.change_item(item)))
-            |> assign(:suggestions, [])
+            |> clear_suggestions()
             |> clear_move()
             |> sync_unsaved()
           end
@@ -497,13 +550,25 @@ defmodule PinventoryWeb.EditItemLive do
         {:noreply, socket}
 
       {:error, %Ecto.Changeset{} = changeset} ->
+        suggestions =
+          if socket.assigns.show_suggestions? do
+            load_suggestions(socket.assigns.live_action, name)
+          else
+            []
+          end
+
         {:noreply,
          socket
          |> assign(:form, to_item_form(changeset, action: :validate))
          |> assign(:quantities, quantities)
-         |> assign(:suggestions, load_suggestions(socket.assigns.live_action, name))
+         |> assign(:suggestions, suggestions)
          |> sync_unsaved()}
     end
+  end
+
+  @impl true
+  def handle_info(:hide_name_suggestions, socket) do
+    {:noreply, clear_suggestions(socket)}
   end
 
   defp page_heading(:new), do: "New item"
@@ -552,6 +617,21 @@ defmodule PinventoryWeb.EditItemLive do
   end
 
   defp load_suggestions(:edit, _name), do: []
+
+  defp clear_suggestions(socket) do
+    socket
+    |> cancel_hide_suggestions()
+    |> assign(:show_suggestions?, false)
+    |> assign(:suggestions, [])
+  end
+
+  defp cancel_hide_suggestions(socket) do
+    if ref = socket.assigns[:hide_suggestions_ref] do
+      Process.cancel_timer(ref)
+    end
+
+    assign(socket, :hide_suggestions_ref, nil)
+  end
 
   defp move_destinations(locations, from_id) do
     Enum.reject(locations, &(&1.id == from_id))
