@@ -37,7 +37,10 @@ defmodule PinventoryWeb.Layouts do
     ~H"""
     <header class="navbar px-4 sm:px-6 lg:px-8">
       <div class="flex-1">
-        <a href="/" class="flex w-fit items-center gap-2.5 text-base-content">
+        <a
+          href="/"
+          class="flex w-fit items-center gap-2.5 text-base-content opacity-80 transition-opacity duration-200 hover:opacity-100"
+        >
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 32 32"
