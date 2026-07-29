@@ -1,6 +1,11 @@
 defmodule Pinventory.Locations do
   @moduledoc """
   Context for storage locations and location-level queries.
+
+  Public functions use short names (`create/1`, `update/1`, `list/0`) because
+  the module already scopes them as location operations. Compare with
+  `Pinventory.Items`, which uses `create_item/2`-style names when the context
+  owns multiple related schemas.
   """
 
   import Ecto.Query, warn: false

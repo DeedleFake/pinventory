@@ -1,11 +1,9 @@
 defmodule Pinventory.LocationsTest do
   use Pinventory.DataCase, async: true
 
-  alias Pinventory.Items.Item
-  alias Pinventory.Items.ItemLocation
+  alias Pinventory.Items
   alias Pinventory.Locations
   alias Pinventory.Locations.Location
-  alias Pinventory.Repo
 
   describe "list/0" do
     test "returns locations ordered by name" do
@@ -21,12 +19,8 @@ defmodule Pinventory.LocationsTest do
       {:ok, garage} = Locations.create(%{name: "Garage"})
       {:ok, shelf} = Locations.create(%{name: "Shelf"})
 
-      item_a = insert_item!("Hammer")
-      item_b = insert_item!("Nails")
-
-      insert_item_location!(item_a, garage, 2)
-      insert_item_location!(item_b, garage, 10)
-      insert_item_location!(item_a, shelf, 1)
+      {:ok, _} = Items.create_item(%{name: "Hammer"}, %{garage.id => 2, shelf.id => 1})
+      {:ok, _} = Items.create_item(%{name: "Nails"}, %{garage.id => 10})
 
       counts =
         Locations.list_with_item_counts()
@@ -83,20 +77,5 @@ defmodule Pinventory.LocationsTest do
       assert {:error, changeset} = Locations.update(location, %{name: "Taken"})
       assert %{name: [_ | _]} = errors_on(changeset)
     end
-  end
-
-  defp insert_item!(name) do
-    %Item{}
-    |> Item.changeset(%{name: name})
-    |> Repo.insert!()
-  end
-
-  defp insert_item_location!(item, location, quantity) do
-    %ItemLocation{
-      item_id: item.id,
-      location_id: location.id,
-      quantity: quantity
-    }
-    |> Repo.insert!()
   end
 end

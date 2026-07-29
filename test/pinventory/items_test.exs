@@ -12,6 +12,15 @@ defmodule Pinventory.ItemsTest do
       assert {:ok, %Item{name: "Hammer"}} = Items.create_item(%{name: "Hammer"})
     end
 
+    test "returns an ItemLocation changeset when stock references a missing location" do
+      fake_location_id = Ecto.UUID.generate()
+
+      assert {:error, %Ecto.Changeset{data: %ItemLocation{}}} =
+               Items.create_item(%{name: "Orphan"}, %{fake_location_id => 1})
+
+      assert Items.list_items() == []
+    end
+
     test "stores only positive stock rows" do
       {:ok, garage} = Locations.create(%{name: "Garage"})
       {:ok, shelf} = Locations.create(%{name: "Shelf"})
@@ -91,6 +100,30 @@ defmodule Pinventory.ItemsTest do
       assert "Phillips screwdriver" in names
       assert "Flat screwdriver" in names
       refute "Hammer" in names
+    end
+
+    test "treats ILIKE wildcards and backslashes in the query as literals" do
+      assert {:ok, _} = Items.create_item(%{name: "100% wool"})
+      assert {:ok, _} = Items.create_item(%{name: "100x wool"})
+      assert {:ok, _} = Items.create_item(%{name: "under_score"})
+      assert {:ok, _} = Items.create_item(%{name: "path\\to"})
+      assert {:ok, _} = Items.create_item(%{name: "plain item"})
+
+      # Unescaped "%" would match every name; with escaping only literal "%".
+      percent_only = Enum.map(Items.suggest_items("%"), & &1.name)
+      assert percent_only == ["100% wool"]
+
+      percent_names = Enum.map(Items.suggest_items("100%"), & &1.name)
+      assert "100% wool" in percent_names
+      refute "100x wool" in percent_names
+
+      # Unescaped "_" is a single-char wildcard; escaped finds the literal underscore.
+      underscore_names = Enum.map(Items.suggest_items("under_score"), & &1.name)
+      assert "under_score" in underscore_names
+
+      slash_names = Enum.map(Items.suggest_items("path\\t"), & &1.name)
+      assert "path\\to" in slash_names
+      refute "plain item" in slash_names
     end
   end
 

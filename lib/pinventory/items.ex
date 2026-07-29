@@ -8,32 +8,40 @@ defmodule Pinventory.Items do
   alias Ecto.Multi
   alias Pinventory.Repo
 
+  alias Pinventory.Items.DraftStock
   alias Pinventory.Items.Item
   alias Pinventory.Items.ItemLocation
 
+  # PostgreSQL ILIKE escape character (bound as a query parameter).
+  @like_escape "\\"
+
   def suggest_items(partial_name, opts \\ []) do
     opts = Keyword.validate!(opts, limit: 10)
+    pattern = escape_like(partial_name)
+    prefix = "#{pattern}%"
+    contains = "%#{pattern}%"
 
     q =
       from item in Item,
         where:
-          ilike(item.name, ^"#{partial_name}%") or
-            ilike(item.name, ^"%#{partial_name}%") or
+          fragment("? ILIKE ? ESCAPE ?", item.name, ^contains, @like_escape) or
             fragment("? % ?", item.name, ^partial_name),
         order_by: [
           desc:
             fragment(
               """
               CASE
-                WHEN ? ILIKE ? THEN 3.0
-                WHEN ? ILIKE ? THEN 2.0
+                WHEN ? ILIKE ? ESCAPE ? THEN 3.0
+                WHEN ? ILIKE ? ESCAPE ? THEN 2.0
                 ELSE similarity(?, ?)
               END
               """,
               item.name,
-              ^"#{partial_name}%",
+              ^prefix,
+              @like_escape,
               item.name,
-              ^"%#{partial_name}%",
+              ^contains,
+              @like_escape,
               item.name,
               ^partial_name
             ),
@@ -75,7 +83,13 @@ defmodule Pinventory.Items do
   end
 
   defp maybe_filter_name(query, filter) when is_binary(filter) and filter != "" do
-    where(query, [item: item], ilike(item.name, ^"%#{filter}%"))
+    pattern = "%#{escape_like(filter)}%"
+
+    where(
+      query,
+      [item: item],
+      fragment("? ILIKE ? ESCAPE ?", item.name, ^pattern, @like_escape)
+    )
   end
 
   defp maybe_filter_name(query, _), do: query
@@ -93,6 +107,13 @@ defmodule Pinventory.Items do
   end
 
   defp maybe_filter_location(query, _), do: query
+
+  defp escape_like(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("%", "\\%")
+    |> String.replace("_", "\\_")
+  end
 
   def get_item!(id) do
     Item
@@ -169,7 +190,7 @@ defmodule Pinventory.Items do
     desired =
       quantities
       |> Enum.map(fn {location_id, quantity} ->
-        {to_string(location_id), normalize_quantity(quantity)}
+        {to_string(location_id), DraftStock.parse_non_neg_int(quantity)}
       end)
       |> Enum.filter(fn {_location_id, quantity} -> quantity > 0 end)
       |> Map.new()
@@ -186,32 +207,21 @@ defmodule Pinventory.Items do
 
     repo.delete_all(delete_query)
 
-    Enum.each(desired, fn {location_id, quantity} ->
+    Enum.reduce_while(desired, {:ok, desired}, fn {location_id, quantity}, {:ok, _} = acc ->
       now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-      %ItemLocation{}
-      |> ItemLocation.changeset(%{
-        item_id: item_id,
-        location_id: location_id,
-        quantity: quantity
-      })
-      |> repo.insert!(
-        on_conflict: [set: [quantity: quantity, updated_at: now]],
-        conflict_target: [:item_id, :location_id]
-      )
+      result =
+        %ItemLocation{item_id: item_id, location_id: location_id}
+        |> ItemLocation.changeset(%{quantity: quantity})
+        |> repo.insert(
+          on_conflict: [set: [quantity: quantity, updated_at: now]],
+          conflict_target: [:item_id, :location_id]
+        )
+
+      case result do
+        {:ok, _} -> {:cont, acc}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
     end)
-
-    {:ok, desired}
   end
-
-  defp normalize_quantity(quantity) when is_integer(quantity), do: max(quantity, 0)
-
-  defp normalize_quantity(quantity) when is_binary(quantity) do
-    case Integer.parse(String.trim(quantity)) do
-      {int, _} -> max(int, 0)
-      :error -> 0
-    end
-  end
-
-  defp normalize_quantity(_), do: 0
 end

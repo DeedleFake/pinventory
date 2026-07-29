@@ -24,11 +24,10 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/item")
 
+    set_quantity(view, garage.id, 3)
+
     view
-    |> form("#item-form",
-      item: %{name: "Hammer"},
-      quantities: %{garage.id => "3", shelf.id => "0"}
-    )
+    |> form("#item-form", item: %{name: "Hammer"})
     |> render_submit()
 
     {path, flash} = assert_redirect(view)
@@ -67,11 +66,11 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert_quantity(view, garage.id, 5)
     assert has_element?(view, "#item-save:disabled")
 
+    set_quantity(view, garage.id, 2)
+    set_quantity(view, shelf.id, 4)
+
     view
-    |> form("#item-form",
-      item: %{name: "Box Nails"},
-      quantities: %{garage.id => "2", shelf.id => "4"}
-    )
+    |> form("#item-form", item: %{name: "Box Nails"})
     |> render_submit()
 
     html = render(view)
@@ -102,6 +101,68 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
     # Not saved yet
     assert Items.stock_map(Items.get_item!(item.id)) == %{garage.id => 1}
+  end
+
+  test "set_quantity updates only the edited location when multiple locations exist", %{
+    conn: conn
+  } do
+    {:ok, garage} = Locations.create(%{name: "Garage"})
+    {:ok, shelf} = Locations.create(%{name: "Shelf"})
+    {:ok, item} = Items.create_item(%{name: "Screws"}, %{garage.id => 1, shelf.id => 9})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    # Simulate browser form serialization with every quantities[...] field present.
+    view
+    |> element("#quantity-#{garage.id}")
+    |> render_change(%{
+      "location-id" => garage.id,
+      "quantities" => %{
+        garage.id => "4",
+        shelf.id => "9"
+      }
+    })
+
+    assert_quantity(view, garage.id, 4)
+    assert_quantity(view, shelf.id, 9)
+    assert has_element?(view, "#item-total", "Total: 13")
+  end
+
+  test "stock controls live in a stock form separate from the name form", %{conn: conn} do
+    {:ok, garage} = Locations.create(%{name: "Garage"})
+
+    {:ok, view, _html} = live(conn, ~p"/item")
+
+    assert has_element?(view, "#item-form")
+    assert has_element?(view, "#item-stock-form")
+    assert has_element?(view, ~s(#item-save[form="item-form"]))
+    assert has_element?(view, "#item-stock-form #quantity-#{garage.id}")
+    refute has_element?(view, "#item-form #quantity-#{garage.id}")
+    refute has_element?(view, ~s(#item-stock-form button[type="submit"]))
+  end
+
+  test "stock save failures keep the name form and flash an error", %{conn: conn} do
+    {:ok, garage} = Locations.create(%{name: "Garage"})
+
+    {:ok, view, _html} = live(conn, ~p"/item")
+
+    view
+    |> form("#item-form", item: %{name: "Orphan stock"})
+    |> render_change()
+
+    set_quantity(view, garage.id, 2)
+
+    # Delete the location after draft stock is set so stock insert hits an FK error.
+    Pinventory.Repo.delete!(garage)
+
+    html =
+      view
+      |> form("#item-form", item: %{name: "Orphan stock"})
+      |> render_submit()
+
+    assert html =~ "Could not save item stock"
+    assert has_element?(view, ~s(#item_name[value="Orphan stock"]))
+    assert Items.list_items() == []
   end
 
   test "moves quantity between locations in the draft", %{conn: conn} do
@@ -208,9 +269,7 @@ defmodule PinventoryWeb.EditItemLiveTest do
     send(view.pid, :hide_name_suggestions)
     _ = render(view)
 
-    view
-    |> form("#item-form", item: %{name: "Paper"}, quantities: %{garage.id => "2"})
-    |> render_change()
+    set_quantity(view, garage.id, 2)
 
     refute has_element?(view, "#item-suggestions")
   end
@@ -237,13 +296,14 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
 
-    assert has_element?(view, "#item-page[phx-hook]")
+    assert has_element?(view, ~s(#item-page[phx-hook="UnsavedChanges"][data-dirty="false"]))
 
     view
     |> form("#item-form", item: %{name: "Spirit Level"})
     |> render_change()
 
     assert_push_event(view, "unsaved-changes", %{dirty: true})
+    assert has_element?(view, ~s(#item-page[data-dirty="true"]))
     refute has_element?(view, "#item-save:disabled")
 
     view
@@ -251,6 +311,7 @@ defmodule PinventoryWeb.EditItemLiveTest do
     |> render_change()
 
     assert_push_event(view, "unsaved-changes", %{dirty: false})
+    assert has_element?(view, ~s(#item-page[data-dirty="false"]))
     assert has_element?(view, "#item-save:disabled")
   end
 
@@ -263,5 +324,14 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
   defp assert_quantity(view, location_id, quantity) do
     assert has_element?(view, ~s(#quantity-#{location_id}[value="#{quantity}"]))
+  end
+
+  defp set_quantity(view, location_id, quantity) do
+    view
+    |> element("#quantity-#{location_id}")
+    |> render_change(%{
+      "location-id" => location_id,
+      "quantities" => %{location_id => to_string(quantity)}
+    })
   end
 end

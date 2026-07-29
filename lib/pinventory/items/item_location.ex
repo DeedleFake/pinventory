@@ -16,11 +16,12 @@ defmodule Pinventory.Items.ItemLocation do
   @doc false
   def changeset(item_location, attrs) do
     item_location
-    |> cast(attrs, [:quantity, :item_id, :location_id])
+    |> cast(attrs, [:quantity])
     |> validate_required([:quantity, :item_id, :location_id])
     |> validate_number(:quantity, greater_than: 0)
     |> unique_constraint([:item_id, :location_id])
     |> foreign_key_constraint(:item_id)
     |> foreign_key_constraint(:location_id)
+    |> check_constraint(:quantity, name: :quantity_must_be_positive)
   end
 end

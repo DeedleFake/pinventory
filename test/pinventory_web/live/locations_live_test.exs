@@ -3,17 +3,14 @@ defmodule PinventoryWeb.LocationsLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias Pinventory.Items.Item
-  alias Pinventory.Items.ItemLocation
+  alias Pinventory.Items
   alias Pinventory.Locations
-  alias Pinventory.Repo
 
   test "renders locations ordered by name with item counts", %{conn: conn} do
     {:ok, garage} = Locations.create(%{name: "Garage"})
     {:ok, _alpha} = Locations.create(%{name: "Alpha"})
 
-    item = insert_item!("Drill")
-    insert_item_location!(item, garage, 3)
+    {:ok, _} = Items.create_item(%{name: "Drill"}, %{garage.id => 3})
 
     {:ok, view, html} = live(conn, ~p"/locations")
 
@@ -113,19 +110,21 @@ defmodule PinventoryWeb.LocationsLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/locations")
 
-    assert has_element?(view, "#locations-page[phx-hook]")
+    assert has_element?(view, ~s(#locations-page[phx-hook="UnsavedChanges"][data-dirty="false"]))
 
     view
     |> form("#location-#{location.id}", location: %{name: "Drawer 2"})
     |> render_change()
 
     assert_push_event(view, "unsaved-changes", %{dirty: true})
+    assert has_element?(view, ~s(#locations-page[data-dirty="true"]))
 
     view
     |> form("#location-#{location.id}", location: %{name: "Drawer"})
     |> render_change()
 
     assert_push_event(view, "unsaved-changes", %{dirty: false})
+    assert has_element?(view, ~s(#locations-page[data-dirty="false"]))
   end
 
   test "clears unsaved-changes after a successful save", %{conn: conn} do
@@ -174,20 +173,5 @@ defmodule PinventoryWeb.LocationsLiveTest do
     {:ok, view, _html} = live(conn, ~p"/")
 
     assert has_element?(view, "a[href='/locations']", "Locations")
-  end
-
-  defp insert_item!(name) do
-    %Item{}
-    |> Item.changeset(%{name: name})
-    |> Repo.insert!()
-  end
-
-  defp insert_item_location!(item, location, quantity) do
-    %ItemLocation{
-      item_id: item.id,
-      location_id: location.id,
-      quantity: quantity
-    }
-    |> Repo.insert!()
   end
 end

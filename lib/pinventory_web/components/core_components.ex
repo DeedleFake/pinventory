@@ -88,7 +88,9 @@ defmodule PinventoryWeb.CoreComponents do
       <.button phx-click="go" variant="primary">Send!</.button>
       <.button navigate={~p"/"}>Home</.button>
   """
-  attr :rest, :global, include: ~w(href navigate patch method download name value disabled type)
+  attr :rest, :global,
+    include: ~w(href navigate patch method download name value disabled type form)
+
   attr :class, :string
   attr :variant, :string, values: ~w(primary)
   slot :inner_block, required: true
@@ -229,7 +231,7 @@ defmodule PinventoryWeb.CoreComponents do
 
   def input(%{type: "textarea"} = assigns) do
     ~H"""
-    <div class={["fieldset mb-2", @werapperclass]}>
+    <div class={["fieldset mb-2", @wrapperclass]}>
       <label>
         <span :if={@label} class="label mb-1">{@label}</span>
         <textarea
