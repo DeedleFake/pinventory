@@ -103,6 +103,27 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert Items.stock_map(Items.get_item!(item.id)) == %{garage.id => 1}
   end
 
+  test "marks dirty quantity rows when stock differs from baseline", %{conn: conn} do
+    {:ok, garage} = Locations.create(%{name: "Garage"})
+    {:ok, shelf} = Locations.create(%{name: "Shelf"})
+    {:ok, item} = Items.create_item(%{name: "Bolts"}, %{garage.id => 2, shelf.id => 4})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    refute has_element?(view, ~s(#location-row-#{garage.id}[data-dirty="true"]))
+    refute has_element?(view, ~s(#location-row-#{shelf.id}[data-dirty="true"]))
+
+    set_quantity(view, garage.id, 5)
+
+    assert has_element?(view, ~s(#location-row-#{garage.id}[data-dirty="true"]))
+    refute has_element?(view, ~s(#location-row-#{shelf.id}[data-dirty="true"]))
+    assert has_element?(view, "#location-row-#{garage.id}.border-primary")
+
+    set_quantity(view, garage.id, 2)
+
+    refute has_element?(view, ~s(#location-row-#{garage.id}[data-dirty="true"]))
+  end
+
   test "set_quantity updates only the edited location when multiple locations exist", %{
     conn: conn
   } do
@@ -112,15 +133,12 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
 
-    # Simulate browser form serialization with every quantities[...] field present.
+    # Real browser form change: _target + quantities map, no phx-value location-id.
     view
     |> element("#quantity-#{garage.id}")
     |> render_change(%{
-      "location-id" => garage.id,
-      "quantities" => %{
-        garage.id => "4",
-        shelf.id => "9"
-      }
+      "_target" => ["quantities", garage.id],
+      "quantities" => %{garage.id => "4"}
     })
 
     assert_quantity(view, garage.id, 4)
@@ -330,7 +348,7 @@ defmodule PinventoryWeb.EditItemLiveTest do
     view
     |> element("#quantity-#{location_id}")
     |> render_change(%{
-      "location-id" => location_id,
+      "_target" => ["quantities", location_id],
       "quantities" => %{location_id => to_string(quantity)}
     })
   end

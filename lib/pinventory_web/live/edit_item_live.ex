@@ -82,6 +82,10 @@ defmodule PinventoryWeb.EditItemLive do
                 :for={location <- @locations}
                 location={location}
                 quantity={DraftStock.get(@quantities, location.id)}
+                dirty?={
+                  DraftStock.get(@quantities, location.id) !=
+                    DraftStock.get(@baseline_quantities, location.id)
+                }
                 move_from={@move_from}
                 move_to={@move_to}
                 move_amount={@move_amount}
@@ -159,6 +163,7 @@ defmodule PinventoryWeb.EditItemLive do
 
   attr :location, :map, required: true
   attr :quantity, :integer, required: true
+  attr :dirty?, :boolean, required: true
   attr :move_from, :any, default: nil
   attr :move_to, :any, default: nil
   attr :move_amount, :integer, required: true
@@ -168,10 +173,12 @@ defmodule PinventoryWeb.EditItemLive do
     ~H"""
     <div
       id={"location-row-#{@location.id}"}
+      data-dirty={to_string(@dirty?)}
       class={[
         "rounded-xl border bg-base-100 p-2 transition-all",
-        @quantity > 0 && "border-primary/40 bg-primary/5",
-        @quantity == 0 && "border-base-300 hover:border-base-content/20"
+        @dirty? && "border-primary ring-1 ring-primary/30 bg-primary/5",
+        (not @dirty? and @quantity > 0) && "border-primary/40 bg-primary/5",
+        (not @dirty? and @quantity == 0) && "border-base-300 hover:border-base-content/20"
       ]}
     >
       <div class="flex flex-row items-center gap-2">
@@ -200,9 +207,8 @@ defmodule PinventoryWeb.EditItemLive do
             value={@quantity}
             min="0"
             step="1"
-            class="input input-sm w-20 text-center tabular-nums"
+            class="input input-sm no-spinner w-20 text-center tabular-nums"
             phx-change="set_quantity"
-            phx-value-location-id={@location.id}
           />
 
           <button
@@ -417,22 +423,23 @@ defmodule PinventoryWeb.EditItemLive do
     {:noreply, assign(socket, :hide_suggestions_ref, ref)}
   end
 
-  def handle_event("set_quantity", %{"location-id" => location_id} = params, socket) do
-    raw =
-      get_in(params, ["quantities", location_id]) ||
-        Map.get(params, "quantity") ||
-        "0"
+  def handle_event("set_quantity", params, socket) do
+    case quantity_change_from_params(params) do
+      {:ok, location_id, raw} ->
+        quantity = DraftStock.parse_non_neg_int(raw)
+        quantities = DraftStock.put(socket.assigns.quantities, location_id, quantity)
 
-    quantity = DraftStock.parse_non_neg_int(raw)
-    quantities = DraftStock.put(socket.assigns.quantities, location_id, quantity)
+        socket =
+          socket
+          |> assign(:quantities, quantities)
+          |> maybe_clear_move(location_id)
+          |> sync_dirty()
 
-    socket =
-      socket
-      |> assign(:quantities, quantities)
-      |> maybe_clear_move(location_id)
-      |> sync_dirty()
+        {:noreply, socket}
 
-    {:noreply, socket}
+      :error ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("adjust", %{"location-id" => location_id, "delta" => delta}, socket) do
@@ -654,6 +661,34 @@ defmodule PinventoryWeb.EditItemLive do
   defp parse_adjust_delta("1"), do: {:ok, 1}
   defp parse_adjust_delta("-1"), do: {:ok, -1}
   defp parse_adjust_delta(_), do: :error
+
+  # Browser form change events send quantities[id] and _target, not phx-value-location-id.
+  defp quantity_change_from_params(%{
+         "_target" => ["quantities", location_id],
+         "quantities" => quantities
+       })
+       when is_binary(location_id) and is_map(quantities) do
+    {:ok, location_id, Map.get(quantities, location_id, "0")}
+  end
+
+  defp quantity_change_from_params(%{"location-id" => location_id} = params)
+       when is_binary(location_id) do
+    raw =
+      get_in(params, ["quantities", location_id]) ||
+        Map.get(params, "quantity") ||
+        "0"
+
+    {:ok, location_id, raw}
+  end
+
+  defp quantity_change_from_params(%{"quantities" => quantities}) when is_map(quantities) do
+    case Map.to_list(quantities) do
+      [{location_id, raw}] when is_binary(location_id) -> {:ok, location_id, raw}
+      _ -> :error
+    end
+  end
+
+  defp quantity_change_from_params(_), do: :error
 
   defp sync_dirty(socket) do
     name = current_name(socket)
