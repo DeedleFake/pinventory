@@ -11,6 +11,9 @@ defmodule PinventoryWeb.LocationsLive do
       <div id="locations-page" class="space-y-4" phx-hook=".UnsavedChanges">
         <div class="flex items-center justify-between gap-3">
           <h1 class="text-xl font-semibold tracking-tight">Locations</h1>
+          <.link navigate={~p"/"} class="btn btn-ghost btn-sm" id="locations-back">
+            Back
+          </.link>
         </div>
 
         <.form
