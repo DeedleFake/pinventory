@@ -37,9 +37,21 @@ defmodule PinventoryWeb.Layouts do
     ~H"""
     <header class="navbar px-4 sm:px-6 lg:px-8">
       <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2">
-          <img src={~p"/images/logo.svg"} width="36" />
-          <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
+        <a href="/" class="flex w-fit items-center gap-2.5 text-base-content">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 32 32"
+            fill="currentColor"
+            class="size-8 shrink-0"
+            aria-hidden="true"
+          >
+            <path
+              fill-rule="evenodd"
+              clip-rule="evenodd"
+              d="M16 1C9.925 1 5 5.925 5 12c0 8.284 10.125 18.375 10.556 18.806a.625.625 0 0 0 .888 0C16.875 30.375 27 20.284 27 12 27 5.925 22.075 1 16 1ZM11 8.75a.75.75 0 0 0 0 1.5h10a.75.75 0 0 0 0-1.5H11Zm0 3.5a.75.75 0 0 0 0 1.5h10a.75.75 0 0 0 0-1.5H11Zm0 3.5a.75.75 0 0 0 0 1.5h6a.75.75 0 0 0 0-1.5h-6Z"
+            />
+          </svg>
+          <span class="text-lg font-semibold tracking-tight">Pinventory</span>
         </a>
       </div>
       <div class="flex-none">
