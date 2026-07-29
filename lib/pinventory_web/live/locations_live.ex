@@ -63,18 +63,22 @@ defmodule PinventoryWeb.LocationsLive do
   attr :form, Phoenix.HTML.Form, required: true
 
   defp location_row(assigns) do
+    assigns = assign(assigns, :dirty?, dirty?(assigns.form))
+
     ~H"""
     <.form
       for={@form}
       id={@id}
       class={[
-        "flex flex-row items-start gap-2 rounded-xl border border-base-300",
-        "bg-base-100 p-2 transition-colors hover:border-base-content/20"
+        "flex flex-row items-start gap-2 rounded-xl border bg-base-100 p-2 transition-all",
+        @dirty? && "border-primary ring-1 ring-primary/30 bg-primary/5",
+        not @dirty? && "border-base-300 hover:border-base-content/20"
       ]}
       phx-change="validate"
       phx-submit="save"
       phx-value-id={@form.data.id}
       phx-value-count={@form.data.item_count || 0}
+      phx-value-original={@form.data.name || ""}
     >
       <.input
         type="text"
@@ -89,7 +93,7 @@ defmodule PinventoryWeb.LocationsLive do
       >
         {item_count_label(@form.data.item_count || 0)}
       </div>
-      <.button type="submit" id={"#{@id}-save"}>
+      <.button variant="primary" type="submit" id={"#{@id}-save"} disabled={not @dirty?}>
         Save
       </.button>
     </.form>
@@ -144,9 +148,13 @@ defmodule PinventoryWeb.LocationsLive do
     end
   end
 
-  def handle_event("validate", %{"id" => id, "count" => count, "location" => params}, socket) do
+  def handle_event(
+        "validate",
+        %{"id" => id, "count" => count, "original" => original, "location" => params},
+        socket
+      ) do
     form =
-      location_struct(id, count)
+      location_struct(id, count, original)
       |> Locations.change_location(params)
       |> Map.put(:action, :validate)
       |> to_location_form()
@@ -154,31 +162,37 @@ defmodule PinventoryWeb.LocationsLive do
     {:noreply, stream_insert(socket, :locations, form, update_only: true)}
   end
 
-  def handle_event("save", %{"id" => id, "count" => count, "location" => params}, socket) do
+  def handle_event(
+        "save",
+        %{"id" => id, "count" => count, "original" => original, "location" => params},
+        socket
+      ) do
     count = parse_item_count(count)
-    location = location_struct(id, count)
+    location = location_struct(id, count, original)
+    changeset = Locations.change_location(location, params)
 
-    location
-    |> Locations.change_location(params)
-    |> Locations.update()
-    |> case do
-      {:ok, updated} ->
-        form = to_location_form(%{updated | item_count: count})
+    if dirty?(changeset) do
+      case Locations.update(changeset) do
+        {:ok, updated} ->
+          form = to_location_form(%{updated | item_count: count})
 
-        socket =
-          socket
-          |> stream_insert(:locations, form, update_only: true)
-          |> put_flash(:info, "Location saved")
+          socket =
+            socket
+            |> stream_insert(:locations, form, update_only: true)
+            |> put_flash(:info, "Location saved")
 
-        {:noreply, socket}
+          {:noreply, socket}
 
-      {:error, changeset} ->
-        form =
-          changeset
-          |> Map.update!(:data, &%{&1 | item_count: count})
-          |> to_location_form(action: :validate)
+        {:error, changeset} ->
+          form =
+            changeset
+            |> Map.update!(:data, &%{&1 | item_count: count})
+            |> to_location_form(action: :validate)
 
-        {:noreply, stream_insert(socket, :locations, form, update_only: true)}
+          {:noreply, stream_insert(socket, :locations, form, update_only: true)}
+      end
+    else
+      {:noreply, stream_insert(socket, :locations, to_location_form(location), update_only: true)}
     end
   end
 
@@ -211,8 +225,8 @@ defmodule PinventoryWeb.LocationsLive do
     )
   end
 
-  defp location_struct(id, item_count) do
-    %Location{id: id, item_count: parse_item_count(item_count)}
+  defp location_struct(id, item_count, name) do
+    %Location{id: id, name: name, item_count: parse_item_count(item_count)}
   end
 
   defp parse_item_count(count) when is_integer(count), do: count
@@ -225,6 +239,11 @@ defmodule PinventoryWeb.LocationsLive do
   end
 
   defp parse_item_count(_), do: 0
+
+  defp dirty?(%Phoenix.HTML.Form{source: source}), do: dirty?(source)
+
+  defp dirty?(%Ecto.Changeset{changes: changes}) when map_size(changes) > 0, do: true
+  defp dirty?(_), do: false
 
   defp location_dom_id(%Phoenix.HTML.Form{data: %Location{id: id}}), do: "location-#{id}"
   defp location_dom_id(%Location{id: id}), do: "location-#{id}"

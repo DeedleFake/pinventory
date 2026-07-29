@@ -71,6 +71,42 @@ defmodule PinventoryWeb.LocationsLiveTest do
     refute render(view) =~ "Old Name"
   end
 
+  test "disables save until the name changes and marks the dirty row", %{conn: conn} do
+    {:ok, location} = Locations.create(%{name: "Shelf"})
+
+    {:ok, view, _html} = live(conn, ~p"/locations")
+
+    assert has_element?(view, "#location-#{location.id}-save:disabled")
+    refute has_element?(view, "#location-#{location.id}.border-primary")
+
+    view
+    |> form("#location-#{location.id}", location: %{name: "Shelf 2"})
+    |> render_change()
+
+    refute has_element?(view, "#location-#{location.id}-save:disabled")
+    assert has_element?(view, "#location-#{location.id}.border-primary")
+
+    view
+    |> form("#location-#{location.id}", location: %{name: "Shelf"})
+    |> render_change()
+
+    assert has_element?(view, "#location-#{location.id}-save:disabled")
+    refute has_element?(view, "#location-#{location.id}.border-primary")
+  end
+
+  test "disables save again after a successful rename", %{conn: conn} do
+    {:ok, location} = Locations.create(%{name: "Bin"})
+
+    {:ok, view, _html} = live(conn, ~p"/locations")
+
+    view
+    |> form("#location-#{location.id}", location: %{name: "Bin A"})
+    |> render_submit()
+
+    assert has_element?(view, "#location-#{location.id}-save:disabled")
+    refute has_element?(view, "#location-#{location.id}.border-primary")
+  end
+
   test "shows zero items for a location with no stock", %{conn: conn} do
     {:ok, location} = Locations.create(%{name: "Empty"})
 
