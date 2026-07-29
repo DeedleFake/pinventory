@@ -14,6 +14,18 @@ defmodule PinventoryWeb.ItemsLiveTest do
     assert has_element?(view, "#items-empty a[href='/item']")
   end
 
+  test "shows new item and edit locations actions above the list", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    assert has_element?(view, "#items-actions #new-item[href='/item']", "New Item")
+
+    assert has_element?(
+             view,
+             "#items-actions #edit-locations[href='/locations']",
+             "Edit Locations"
+           )
+  end
+
   test "lists items with stock labels and links to edit", %{conn: conn} do
     {:ok, garage} = Locations.create(%{name: "Garage"})
     {:ok, shelf} = Locations.create(%{name: "Shelf"})

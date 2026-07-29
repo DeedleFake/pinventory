@@ -8,67 +8,85 @@ defmodule PinventoryWeb.ItemsLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash}>
-      <div id="items-page" class="space-y-4">
-        <div class="flex items-center justify-between gap-3">
+      <div id="items-page" class="space-y-6">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 class="text-xl font-semibold tracking-tight">Items</h1>
+          <div
+            id="items-actions"
+            class="flex flex-wrap items-center justify-end gap-2"
+          >
+            <.link
+              navigate={~p"/locations"}
+              id="edit-locations"
+              class="btn btn-ghost btn-soft"
+            >
+              <.icon name="hero-map-pin" class="size-4" /> Edit Locations
+            </.link>
+            <.link navigate={~p"/item"} id="new-item" class="btn btn-primary">
+              <.icon name="hero-plus" class="size-4" /> New Item
+            </.link>
+          </div>
         </div>
 
-        <.form
-          for={@query}
-          id="items-filter-form"
-          class="flex flex-row items-start gap-2"
-          phx-change="search"
-          phx-submit="search"
-        >
-          <.input
-            type="text"
-            field={@query[:q]}
-            wrapperclass="mb-0 flex-1"
-            placeholder="Filter..."
-            phx-debounce="300"
-            autocomplete="off"
-          />
-          <.input
-            type="select"
-            field={@query[:location]}
-            prompt="All locations"
-            options={@location_options}
-            wrapperclass="mb-0 w-40 sm:w-48"
-          />
-        </.form>
-
-        <div id="items" class="flex flex-col gap-1" phx-update="stream">
-          <div
-            id="items-empty"
-            class="hidden only:block rounded-xl border border-base-300 px-3 py-8 text-center text-sm opacity-60"
+        <div class="space-y-4">
+          <.form
+            for={@query}
+            id="items-filter-form"
+            class="flex flex-row items-start gap-2"
+            phx-change="search"
+            phx-submit="search"
           >
-            <%= if @filter_active? do %>
-              No items match.
-            <% else %>
-              No items yet. <.link navigate={~p"/item"} class="link link-primary">Add an item</.link>
-            <% end %>
-          </div>
+            <.input
+              type="text"
+              field={@query[:q]}
+              wrapperclass="mb-0 flex-1"
+              placeholder="Filter..."
+              phx-debounce="300"
+              autocomplete="off"
+            />
+            <.input
+              type="select"
+              field={@query[:location]}
+              prompt="All locations"
+              options={@location_options}
+              wrapperclass="mb-0 w-40 sm:w-48"
+            />
+          </.form>
 
-          <.link
-            :for={{id, item} <- @streams.items}
-            navigate={~p"/item/#{item.id}"}
-            id={id}
-            class={[
-              "flex items-center gap-3 rounded-xl border border-base-300 bg-base-100 p-3",
-              "transition-all hover:border-base-content/20 hover:bg-base-200/40"
-            ]}
-          >
-            <div class="min-w-0 flex-1">
-              <div class="truncate font-medium">{item.name}</div>
-              <div
-                id={"#{id}-stock"}
-                class="truncate text-sm tabular-nums opacity-60"
-              >
-                {stock_label(item)}
-              </div>
+          <div id="items" class="flex flex-col gap-1" phx-update="stream">
+            <div
+              id="items-empty"
+              class="hidden only:block rounded-xl border border-base-300 px-3 py-8 text-center text-sm opacity-60"
+            >
+              <%= if @filter_active? do %>
+                No items match.
+              <% else %>
+                No items yet.
+                <.link navigate={~p"/item"} class="link link-primary">Add an item</.link>
+              <% end %>
             </div>
-            <.icon name="hero-chevron-right" class="size-4 shrink-0 opacity-40" />
-          </.link>
+
+            <.link
+              :for={{id, item} <- @streams.items}
+              navigate={~p"/item/#{item.id}"}
+              id={id}
+              class={[
+                "flex items-center gap-3 rounded-xl border border-base-300 bg-base-100 p-3",
+                "transition-all hover:border-base-content/20 hover:bg-base-200/40"
+              ]}
+            >
+              <div class="min-w-0 flex-1">
+                <div class="truncate font-medium">{item.name}</div>
+                <div
+                  id={"#{id}-stock"}
+                  class="truncate text-sm tabular-nums opacity-60"
+                >
+                  {stock_label(item)}
+                </div>
+              </div>
+              <.icon name="hero-chevron-right" class="size-4 shrink-0 opacity-40" />
+            </.link>
+          </div>
         </div>
       </div>
     </Layouts.app>

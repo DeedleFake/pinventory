@@ -169,9 +169,9 @@ defmodule PinventoryWeb.LocationsLiveTest do
     assert has_element?(view, "#location-#{location.id}-item-count", "0 items")
   end
 
-  test "header links to the locations page", %{conn: conn} do
+  test "items page links to edit locations", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
 
-    assert has_element?(view, "a[href='/locations']", "Locations")
+    assert has_element?(view, "#edit-locations[href='/locations']", "Edit Locations")
   end
 end
