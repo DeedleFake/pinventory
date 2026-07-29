@@ -8,7 +8,7 @@ defmodule PinventoryWeb.LocationsLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash}>
-      <div class="space-y-4">
+      <div id="locations-page" class="space-y-4" phx-hook=".UnsavedChanges">
         <div class="flex items-center justify-between gap-3">
           <h1 class="text-xl font-semibold tracking-tight">Locations</h1>
         </div>
@@ -36,11 +36,7 @@ defmodule PinventoryWeb.LocationsLive do
           </.button>
         </.form>
 
-        <div
-          id="locations"
-          class="flex flex-col gap-1"
-          phx-update="stream"
-        >
+        <div id="locations" class="flex flex-col gap-1" phx-update="stream">
           <div
             id="locations-empty"
             class="hidden only:block rounded-xl border border-base-300 px-3 py-8 text-center text-sm opacity-60"
@@ -55,6 +51,68 @@ defmodule PinventoryWeb.LocationsLive do
           />
         </div>
       </div>
+
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".UnsavedChanges">
+        const MESSAGE = "You have unsaved changes. Leave this page?"
+
+        export default {
+          mounted() {
+            this.dirty = false
+            this.allowNext = false
+
+            this.onBeforeUnload = (event) => {
+              if (!this.dirty || this.allowNext) return
+              event.preventDefault()
+              event.returnValue = MESSAGE
+            }
+
+            this.onClick = (event) => {
+              if (!this.dirty || this.allowNext) return
+              if (event.defaultPrevented) return
+              if (event.button !== 0) return
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+
+              const link = event.target.closest("a[href]")
+              if (!link) return
+              if (link.target === "_blank" || link.hasAttribute("download")) return
+              if (!this.isLeavingPage(link)) return
+
+              if (!window.confirm(MESSAGE)) {
+                event.preventDefault()
+                event.stopImmediatePropagation()
+                return
+              }
+
+              // User accepted leave; do not warn again for this navigation.
+              this.allowNext = true
+              this.dirty = false
+            }
+
+            window.addEventListener("beforeunload", this.onBeforeUnload)
+            document.addEventListener("click", this.onClick, true)
+
+            this.handleEvent("unsaved-changes", ({dirty}) => {
+              this.dirty = !!dirty
+              this.allowNext = false
+            })
+          },
+
+          destroyed() {
+            window.removeEventListener("beforeunload", this.onBeforeUnload)
+            document.removeEventListener("click", this.onClick, true)
+          },
+
+          isLeavingPage(link) {
+            const url = new URL(link.href, window.location.href)
+            if (url.origin !== window.location.origin) return true
+
+            return (
+              url.pathname !== window.location.pathname ||
+              url.search !== window.location.search
+            )
+          }
+        }
+      </script>
     </Layouts.app>
     """
   end
@@ -110,6 +168,8 @@ defmodule PinventoryWeb.LocationsLive do
       socket
       |> assign(:page_title, "Locations")
       |> assign(:new_form, empty_new_form())
+      |> assign(:dirty_ids, MapSet.new())
+      |> assign(:unsaved?, false)
       |> stream_configure(:locations, dom_id: &location_dom_id/1)
       |> stream(:locations, forms)
 
@@ -124,7 +184,10 @@ defmodule PinventoryWeb.LocationsLive do
       |> Map.put(:action, :validate)
       |> to_new_form()
 
-    {:noreply, assign(socket, :new_form, form)}
+    {:noreply,
+     socket
+     |> assign(:new_form, form)
+     |> sync_unsaved()}
   end
 
   def handle_event("save_new", %{"location" => params}, socket) do
@@ -140,11 +203,15 @@ defmodule PinventoryWeb.LocationsLive do
           |> assign(:new_form, empty_new_form())
           |> stream_insert(:locations, form, at: 0)
           |> put_flash(:info, "Location created")
+          |> sync_unsaved()
 
         {:noreply, socket}
 
       {:error, changeset} ->
-        {:noreply, assign(socket, :new_form, to_new_form(changeset, action: :validate))}
+        {:noreply,
+         socket
+         |> assign(:new_form, to_new_form(changeset, action: :validate))
+         |> sync_unsaved()}
     end
   end
 
@@ -159,7 +226,11 @@ defmodule PinventoryWeb.LocationsLive do
       |> Map.put(:action, :validate)
       |> to_location_form()
 
-    {:noreply, stream_insert(socket, :locations, form, update_only: true)}
+    {:noreply,
+     socket
+     |> stream_insert(:locations, form, update_only: true)
+     |> track_row_dirty(id, form)
+     |> sync_unsaved()}
   end
 
   def handle_event(
@@ -179,7 +250,9 @@ defmodule PinventoryWeb.LocationsLive do
           socket =
             socket
             |> stream_insert(:locations, form, update_only: true)
+            |> track_row_dirty(id, form)
             |> put_flash(:info, "Location saved")
+            |> sync_unsaved()
 
           {:noreply, socket}
 
@@ -189,10 +262,20 @@ defmodule PinventoryWeb.LocationsLive do
             |> Map.update!(:data, &%{&1 | item_count: count})
             |> to_location_form(action: :validate)
 
-          {:noreply, stream_insert(socket, :locations, form, update_only: true)}
+          {:noreply,
+           socket
+           |> stream_insert(:locations, form, update_only: true)
+           |> track_row_dirty(id, form)
+           |> sync_unsaved()}
       end
     else
-      {:noreply, stream_insert(socket, :locations, to_location_form(location), update_only: true)}
+      form = to_location_form(location)
+
+      {:noreply,
+       socket
+       |> stream_insert(:locations, form, update_only: true)
+       |> track_row_dirty(id, form)
+       |> sync_unsaved()}
     end
   end
 
@@ -239,6 +322,30 @@ defmodule PinventoryWeb.LocationsLive do
   end
 
   defp parse_item_count(_), do: 0
+
+  defp track_row_dirty(socket, id, form_or_changeset) do
+    dirty_ids =
+      if dirty?(form_or_changeset) do
+        MapSet.put(socket.assigns.dirty_ids, id)
+      else
+        MapSet.delete(socket.assigns.dirty_ids, id)
+      end
+
+    assign(socket, :dirty_ids, dirty_ids)
+  end
+
+  defp sync_unsaved(socket) do
+    unsaved? =
+      MapSet.size(socket.assigns.dirty_ids) > 0 or dirty?(socket.assigns.new_form)
+
+    if socket.assigns.unsaved? == unsaved? do
+      socket
+    else
+      socket
+      |> assign(:unsaved?, unsaved?)
+      |> push_event("unsaved-changes", %{dirty: unsaved?})
+    end
+  end
 
   defp dirty?(%Phoenix.HTML.Form{source: source}), do: dirty?(source)
 

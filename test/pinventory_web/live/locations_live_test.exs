@@ -107,6 +107,60 @@ defmodule PinventoryWeb.LocationsLiveTest do
     refute has_element?(view, "#location-#{location.id}.border-primary")
   end
 
+  test "pushes unsaved-changes events when edits start and clear", %{conn: conn} do
+    {:ok, location} = Locations.create(%{name: "Drawer"})
+
+    {:ok, view, _html} = live(conn, ~p"/locations")
+
+    assert has_element?(view, "#locations-page[phx-hook]")
+
+    view
+    |> form("#location-#{location.id}", location: %{name: "Drawer 2"})
+    |> render_change()
+
+    assert_push_event(view, "unsaved-changes", %{dirty: true})
+
+    view
+    |> form("#location-#{location.id}", location: %{name: "Drawer"})
+    |> render_change()
+
+    assert_push_event(view, "unsaved-changes", %{dirty: false})
+  end
+
+  test "clears unsaved-changes after a successful save", %{conn: conn} do
+    {:ok, location} = Locations.create(%{name: "Crate"})
+
+    {:ok, view, _html} = live(conn, ~p"/locations")
+
+    view
+    |> form("#location-#{location.id}", location: %{name: "Crate 2"})
+    |> render_change()
+
+    assert_push_event(view, "unsaved-changes", %{dirty: true})
+
+    view
+    |> form("#location-#{location.id}", location: %{name: "Crate 2"})
+    |> render_submit()
+
+    assert_push_event(view, "unsaved-changes", %{dirty: false})
+  end
+
+  test "marks typed new location drafts as unsaved", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/locations")
+
+    view
+    |> form("#location-new-form", location: %{name: "Draft Place"})
+    |> render_change()
+
+    assert_push_event(view, "unsaved-changes", %{dirty: true})
+
+    view
+    |> form("#location-new-form", location: %{name: "Draft Place"})
+    |> render_submit()
+
+    assert_push_event(view, "unsaved-changes", %{dirty: false})
+  end
+
   test "shows zero items for a location with no stock", %{conn: conn} do
     {:ok, location} = Locations.create(%{name: "Empty"})
 
