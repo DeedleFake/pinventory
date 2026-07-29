@@ -5,6 +5,34 @@ This is a web application written using the Phoenix web framework.
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
 
+### Git (read-only only)
+
+**Never** write to git. This rule has **no exceptions**, including when the user asks for a commit, push, branch, merge, rebase, stash, tag, or any other change to the repository state.
+
+- **Allowed** (read-only): `git status`, `git log`, `git show`, `git diff`, `git branch` (list only), `git rev-parse`, `git describe`, `git ls-files`, `git blame`, `git cat-file`, and other commands that only inspect state
+- **Forbidden**: `git add`, `git commit`, `git push`, `git pull`, `git fetch` when it updates refs in a way that is not needed for inspection, `git checkout`, `git switch`, `git restore`, `git reset`, `git merge`, `git rebase`, `git cherry-pick`, `git stash`, `git tag` (create/delete), `git branch` (create/delete/rename), `git clean`, `git am`, `git apply` that modifies the worktree, and any command that stages, commits, updates refs, or changes the working tree via git
+- Do not use git plumbing or options that write (for example `git update-index`, `git commit-tree`, `git update-ref`, `git config` that changes repo config)
+- If the user asks you to commit, push, or change git state, refuse and explain that this project allows only read-only git commands. Tell the user which git commands they can run themselves if needed.
+
+### Communication (ASD-STE100)
+
+**Always** write responses to the user in **ASD-STE100 Simplified Technical English**, unless the user explicitly asks for a different style.
+
+Follow these STE rules for all user-facing text (explanations, summaries, status updates, instructions). Code, identifiers, commands, paths, error messages, and quoted content may keep their original form.
+
+- Use simple, common words with one clear meaning. Prefer concrete verbs over vague ones (`use`, `set`, `add`, `remove`, `check` over `leverage`, `utilize`, `facilitate`).
+- Keep sentences short: about 20 words or fewer for instructions; about 25 words or fewer for descriptions.
+- Give **one instruction per sentence**. Use the imperative form for steps (`Run the tests.`, `Open the file.`).
+- Use the **active voice** (`The server starts the process.` not `The process is started by the server.`).
+- Prefer these verb forms: infinitive, imperative, simple present, simple past, past participle as an adjective, and future with `will`.
+- Do not write noun clusters of more than three words. Break long phrases into clearer wording.
+- Do not use slang, idioms, phrasal verbs, or filler when a plain word works.
+- Use the same term for the same concept. Do not switch synonyms for variety.
+- Use articles (`a`, `an`, `the`) where English grammar needs them.
+- Use vertical lists for sequences of steps or related items.
+- Remove text that does not help the user complete the task or understand the result.
+- Technical terms, product names, API names, and code identifiers are allowed when necessary; define them once if they are not obvious.
+
 ### Phoenix v1.8 guidelines
 
 - **Always** begin your LiveView templates with `<Layouts.app flash={@flash} ...>` which wraps all inner content
