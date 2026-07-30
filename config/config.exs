@@ -7,6 +7,19 @@
 # General application configuration
 import Config
 
+config :pinventory, :scopes,
+  user: [
+    default: true,
+    module: Pinventory.Accounts.Scope,
+    assign_key: :current_scope,
+    access_path: [:user, :id],
+    schema_key: :user_id,
+    schema_type: :binary_id,
+    schema_table: :user,
+    test_data_fixture: Pinventory.AccountsFixtures,
+    test_setup_helper: :register_and_log_in_user
+  ]
+
 config :pinventory,
   ecto_repos: [Pinventory.Repo],
   generators: [timestamp_type: :utc_datetime]
