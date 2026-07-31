@@ -51,9 +51,8 @@ defmodule PinventoryWeb.Router do
       live "/locations", LocationsLive, :index
 
       live "/user/settings", UserLive.Settings, :edit
+      live "/user/settings/users", UserLive.Settings, :users
       live "/user/settings/confirm-email/:token", UserLive.Settings, :confirm_email
-
-      live "/user/invites", UserLive.Invites, :index
     end
 
     post "/user/update-password", UserSessionController, :update_password

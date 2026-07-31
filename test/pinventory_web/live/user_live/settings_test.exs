@@ -7,13 +7,17 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
 
   describe "Settings page" do
     test "renders settings page", %{conn: conn} do
-      {:ok, _lv, html} =
+      {:ok, lv, html} =
         conn
         |> log_in_user(user_fixture())
         |> live(~p"/user/settings")
 
       assert html =~ "Change Email"
       assert html =~ "Save Password"
+      assert has_element?(lv, "#settings-tabs")
+      assert has_element?(lv, "#settings-tab-account")
+      assert has_element?(lv, "#settings-tab-users")
+      assert has_element?(lv, "#settings-account")
     end
 
     test "redirects if user is not logged in", %{conn: conn} do
@@ -28,15 +32,25 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
     end
 
     test "redirects if user is not in sudo mode", %{conn: conn} do
-      {:ok, conn} =
-        conn
-        |> log_in_user(user_fixture(),
+      conn =
+        log_in_user(conn, user_fixture(),
           token_authenticated_at: DateTime.add(DateTime.utc_now(:second), -11, :minute)
         )
-        |> live(~p"/user/settings")
-        |> follow_redirect(conn, ~p"/user/log-in")
 
-      assert conn.resp_body =~ "You must re-authenticate to access this page."
+      assert {:error, {:redirect, %{to: path, flash: flash}}} = live(conn, ~p"/user/settings")
+      assert path == ~p"/user/log-in"
+      assert flash["error"] == "You must re-authenticate to access this page."
+    end
+
+    test "users tab does not require sudo mode", %{conn: conn} do
+      conn =
+        log_in_user(conn, user_fixture(),
+          token_authenticated_at: DateTime.add(DateTime.utc_now(:second), -11, :minute)
+        )
+
+      assert {:ok, view, _html} = live(conn, ~p"/user/settings/users")
+      assert has_element?(view, "#settings-users")
+      assert has_element?(view, "#generate-invite")
     end
   end
 

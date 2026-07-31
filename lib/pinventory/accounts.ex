@@ -24,6 +24,14 @@ defmodule Pinventory.Accounts do
   end
 
   @doc """
+  Lists all users, ordered by email.
+  """
+  def list_users do
+    from(u in User, order_by: [asc: u.email])
+    |> Repo.all()
+  end
+
+  @doc """
   Gets a user by email.
 
   ## Examples

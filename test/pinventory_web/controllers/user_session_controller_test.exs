@@ -22,7 +22,6 @@ defmodule PinventoryWeb.UserSessionControllerTest do
       response = html_response(conn, 200)
       assert response =~ user.email
       assert response =~ ~p"/user/settings"
-      assert response =~ ~p"/user/invites"
       assert response =~ ~p"/user/log-out"
     end
 
