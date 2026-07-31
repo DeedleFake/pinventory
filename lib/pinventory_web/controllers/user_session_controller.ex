@@ -5,7 +5,7 @@ defmodule PinventoryWeb.UserSessionController do
   alias PinventoryWeb.UserAuth
 
   def create(conn, params) do
-    create(conn, params, "Welcome back!")
+    create(conn, params, nil)
   end
 
   # email + password login
@@ -14,7 +14,7 @@ defmodule PinventoryWeb.UserSessionController do
 
     if user = Accounts.get_user_by_email_and_password(email, password) do
       conn
-      |> put_flash(:info, info)
+      |> maybe_put_info_flash(info)
       |> UserAuth.log_in_user(user, user_params)
     else
       # In order to prevent user enumeration attacks, don't disclose whether the email is registered.
@@ -24,6 +24,9 @@ defmodule PinventoryWeb.UserSessionController do
       |> redirect(to: ~p"/user/log-in")
     end
   end
+
+  defp maybe_put_info_flash(conn, nil), do: conn
+  defp maybe_put_info_flash(conn, info), do: put_flash(conn, :info, info)
 
   def update_password(conn, %{"user" => user_params} = params) do
     user = conn.assigns.current_scope.user
