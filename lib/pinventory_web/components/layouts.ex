@@ -64,10 +64,7 @@ defmodule PinventoryWeb.Layouts do
           :if={@current_scope && @current_scope.user}
           class="flex items-center gap-1 sm:gap-3 text-sm"
         >
-          <span
-            class="hidden md:inline max-w-40 lg:max-w-56 truncate opacity-80"
-            title={@current_scope.user.email}
-          >
+          <span class="hidden lg:inline opacity-80">
             {@current_scope.user.email}
           </span>
           <.link
