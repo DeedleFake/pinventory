@@ -17,7 +17,6 @@ defmodule PinventoryWeb.LocationsLiveTest do
     {:ok, view, html} = live(conn, ~p"/locations")
 
     assert html =~ "Locations"
-    assert has_element?(view, "#locations-back", "Back")
     assert has_element?(view, "#location-new-form")
     assert has_element?(view, "#locations")
 

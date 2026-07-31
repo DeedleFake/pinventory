@@ -14,12 +14,7 @@ defmodule PinventoryWeb.LocationsLive do
         phx-hook="UnsavedChanges"
         data-dirty={to_string(@dirty?)}
       >
-        <div class="flex items-center justify-between gap-3">
-          <h1 class="text-xl font-semibold tracking-tight">Locations</h1>
-          <.link navigate={~p"/"} class="btn btn-ghost btn-sm" id="locations-back">
-            Back
-          </.link>
-        </div>
+        <h1 class="text-xl font-semibold tracking-tight">Locations</h1>
 
         <.form
           for={@new_form}
