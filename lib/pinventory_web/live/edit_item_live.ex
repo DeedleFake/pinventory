@@ -16,12 +16,7 @@ defmodule PinventoryWeb.EditItemLive do
         phx-hook="UnsavedChanges"
         data-dirty={to_string(@dirty?)}
       >
-        <div class="flex items-center justify-between gap-3">
-          <h1 class="text-xl font-semibold tracking-tight">{page_heading(@live_action)}</h1>
-          <.link navigate={~p"/"} class="btn btn-ghost btn-sm">
-            Back
-          </.link>
-        </div>
+        <h1 class="text-xl font-semibold tracking-tight">{page_heading(@live_action)}</h1>
 
         <%!-- Name lives in its own form so stock Enter keys do not submit Save. --%>
         <.form
