@@ -12,9 +12,6 @@ defmodule PinventoryWeb.UserLive.Registration do
         <div class="text-center">
           <.header>
             Create the first account
-            <:subtitle>
-              This app is private. The first user is created here. Later users need an invite.
-            </:subtitle>
           </.header>
         </div>
 
