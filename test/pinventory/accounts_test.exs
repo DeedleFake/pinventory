@@ -157,6 +157,18 @@ defmodule Pinventory.AccountsTest do
     end
   end
 
+  describe "list_users/0" do
+    test "returns users ordered by email" do
+      b = user_fixture(%{email: "b-#{System.unique_integer()}@example.com"})
+      a = user_fixture(%{email: "a-#{System.unique_integer()}@example.com"})
+
+      emails = Accounts.list_users() |> Enum.map(& &1.email)
+      assert emails == Enum.sort(emails)
+      assert a.email in emails
+      assert b.email in emails
+    end
+  end
+
   describe "invites" do
     test "create_invite returns invite and plain token without storing plain token" do
       user = user_fixture()
