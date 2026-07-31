@@ -35,8 +35,8 @@ defmodule PinventoryWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <header class="navbar px-4 sm:px-6 lg:px-8">
-      <div class="flex-1">
+    <header class="navbar min-h-16 px-4 sm:px-6 lg:px-8 gap-2">
+      <div class="navbar-start flex-1 min-w-0">
         <a
           href="/"
           class="flex w-fit items-center gap-2.5 text-base-content opacity-80 transition-opacity duration-200 hover:opacity-100"
@@ -57,12 +57,34 @@ defmodule PinventoryWeb.Layouts do
           <span class="text-lg font-semibold tracking-tight">Pinventory</span>
         </a>
       </div>
-      <div class="flex-none">
+
+      <div class="navbar-end flex-none items-center gap-3 sm:gap-4">
+        <div
+          :if={@current_scope && @current_scope.user}
+          class="flex items-center gap-3 sm:gap-4 text-sm"
+        >
+          <span class="hidden sm:inline max-w-48 truncate opacity-80" title={@current_scope.user.email}>
+            {@current_scope.user.email}
+          </span>
+          <.link
+            href={~p"/user/settings"}
+            class="opacity-80 transition-opacity hover:opacity-100"
+          >
+            Settings
+          </.link>
+          <.link
+            href={~p"/user/log-out"}
+            method="delete"
+            class="opacity-80 transition-opacity hover:opacity-100"
+          >
+            Log out
+          </.link>
+        </div>
         <.theme_toggle />
       </div>
     </header>
 
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
+    <main class="px-4 py-10 sm:px-6 lg:px-8">
       <div class="mx-auto max-w-2xl space-y-4">
         {render_slot(@inner_block)}
       </div>
