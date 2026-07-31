@@ -12,9 +12,6 @@ defmodule PinventoryWeb.UserLive.InviteRegistration do
         <div class="text-center">
           <.header>
             Accept invite
-            <:subtitle>
-              Create your account with email and password. This invite works once.
-            </:subtitle>
           </.header>
         </div>
 

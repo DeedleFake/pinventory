@@ -62,9 +62,9 @@ defmodule PinventoryWeb.UserLive.LoginTest do
     end
 
     test "shows login page with email filled in", %{conn: conn, user: user} do
-      {:ok, _lv, html} = live(conn, ~p"/user/log-in")
+      {:ok, lv, html} = live(conn, ~p"/user/log-in")
 
-      assert html =~ "You need to reauthenticate"
+      assert has_element?(lv, "#login_form_password")
       refute html =~ "Register"
       refute html =~ "Log in with email"
 

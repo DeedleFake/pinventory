@@ -11,13 +11,6 @@ defmodule PinventoryWeb.UserLive.Login do
         <div class="text-center">
           <.header>
             <p>Log in</p>
-            <:subtitle>
-              <%= if @current_scope do %>
-                You need to reauthenticate to perform sensitive actions on your account.
-              <% else %>
-                This app is private. Use your email and password to continue.
-              <% end %>
-            </:subtitle>
           </.header>
         </div>
 
