@@ -35,17 +35,18 @@ defmodule PinventoryWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <header class="navbar min-h-16 px-4 sm:px-6 lg:px-8 gap-2">
-      <div class="navbar-start flex-1 min-w-0">
+    <header class="flex h-14 sm:h-16 items-center gap-2 sm:gap-3 px-3 sm:px-6 lg:px-8 flex-nowrap overflow-hidden">
+      <div class="min-w-0 shrink">
         <a
           href="/"
-          class="flex w-fit items-center gap-2.5 text-base-content opacity-80 transition-opacity duration-200 hover:opacity-100"
+          class="flex items-center gap-2 text-base-content opacity-80 transition-opacity duration-200 hover:opacity-100"
+          aria-label="Pinventory home"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 32 32"
             fill="currentColor"
-            class="size-8 shrink-0"
+            class="size-7 sm:size-8 shrink-0"
             aria-hidden="true"
           >
             <path
@@ -54,30 +55,45 @@ defmodule PinventoryWeb.Layouts do
               d="M16 1C9.925 1 5 5.925 5 12c0 8.284 10.125 18.375 10.556 18.806a.625.625 0 0 0 .888 0C16.875 30.375 27 20.284 27 12 27 5.925 22.075 1 16 1ZM11 8.75a.75.75 0 0 0 0 1.5h10a.75.75 0 0 0 0-1.5H11Zm0 3.5a.75.75 0 0 0 0 1.5h10a.75.75 0 0 0 0-1.5H11Zm0 3.5a.75.75 0 0 0 0 1.5h6a.75.75 0 0 0 0-1.5h-6Z"
             />
           </svg>
-          <span class="text-lg font-semibold tracking-tight">Pinventory</span>
+          <span class="hidden md:inline text-lg font-semibold tracking-tight">Pinventory</span>
         </a>
       </div>
 
-      <div class="navbar-end flex-none items-center gap-3 sm:gap-4">
+      <div class="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
         <div
           :if={@current_scope && @current_scope.user}
-          class="flex items-center gap-3 sm:gap-4 text-sm"
+          class="flex items-center gap-1 sm:gap-3 text-sm"
         >
-          <span class="hidden sm:inline max-w-48 truncate opacity-80" title={@current_scope.user.email}>
+          <span
+            class="hidden md:inline max-w-40 lg:max-w-56 truncate opacity-80"
+            title={@current_scope.user.email}
+          >
             {@current_scope.user.email}
           </span>
           <.link
             href={~p"/user/settings"}
-            class="opacity-80 transition-opacity hover:opacity-100"
+            class={[
+              "inline-flex items-center justify-center rounded-lg p-2 sm:px-1 sm:py-0",
+              "opacity-80 transition-opacity hover:opacity-100",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            ]}
+            aria-label="Settings"
           >
-            Settings
+            <.icon name="hero-cog-6-tooth" class="size-5 sm:hidden" />
+            <span class="hidden sm:inline">Settings</span>
           </.link>
           <.link
             href={~p"/user/log-out"}
             method="delete"
-            class="opacity-80 transition-opacity hover:opacity-100"
+            class={[
+              "inline-flex items-center justify-center rounded-lg p-2 sm:px-1 sm:py-0",
+              "opacity-80 transition-opacity hover:opacity-100",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            ]}
+            aria-label="Log out"
           >
-            Log out
+            <.icon name="hero-arrow-right-start-on-rectangle" class="size-5 sm:hidden" />
+            <span class="hidden sm:inline">Log out</span>
           </.link>
         </div>
         <.theme_toggle />
@@ -144,29 +160,35 @@ defmodule PinventoryWeb.Layouts do
   """
   def theme_toggle(assigns) do
     ~H"""
-    <div class="card relative flex flex-row items-center border-2 border-base-300 bg-base-300 rounded-full">
-      <div class="absolute w-1/3 h-full rounded-full border-1 border-base-200 bg-base-100 brightness-200 left-0 [[data-theme=light]_&]:left-1/3 [[data-theme=dark]_&]:left-2/3 transition-[left]" />
+    <div class="relative flex flex-row items-center border border-base-300 bg-base-300 rounded-full scale-90 sm:scale-100 origin-right">
+      <div class="absolute w-1/3 h-full rounded-full border border-base-200 bg-base-100 brightness-200 left-0 [[data-theme=light]_&]:left-1/3 [[data-theme=dark]_&]:left-2/3 transition-[left]" />
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
+        type="button"
+        class="flex p-1.5 sm:p-2 cursor-pointer w-1/3"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="system"
+        aria-label="System theme"
       >
         <.icon name="hero-computer-desktop-micro" class="size-4 opacity-75 hover:opacity-100" />
       </button>
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
+        type="button"
+        class="flex p-1.5 sm:p-2 cursor-pointer w-1/3"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="light"
+        aria-label="Light theme"
       >
         <.icon name="hero-sun-micro" class="size-4 opacity-75 hover:opacity-100" />
       </button>
 
       <button
-        class="flex p-2 cursor-pointer w-1/3"
+        type="button"
+        class="flex p-1.5 sm:p-2 cursor-pointer w-1/3"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="dark"
+        aria-label="Dark theme"
       >
         <.icon name="hero-moon-micro" class="size-4 opacity-75 hover:opacity-100" />
       </button>
