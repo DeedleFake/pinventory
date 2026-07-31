@@ -51,7 +51,7 @@ defmodule PinventoryWeb.UserSessionControllerTest do
         })
 
       assert redirected_to(conn) == "/foo/bar"
-      assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "Welcome back!"
+      assert Phoenix.Flash.get(conn.assigns.flash, :info) == nil
     end
 
     test "redirects to login page with invalid credentials", %{conn: conn, user: user} do
