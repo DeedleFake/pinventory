@@ -8,11 +8,7 @@ defmodule PinventoryWeb.UserLive.Login do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="mx-auto max-w-sm space-y-4">
-        <div class="text-center">
-          <.header>
-            <p>Log in</p>
-          </.header>
-        </div>
+        <h1 class="text-xl font-semibold tracking-tight">Log in</h1>
 
         <.form
           for={@form}

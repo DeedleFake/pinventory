@@ -9,11 +9,7 @@ defmodule PinventoryWeb.UserLive.Registration do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="mx-auto max-w-sm space-y-4">
-        <div class="text-center">
-          <.header>
-            Create the first account
-          </.header>
-        </div>
+        <h1 class="text-xl font-semibold tracking-tight">Create the first account</h1>
 
         <.form
           for={@form}
