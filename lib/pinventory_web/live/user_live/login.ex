@@ -39,11 +39,9 @@ defmodule PinventoryWeb.UserLive.Login do
             spellcheck="false"
             required
           />
-          <.button class="btn btn-primary w-full" name={@form[:remember_me].name} value="true">
-            Log in and stay logged in <span aria-hidden="true">→</span>
-          </.button>
-          <.button class="btn btn-primary btn-soft w-full mt-2">
-            Log in only this time
+          <input type="hidden" name={@form[:remember_me].name} value="true" />
+          <.button class="btn btn-primary w-full">
+            Log in
           </.button>
         </.form>
       </div>
