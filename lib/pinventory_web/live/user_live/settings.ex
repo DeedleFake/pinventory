@@ -11,7 +11,6 @@ defmodule PinventoryWeb.UserLive.Settings do
         <div class="text-center">
           <.header>
             Settings
-            <:subtitle>Manage your account and who can use this app</:subtitle>
           </.header>
         </div>
 
