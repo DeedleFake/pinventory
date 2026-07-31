@@ -59,19 +59,28 @@ defmodule PinventoryWeb.Layouts do
         </a>
       </div>
 
-      <div class="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
+      <div class="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
         <div
           :if={@current_scope && @current_scope.user}
-          class="flex items-center gap-1 sm:gap-3 text-sm"
+          class="flex items-center gap-1.5 sm:gap-2 text-sm"
         >
-          <span class="hidden lg:inline opacity-80">
+          <span
+            class={[
+              "hidden lg:inline-flex items-center max-w-64 truncate",
+              "rounded-full border border-base-300 bg-base-200/80",
+              "px-3 py-1 text-xs font-medium text-base-content/70 select-none"
+            ]}
+            title={@current_scope.user.email}
+          >
             {@current_scope.user.email}
           </span>
           <.link
             href={~p"/user/settings"}
             class={[
-              "inline-flex items-center justify-center rounded-lg p-2 sm:px-1 sm:py-0",
-              "opacity-80 transition-opacity hover:opacity-100",
+              "inline-flex items-center justify-center gap-1.5 rounded-lg",
+              "p-2 sm:px-2.5 sm:py-1.5 font-medium",
+              "text-base-content/90 hover:bg-base-200 hover:text-base-content",
+              "transition-colors duration-150",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             ]}
             aria-label="Settings"
@@ -83,8 +92,10 @@ defmodule PinventoryWeb.Layouts do
             href={~p"/user/log-out"}
             method="delete"
             class={[
-              "inline-flex items-center justify-center rounded-lg p-2 sm:px-1 sm:py-0",
-              "opacity-80 transition-opacity hover:opacity-100",
+              "inline-flex items-center justify-center gap-1.5 rounded-lg",
+              "p-2 sm:px-2.5 sm:py-1.5 font-medium",
+              "text-base-content/90 hover:bg-base-200 hover:text-base-content",
+              "transition-colors duration-150",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             ]}
             aria-label="Log out"
