@@ -8,11 +8,7 @@ defmodule PinventoryWeb.UserLive.Settings do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div id="settings-page" class="space-y-6">
-        <div class="text-center">
-          <.header>
-            Settings
-          </.header>
-        </div>
+        <h1 class="text-xl font-semibold tracking-tight">Settings</h1>
 
         <nav
           id="settings-tabs"
