@@ -1,4 +1,4 @@
-defmodule PinventoryWeb.UserLive.Registration do
+defmodule PinventoryWeb.UserLive.InviteRegistration do
   use PinventoryWeb, :live_view
 
   alias Pinventory.Accounts
@@ -11,16 +11,16 @@ defmodule PinventoryWeb.UserLive.Registration do
       <div class="mx-auto max-w-sm space-y-4">
         <div class="text-center">
           <.header>
-            Create the first account
+            Accept invite
             <:subtitle>
-              This app is private. The first user is created here. Later users need an invite.
+              Create your account with email and password. This invite works once.
             </:subtitle>
           </.header>
         </div>
 
         <.form
           for={@form}
-          id="registration_form"
+          id="invite_registration_form"
           action={~p"/user/log-in"}
           method="post"
           phx-submit="save"
@@ -63,22 +63,28 @@ defmodule PinventoryWeb.UserLive.Registration do
   end
 
   @impl true
-  def mount(_params, _session, %{assigns: %{current_scope: %{user: user}}} = socket)
+  def mount(%{"token" => _token}, _session, %{assigns: %{current_scope: %{user: user}}} = socket)
       when not is_nil(user) do
     {:ok, redirect(socket, to: PinventoryWeb.UserAuth.signed_in_path(socket))}
   end
 
-  def mount(_params, _session, socket) do
-    if Accounts.any_users?() do
-      {:ok,
-       socket
-       |> put_flash(:error, "Registration is closed. Use an invite or log in.")
-       |> redirect(to: ~p"/user/log-in")}
-    else
-      changeset = Accounts.change_user_registration(%User{}, %{}, hash_password: false)
+  def mount(%{"token" => token}, _session, socket) do
+    case Accounts.get_pending_invite_by_token(token) do
+      {:ok, _invite} ->
+        changeset = Accounts.change_user_registration(%User{}, %{}, hash_password: false)
 
-      {:ok, assign(socket, form: to_form(changeset, as: "user"), trigger_submit: false),
-       temporary_assigns: [form: nil]}
+        {:ok,
+         assign(socket,
+           token: token,
+           form: to_form(changeset, as: "user"),
+           trigger_submit: false
+         ), temporary_assigns: [form: nil]}
+
+      {:error, :invalid_or_expired} ->
+        {:ok,
+         socket
+         |> put_flash(:error, "This invite is invalid or has expired.")
+         |> redirect(to: ~p"/user/log-in")}
     end
   end
 
@@ -93,29 +99,21 @@ defmodule PinventoryWeb.UserLive.Registration do
   end
 
   def handle_event("save", %{"user" => user_params}, socket) do
-    if Accounts.any_users?() do
-      {:noreply,
-       socket
-       |> put_flash(:error, "Registration is closed. Use an invite or log in.")
-       |> push_navigate(to: ~p"/user/log-in")}
-    else
-      case Accounts.register_bootstrap_user(user_params) do
-        {:ok, _user} ->
-          # Log in via the password form POST so the session cookie is set.
-          {:noreply,
-           socket
-           |> put_flash(:info, "Welcome! Your account is ready.")
-           |> assign(trigger_submit: true, form: to_form(user_params, as: "user"))}
+    case Accounts.register_user_with_invite(socket.assigns.token, user_params) do
+      {:ok, _user} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Welcome! Your account is ready.")
+         |> assign(trigger_submit: true, form: to_form(user_params, as: "user"))}
 
-        {:error, :registration_closed} ->
-          {:noreply,
-           socket
-           |> put_flash(:error, "Registration is closed. Use an invite or log in.")
-           |> push_navigate(to: ~p"/user/log-in")}
+      {:error, :invalid_or_expired} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "This invite is invalid or has expired.")
+         |> push_navigate(to: ~p"/user/log-in")}
 
-        {:error, %Ecto.Changeset{} = changeset} ->
-          {:noreply, assign(socket, form: to_form(changeset, as: "user"))}
-      end
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, form: to_form(changeset, as: "user"))}
     end
   end
 end

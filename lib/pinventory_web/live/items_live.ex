@@ -7,7 +7,7 @@ defmodule PinventoryWeb.ItemsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash}>
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div id="items-page" class="space-y-6">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 class="text-xl font-semibold tracking-tight">Items</h1>

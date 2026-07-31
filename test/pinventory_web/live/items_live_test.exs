@@ -6,6 +6,14 @@ defmodule PinventoryWeb.ItemsLiveTest do
   alias Pinventory.Items
   alias Pinventory.Locations
 
+  setup :register_and_log_in_user
+
+  test "redirects unauthenticated users to log in" do
+    conn = build_conn()
+    assert {:error, {:redirect, %{to: path}}} = live(conn, ~p"/")
+    assert path == ~p"/user/log-in"
+  end
+
   test "renders empty state when there are no items", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
 

@@ -39,17 +39,13 @@
           {@current_scope.user.email}
         </li>
         <li>
+          <.link href={~p"/user/invites"}>Invites</.link>
+        </li>
+        <li>
           <.link href={~p"/user/settings"}>Settings</.link>
         </li>
         <li>
           <.link href={~p"/user/log-out"} method="delete">Log out</.link>
-        </li>
-      <% else %>
-        <li>
-          <.link href={~p"/user/register"}>Register</.link>
-        </li>
-        <li>
-          <.link href={~p"/user/log-in"}>Log in</.link>
         </li>
       <% end %>
     </ul>

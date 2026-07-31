@@ -18,6 +18,13 @@ defmodule Pinventory.AccountsFixtures do
     })
   end
 
+  def valid_user_password_attributes(attrs \\ %{}) do
+    attrs
+    |> valid_user_attributes()
+    |> Map.put_new(:password, valid_user_password())
+    |> Map.put_new(:password_confirmation, Map.get(attrs, :password) || valid_user_password())
+  end
+
   def unconfirmed_user_fixture(attrs \\ %{}) do
     {:ok, user} =
       attrs
@@ -28,15 +35,10 @@ defmodule Pinventory.AccountsFixtures do
   end
 
   def user_fixture(attrs \\ %{}) do
-    user = unconfirmed_user_fixture(attrs)
-
-    token =
-      extract_user_token(fn url ->
-        Accounts.deliver_login_instructions(user, url)
-      end)
-
-    {:ok, {user, _expired_tokens}} =
-      Accounts.login_user_by_magic_link(token)
+    {:ok, user} =
+      attrs
+      |> valid_user_password_attributes()
+      |> Accounts.create_user()
 
     user
   end
@@ -85,5 +87,10 @@ defmodule Pinventory.AccountsFixtures do
       from(ut in Accounts.UserToken, where: ut.token == ^token),
       set: [inserted_at: dt, authenticated_at: dt]
     )
+  end
+
+  def invite_fixture(created_by \\ nil) do
+    {:ok, invite, plain_token} = Accounts.create_invite(created_by)
+    {invite, plain_token}
   end
 end

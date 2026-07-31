@@ -56,7 +56,7 @@ defmodule PinventoryWeb.UserAuth do
     conn
     |> renew_session(nil)
     |> delete_resp_cookie(@remember_me_cookie, @remember_me_options)
-    |> redirect(to: ~p"/")
+    |> redirect(to: ~p"/user/log-in")
   end
 
   @doc """
@@ -221,10 +221,12 @@ defmodule PinventoryWeb.UserAuth do
     if socket.assigns.current_scope && socket.assigns.current_scope.user do
       {:cont, socket}
     else
+      {path, message} = unauthenticated_redirect()
+
       socket =
         socket
-        |> Phoenix.LiveView.put_flash(:error, "You must log in to access this page.")
-        |> Phoenix.LiveView.redirect(to: ~p"/user/log-in")
+        |> Phoenix.LiveView.put_flash(:error, message)
+        |> Phoenix.LiveView.redirect(to: path)
 
       {:halt, socket}
     end
@@ -271,11 +273,21 @@ defmodule PinventoryWeb.UserAuth do
     if conn.assigns.current_scope && conn.assigns.current_scope.user do
       conn
     else
+      {path, message} = unauthenticated_redirect()
+
       conn
-      |> put_flash(:error, "You must log in to access this page.")
+      |> put_flash(:error, message)
       |> maybe_store_return_to()
-      |> redirect(to: ~p"/user/log-in")
+      |> redirect(to: path)
       |> halt()
+    end
+  end
+
+  defp unauthenticated_redirect do
+    if Accounts.any_users?() do
+      {~p"/user/log-in", "You must log in to access this page."}
+    else
+      {~p"/user/register", "Create the first account to get started."}
     end
   end
 

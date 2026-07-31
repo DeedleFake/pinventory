@@ -17,24 +17,6 @@ defmodule PinventoryWeb.Router do
     plug :accepts, ["json"]
   end
 
-  scope "/", PinventoryWeb do
-    pipe_through :browser
-
-    live_session :items do
-      live "/", ItemsLive, :index
-
-      live "/item", EditItemLive, :new
-      live "/item/:item_id", EditItemLive, :edit
-
-      live "/locations", LocationsLive, :index
-    end
-  end
-
-  # Other scopes may use custom stacks.
-  # scope "/api", PinventoryWeb do
-  #   pipe_through :api
-  # end
-
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:pinventory, :dev_routes) do
     # If you want to use the LiveDashboard in production, you should put
@@ -52,28 +34,43 @@ defmodule PinventoryWeb.Router do
     end
   end
 
-  ## Authentication routes
-
+  ## Authenticated application routes
+  #
+  # Whole app requires login. Items, locations, settings, and invite management
+  # live here so unauthenticated users are redirected by require_authenticated_user.
   scope "/", PinventoryWeb do
     pipe_through [:browser, :require_authenticated_user]
 
     live_session :require_authenticated_user,
       on_mount: [{PinventoryWeb.UserAuth, :require_authenticated}] do
+      live "/", ItemsLive, :index
+
+      live "/item", EditItemLive, :new
+      live "/item/:item_id", EditItemLive, :edit
+
+      live "/locations", LocationsLive, :index
+
       live "/user/settings", UserLive.Settings, :edit
       live "/user/settings/confirm-email/:token", UserLive.Settings, :confirm_email
+
+      live "/user/invites", UserLive.Invites, :index
     end
 
     post "/user/update-password", UserSessionController, :update_password
   end
 
+  ## Public authentication routes
+  #
+  # live_session :current_user — login, bootstrap register, and invite register.
+  # Password-only daily login; no public magic-link login route.
   scope "/", PinventoryWeb do
     pipe_through [:browser]
 
     live_session :current_user,
       on_mount: [{PinventoryWeb.UserAuth, :mount_current_scope}] do
       live "/user/register", UserLive.Registration, :new
+      live "/user/invite/:token", UserLive.InviteRegistration, :new
       live "/user/log-in", UserLive.Login, :new
-      live "/user/log-in/:token", UserLive.Confirmation, :new
     end
 
     post "/user/log-in", UserSessionController, :create

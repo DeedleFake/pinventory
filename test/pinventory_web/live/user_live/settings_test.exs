@@ -17,6 +17,9 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
     end
 
     test "redirects if user is not logged in", %{conn: conn} do
+      # A user must exist so the app redirects to log in (not bootstrap register).
+      _user = user_fixture()
+
       assert {:error, redirect} = live(conn, ~p"/user/settings")
 
       assert {:redirect, %{to: path, flash: flash}} = redirect

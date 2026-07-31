@@ -3,7 +3,8 @@ defmodule PinventoryWeb.UserAuthTest do
 
   alias Phoenix.LiveView
   alias Pinventory.Accounts
-  alias Pinventory.Accounts.Scope
+  alias Pinventory.Accounts.{Scope, User}
+  alias Pinventory.Repo
   alias PinventoryWeb.UserAuth
 
   import Pinventory.AccountsFixtures
@@ -120,7 +121,7 @@ defmodule PinventoryWeb.UserAuthTest do
       refute get_session(conn, :user_token)
       refute conn.cookies[@remember_me_cookie]
       assert %{max_age: 0} = conn.resp_cookies[@remember_me_cookie]
-      assert redirected_to(conn) == ~p"/"
+      assert redirected_to(conn) == ~p"/user/log-in"
       refute Accounts.get_user_by_session_token(user_token)
     end
 
@@ -139,7 +140,7 @@ defmodule PinventoryWeb.UserAuthTest do
       conn = conn |> fetch_cookies() |> UserAuth.log_out_user()
       refute get_session(conn, :user_token)
       assert %{max_age: 0} = conn.resp_cookies[@remember_me_cookie]
-      assert redirected_to(conn) == ~p"/"
+      assert redirected_to(conn) == ~p"/user/log-in"
     end
   end
 
@@ -311,6 +312,38 @@ defmodule PinventoryWeb.UserAuthTest do
 
       assert {:halt, _updated_socket} =
                UserAuth.on_mount(:require_sudo_mode, %{}, session, socket)
+    end
+  end
+
+  describe "unauthenticated redirect when no users exist" do
+    test "plug redirects to bootstrap register", %{conn: conn} do
+      Repo.delete_all(User)
+
+      conn =
+        conn
+        |> assign(:current_scope, nil)
+        |> fetch_flash()
+        |> UserAuth.require_authenticated_user([])
+
+      assert conn.halted
+      assert redirected_to(conn) == ~p"/user/register"
+
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+               "Create the first account to get started."
+    end
+
+    test "on_mount redirects to bootstrap register", %{conn: conn} do
+      Repo.delete_all(User)
+      session = conn |> get_session()
+
+      socket = %LiveView.Socket{
+        endpoint: PinventoryWeb.Endpoint,
+        assigns: %{__changed__: %{}, flash: %{}}
+      }
+
+      {:halt, updated_socket} = UserAuth.on_mount(:require_authenticated, %{}, session, socket)
+      assert updated_socket.assigns.current_scope == nil
+      assert {:redirect, %{to: "/user/register"}} = updated_socket.redirected
     end
   end
 
