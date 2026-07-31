@@ -2,9 +2,11 @@ defmodule Pinventory.AccountsTest do
   use Pinventory.DataCase
 
   alias Pinventory.Accounts
+  alias Pinventory.Repo
 
+  import Ecto.Query
   import Pinventory.AccountsFixtures
-  alias Pinventory.Accounts.{User, UserToken}
+  alias Pinventory.Accounts.{Invite, User, UserToken}
 
   describe "get_user_by_email/1" do
     test "does not return the user if the email does not exist" do
@@ -84,6 +86,191 @@ defmodule Pinventory.AccountsTest do
       assert is_nil(user.hashed_password)
       assert is_nil(user.confirmed_at)
       assert is_nil(user.password)
+    end
+  end
+
+  describe "any_users?/0" do
+    test "is false when empty" do
+      refute Accounts.any_users?()
+    end
+
+    test "is true when a user exists" do
+      _user = user_fixture()
+      assert Accounts.any_users?()
+    end
+  end
+
+  describe "register_bootstrap_user/1" do
+    test "creates confirmed user with password when no users exist" do
+      email = unique_user_email()
+      password = valid_user_password()
+
+      assert {:ok, user} =
+               Accounts.register_bootstrap_user(%{
+                 email: email,
+                 password: password,
+                 password_confirmation: password
+               })
+
+      assert user.email == email
+      assert user.confirmed_at
+      assert Accounts.get_user_by_email_and_password(email, password)
+    end
+
+    test "fails when users already exist" do
+      _existing = user_fixture()
+
+      assert {:error, :registration_closed} =
+               Accounts.register_bootstrap_user(%{
+                 email: unique_user_email(),
+                 password: valid_user_password(),
+                 password_confirmation: valid_user_password()
+               })
+    end
+
+    test "validates password" do
+      assert {:error, changeset} =
+               Accounts.register_bootstrap_user(%{
+                 email: unique_user_email(),
+                 password: "short",
+                 password_confirmation: "short"
+               })
+
+      assert "should be at least 12 character(s)" in errors_on(changeset).password
+    end
+  end
+
+  describe "create_user/1" do
+    test "creates a confirmed user with password" do
+      email = unique_user_email()
+      password = valid_user_password()
+
+      assert {:ok, user} =
+               Accounts.create_user(%{
+                 email: email,
+                 password: password,
+                 password_confirmation: password
+               })
+
+      assert user.confirmed_at
+      assert Accounts.get_user_by_email_and_password(email, password)
+    end
+  end
+
+  describe "invites" do
+    test "create_invite returns invite and plain token without storing plain token" do
+      user = user_fixture()
+      assert {:ok, invite, plain_token} = Accounts.create_invite(user)
+      assert is_binary(plain_token)
+      assert is_binary(invite.token_hash)
+      # Schema has no plain token field; only hash is persisted
+      refute Map.has_key?(invite, :token)
+      assert invite.created_by_id == user.id
+      assert is_nil(invite.used_at)
+      assert is_nil(invite.revoked_at)
+      assert {:ok, fetched} = Accounts.get_pending_invite_by_token(plain_token)
+      assert fetched.id == invite.id
+    end
+
+    test "list_pending_invites excludes used and revoked" do
+      user = user_fixture()
+      {:ok, pending, token} = Accounts.create_invite(user)
+      {:ok, used_invite, used_token} = Accounts.create_invite(user)
+      {:ok, revoked, _} = Accounts.create_invite(user)
+
+      assert {:ok, _} =
+               Accounts.register_user_with_invite(used_token, %{
+                 email: unique_user_email(),
+                 password: valid_user_password(),
+                 password_confirmation: valid_user_password()
+               })
+
+      assert {:ok, _} = Accounts.revoke_invite(revoked)
+
+      pending_ids = Accounts.list_pending_invites() |> Enum.map(& &1.id)
+      assert pending.id in pending_ids
+      refute used_invite.id in pending_ids
+      refute revoked.id in pending_ids
+      assert {:ok, _} = Accounts.get_pending_invite_by_token(token)
+    end
+
+    test "register_user_with_invite creates confirmed user and consumes token" do
+      _admin = user_fixture()
+      {_invite, token} = invite_fixture()
+      email = unique_user_email()
+      password = valid_user_password()
+
+      assert {:ok, user} =
+               Accounts.register_user_with_invite(token, %{
+                 email: email,
+                 password: password,
+                 password_confirmation: password
+               })
+
+      assert user.confirmed_at
+      assert Accounts.get_user_by_email_and_password(email, password)
+      assert {:error, :invalid_or_expired} = Accounts.get_pending_invite_by_token(token)
+
+      assert {:error, :invalid_or_expired} =
+               Accounts.register_user_with_invite(token, %{
+                 email: unique_user_email(),
+                 password: password,
+                 password_confirmation: password
+               })
+    end
+
+    test "register_user_with_invite rejects invalid token" do
+      assert {:error, :invalid_or_expired} =
+               Accounts.register_user_with_invite("bad-token", %{
+                 email: unique_user_email(),
+                 password: valid_user_password(),
+                 password_confirmation: valid_user_password()
+               })
+    end
+
+    test "register_user_with_invite rejects expired invite" do
+      {_invite, token} = invite_fixture()
+      {:ok, invite} = Accounts.get_pending_invite_by_token(token)
+
+      past = DateTime.utc_now(:second) |> DateTime.add(-1, :day)
+
+      {1, _} =
+        Repo.update_all(from(i in Invite, where: i.id == ^invite.id), set: [expires_at: past])
+
+      assert {:error, :invalid_or_expired} =
+               Accounts.register_user_with_invite(token, %{
+                 email: unique_user_email(),
+                 password: valid_user_password(),
+                 password_confirmation: valid_user_password()
+               })
+    end
+
+    test "failed registration does not consume invite" do
+      existing = user_fixture()
+      {_invite, token} = invite_fixture()
+      password = valid_user_password()
+
+      assert {:error, %Ecto.Changeset{}} =
+               Accounts.register_user_with_invite(token, %{
+                 email: existing.email,
+                 password: password,
+                 password_confirmation: password
+               })
+
+      assert {:ok, _invite} = Accounts.get_pending_invite_by_token(token)
+    end
+
+    test "revoke_invite prevents registration" do
+      {_invite, token} = invite_fixture()
+      invite = Accounts.get_pending_invite_by_token(token) |> then(fn {:ok, i} -> i end)
+      assert {:ok, _} = Accounts.revoke_invite(invite)
+
+      assert {:error, :invalid_or_expired} =
+               Accounts.register_user_with_invite(token, %{
+                 email: unique_user_email(),
+                 password: valid_user_password(),
+                 password_confirmation: valid_user_password()
+               })
     end
   end
 

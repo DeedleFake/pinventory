@@ -5,47 +5,26 @@ defmodule PinventoryWeb.UserLive.LoginTest do
   import Pinventory.AccountsFixtures
 
   describe "login page" do
-    test "renders login page", %{conn: conn} do
+    test "renders login page when users exist", %{conn: conn} do
+      _user = user_fixture()
       {:ok, _lv, html} = live(conn, ~p"/user/log-in")
 
       assert html =~ "Log in"
-      assert html =~ "Sign up"
-      assert html =~ "Log in with email"
-    end
-  end
-
-  describe "user login - magic link" do
-    test "sends magic link email when user exists", %{conn: conn} do
-      user = user_fixture()
-
-      {:ok, lv, _html} = live(conn, ~p"/user/log-in")
-
-      {:ok, _lv, html} =
-        form(lv, "#login_form_magic", user: %{email: user.email})
-        |> render_submit()
-        |> follow_redirect(conn, ~p"/user/log-in")
-
-      assert html =~ "If your email is in our system"
-
-      assert Pinventory.Repo.get_by!(Pinventory.Accounts.UserToken, user_id: user.id).context ==
-               "login"
+      assert html =~ "Password"
+      refute html =~ "Sign up"
+      refute html =~ "Log in with email"
+      refute html =~ "local mail adapter"
     end
 
-    test "does not disclose if user is registered", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/user/log-in")
-
-      {:ok, _lv, html} =
-        form(lv, "#login_form_magic", user: %{email: "idonotexist@example.com"})
-        |> render_submit()
-        |> follow_redirect(conn, ~p"/user/log-in")
-
-      assert html =~ "If your email is in our system"
+    test "redirects to bootstrap registration when no users exist", %{conn: conn} do
+      assert {:error, {:redirect, %{to: path}}} = live(conn, ~p"/user/log-in")
+      assert path == ~p"/user/register"
     end
   end
 
   describe "user login - password" do
     test "redirects if user logs in with valid credentials", %{conn: conn} do
-      user = user_fixture() |> set_password()
+      user = user_fixture()
 
       {:ok, lv, _html} = live(conn, ~p"/user/log-in")
 
@@ -62,6 +41,7 @@ defmodule PinventoryWeb.UserLive.LoginTest do
     test "redirects to login page with a flash error if credentials are invalid", %{
       conn: conn
     } do
+      _user = user_fixture()
       {:ok, lv, _html} = live(conn, ~p"/user/log-in")
 
       form =
@@ -72,20 +52,6 @@ defmodule PinventoryWeb.UserLive.LoginTest do
       conn = follow_trigger_action(form, conn)
       assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Invalid email or password"
       assert redirected_to(conn) == ~p"/user/log-in"
-    end
-  end
-
-  describe "login navigation" do
-    test "redirects to registration page when the Register button is clicked", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/user/log-in")
-
-      {:ok, _login_live, login_html} =
-        lv
-        |> element("main a", "Sign up")
-        |> render_click()
-        |> follow_redirect(conn, ~p"/user/register")
-
-      assert login_html =~ "Register"
     end
   end
 
@@ -100,10 +66,9 @@ defmodule PinventoryWeb.UserLive.LoginTest do
 
       assert html =~ "You need to reauthenticate"
       refute html =~ "Register"
-      assert html =~ "Log in with email"
+      refute html =~ "Log in with email"
 
-      assert html =~
-               ~s(<input type="email" name="user[email]" id="login_form_magic_email" value="#{user.email}")
+      assert html =~ ~s(value="#{user.email}")
     end
   end
 end

@@ -31,6 +31,22 @@ defmodule Pinventory.Accounts.User do
     |> validate_email(opts)
   end
 
+  @doc """
+  A user changeset for registration with email and password.
+
+  ## Options
+
+    * `:hash_password` - See `password_changeset/3`.
+    * `:validate_unique` - See `email_changeset/3`.
+  """
+  def registration_changeset(user, attrs, opts \\ []) do
+    user
+    |> cast(attrs, [:email, :password])
+    |> validate_email(opts)
+    |> validate_confirmation(:password, message: "does not match password", required: true)
+    |> validate_password(opts)
+  end
+
   defp validate_email(changeset, opts) do
     changeset =
       changeset

@@ -1,14 +1,27 @@
 defmodule Pinventory.Accounts do
   @moduledoc """
   The Accounts context.
+
+  Pinventory is a private app:
+
+  * The first user is created via bootstrap registration (email + password).
+  * Later users join with one-time invite tickets or ops helpers.
+  * Daily login is email + password only.
   """
 
   import Ecto.Query, warn: false
   alias Pinventory.Repo
 
-  alias Pinventory.Accounts.{User, UserToken, UserNotifier}
+  alias Pinventory.Accounts.{Invite, Scope, User, UserToken, UserNotifier}
 
   ## Database getters
+
+  @doc """
+  Returns true if at least one user exists.
+  """
+  def any_users? do
+    Repo.exists?(User)
+  end
 
   @doc """
   Gets a user by email.
@@ -63,21 +76,209 @@ defmodule Pinventory.Accounts do
   ## User registration
 
   @doc """
-  Registers a user.
+  Returns an `%Ecto.Changeset{}` for registration forms (email + password).
+  """
+  def change_user_registration(user \\ %User{}, attrs \\ %{}, opts \\ []) do
+    User.registration_changeset(user, attrs, opts)
+  end
+
+  @doc """
+  Registers the first user when no users exist yet.
+
+  Creates a confirmed user with email and password. Race-safe: fails with
+  `{:error, :registration_closed}` if another user was created concurrently.
 
   ## Examples
 
-      iex> register_user(%{field: value})
+      iex> register_bootstrap_user(%{email: "a@b.c", password: "long password"})
       {:ok, %User{}}
 
-      iex> register_user(%{field: bad_value})
+      iex> register_bootstrap_user(%{})
       {:error, %Ecto.Changeset{}}
 
+  """
+  def register_bootstrap_user(attrs) do
+    # Hash password outside the transaction so Argon2 does not hold table locks.
+    changeset = registration_insert_changeset(attrs)
+
+    if changeset.valid? do
+      Repo.transact(fn ->
+        # Serialize bootstrap so two concurrent first-user attempts cannot both succeed.
+        Repo.query!("LOCK TABLE \"user\" IN EXCLUSIVE MODE")
+
+        if any_users?() do
+          {:error, :registration_closed}
+        else
+          Repo.insert(changeset)
+        end
+      end)
+    else
+      {:error, changeset}
+    end
+  end
+
+  @doc """
+  Creates a confirmed user with email and password (ops / release helper).
+
+  Does not require an invite and is always available to trusted operators.
+  """
+  def create_user(attrs) do
+    attrs
+    |> registration_insert_changeset()
+    |> Repo.insert()
+  end
+
+  @doc """
+  Registers a user with a valid one-time invite token.
+
+  On success the invite is consumed and the user is confirmed.
+  Password hashing runs outside the invite lock transaction.
+  """
+  def register_user_with_invite(plain_token, attrs) when is_binary(plain_token) do
+    # Hash password outside the transaction so Argon2 does not hold row locks.
+    changeset = registration_insert_changeset(attrs)
+
+    if changeset.valid? do
+      Repo.transact(fn ->
+        with {:ok, invite} <- fetch_pending_invite_for_update(plain_token),
+             {:ok, user} <- Repo.insert(changeset),
+             {:ok, _invite} <- Repo.update(Invite.use_changeset(invite, user.id)) do
+          {:ok, user}
+        else
+          {:error, :invalid_or_expired} ->
+            {:error, :invalid_or_expired}
+
+          {:error, %Ecto.Changeset{} = err_changeset} ->
+            {:error, err_changeset}
+        end
+      end)
+    else
+      {:error, changeset}
+    end
+  end
+
+  defp registration_insert_changeset(attrs) do
+    %User{}
+    |> User.registration_changeset(attrs)
+    |> Ecto.Changeset.change(%{confirmed_at: DateTime.utc_now(:second)})
+  end
+
+  @doc """
+  Registers a user with email only (legacy magic-link path / tests).
+
+  Prefer `register_bootstrap_user/1`, `register_user_with_invite/2`, or
+  `create_user/1` for application flows.
   """
   def register_user(attrs) do
     %User{}
     |> User.email_changeset(attrs)
     |> Repo.insert()
+  end
+
+  ## Invites
+
+  @doc """
+  Creates a blank invite registration ticket.
+
+  Returns `{:ok, invite, plain_token}`. `created_by` may be a `%Scope{}`,
+  `%User{}`, or `nil` (ops / bootstrap tooling).
+  """
+  def create_invite(created_by \\ nil) do
+    attrs =
+      case created_by do
+        %Scope{user: %User{id: id}} -> %{created_by_id: id}
+        %User{id: id} -> %{created_by_id: id}
+        _ -> %{}
+      end
+
+    {changeset, plain_token} = Invite.build(attrs)
+
+    case Repo.insert(changeset) do
+      {:ok, invite} -> {:ok, invite, plain_token}
+      {:error, changeset} -> {:error, changeset}
+    end
+  end
+
+  @doc """
+  Lists pending invites (not used, not revoked, not expired), newest first.
+  """
+  def list_pending_invites do
+    now = DateTime.utc_now(:second)
+
+    from(i in Invite,
+      where: is_nil(i.revoked_at) and is_nil(i.used_at) and i.expires_at > ^now,
+      order_by: [desc: i.inserted_at],
+      preload: [:created_by]
+    )
+    |> Repo.all()
+  end
+
+  @doc """
+  Gets a pending invite by id, or `nil`.
+  """
+  def get_pending_invite(id) do
+    now = DateTime.utc_now(:second)
+
+    from(i in Invite,
+      where: i.id == ^id and is_nil(i.revoked_at) and is_nil(i.used_at) and i.expires_at > ^now
+    )
+    |> Repo.one()
+  end
+
+  @doc """
+  Returns `{:ok, invite}` when the plain token is valid and pending.
+  """
+  def get_pending_invite_by_token(plain_token) when is_binary(plain_token) do
+    with {:ok, token_hash} <- Invite.hash_token(plain_token),
+         %Invite{} = invite <- Repo.get_by(Invite, token_hash: token_hash),
+         true <- Invite.pending?(invite) do
+      {:ok, invite}
+    else
+      _ -> {:error, :invalid_or_expired}
+    end
+  end
+
+  @doc """
+  Revokes a pending invite so it can no longer be used.
+  """
+  def revoke_invite(invite_or_id)
+
+  def revoke_invite(%Invite{} = invite) do
+    if Invite.pending?(invite) do
+      Repo.update(Invite.revoke_changeset(invite))
+    else
+      {:error, :not_pending}
+    end
+  end
+
+  def revoke_invite(id) when is_binary(id) do
+    case Repo.get(Invite, id) do
+      nil -> {:error, :not_found}
+      invite -> revoke_invite(invite)
+    end
+  end
+
+  @doc """
+  Builds the relative registration path for an invite token.
+  """
+  def invite_path(plain_token) when is_binary(plain_token) do
+    "/user/invite/" <> plain_token
+  end
+
+  defp fetch_pending_invite_for_update(plain_token) do
+    with {:ok, token_hash} <- Invite.hash_token(plain_token) do
+      invite =
+        from(i in Invite, where: i.token_hash == ^token_hash, lock: "FOR UPDATE")
+        |> Repo.one()
+
+      if invite && Invite.pending?(invite) do
+        {:ok, invite}
+      else
+        {:error, :invalid_or_expired}
+      end
+    else
+      :error -> {:error, :invalid_or_expired}
+    end
   end
 
   ## Settings

@@ -6,6 +6,8 @@ defmodule PinventoryWeb.LocationsLiveTest do
   alias Pinventory.Items
   alias Pinventory.Locations
 
+  setup :register_and_log_in_user
+
   test "renders locations ordered by name with item counts", %{conn: conn} do
     {:ok, garage} = Locations.create(%{name: "Garage"})
     {:ok, _alpha} = Locations.create(%{name: "Alpha"})

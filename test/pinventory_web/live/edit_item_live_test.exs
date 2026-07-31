@@ -6,6 +6,8 @@ defmodule PinventoryWeb.EditItemLiveTest do
   alias Pinventory.Items
   alias Pinventory.Locations
 
+  setup :register_and_log_in_user
+
   test "renders the new item form with locations ordered by name", %{conn: conn} do
     {:ok, _} = Locations.create(%{name: "Zebra"})
     {:ok, _} = Locations.create(%{name: "Alpha"})

@@ -4,22 +4,34 @@ defmodule PinventoryWeb.UserLive.RegistrationTest do
   import Phoenix.LiveViewTest
   import Pinventory.AccountsFixtures
 
-  describe "Registration page" do
-    test "renders registration page", %{conn: conn} do
+  alias Pinventory.Accounts
+
+  describe "Registration page (bootstrap, zero users)" do
+    test "renders registration page when no users exist", %{conn: conn} do
       {:ok, _lv, html} = live(conn, ~p"/user/register")
 
-      assert html =~ "Register"
-      assert html =~ "Log in"
+      assert html =~ "Create the first account"
+      assert html =~ "Password"
+      refute html =~ "Sign up"
     end
 
     test "redirects if already logged in", %{conn: conn} do
-      result =
-        conn
-        |> log_in_user(user_fixture())
-        |> live(~p"/user/register")
-        |> follow_redirect(conn, ~p"/")
+      user = user_fixture()
 
-      assert {:ok, _conn} = result
+      assert {:error, {:redirect, %{to: path}}} =
+               conn
+               |> log_in_user(user)
+               |> live(~p"/user/register")
+
+      assert path == ~p"/"
+    end
+
+    test "redirects to log in when users already exist", %{conn: conn} do
+      _user = user_fixture()
+
+      assert {:error, {:redirect, %{to: path, flash: flash}}} = live(conn, ~p"/user/register")
+      assert path == ~p"/user/log-in"
+      assert flash["error"] =~ "Registration is closed"
     end
 
     test "renders errors for invalid data", %{conn: conn} do
@@ -28,55 +40,60 @@ defmodule PinventoryWeb.UserLive.RegistrationTest do
       result =
         lv
         |> element("#registration_form")
-        |> render_change(user: %{"email" => "with spaces"})
+        |> render_change(
+          user: %{"email" => "with spaces", "password" => "short", "password_confirmation" => "x"}
+        )
 
-      assert result =~ "Register"
       assert result =~ "must have the @ sign and no spaces"
+      assert result =~ "should be at least 12 character"
     end
   end
 
-  describe "register user" do
-    test "creates account but does not log in", %{conn: conn} do
+  describe "bootstrap register user" do
+    test "creates confirmed account and logs in", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/user/register")
 
       email = unique_user_email()
-      form = form(lv, "#registration_form", user: valid_user_attributes(email: email))
+      password = valid_user_password()
+
+      form =
+        form(lv, "#registration_form",
+          user: %{
+            email: email,
+            password: password,
+            password_confirmation: password
+          }
+        )
+
+      render_submit(form)
+      conn = follow_trigger_action(form, conn)
+
+      assert redirected_to(conn) == ~p"/"
+      assert Accounts.get_user_by_email_and_password(email, password)
+      user = Accounts.get_user_by_email(email)
+      assert user.confirmed_at
+    end
+
+    test "fails when a user already exists (closed registration)", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/user/register")
+
+      # Race: another process creates the first user
+      _existing = user_fixture()
+
+      form =
+        form(lv, "#registration_form",
+          user: %{
+            email: unique_user_email(),
+            password: valid_user_password(),
+            password_confirmation: valid_user_password()
+          }
+        )
 
       {:ok, _lv, html} =
         render_submit(form)
         |> follow_redirect(conn, ~p"/user/log-in")
 
-      assert html =~
-               ~r/An email was sent to .*, please access it to confirm your account/
-    end
-
-    test "renders errors for duplicated email", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/user/register")
-
-      user = user_fixture(%{email: "test@email.com"})
-
-      result =
-        lv
-        |> form("#registration_form",
-          user: %{"email" => user.email}
-        )
-        |> render_submit()
-
-      assert result =~ "has already been taken"
-    end
-  end
-
-  describe "registration navigation" do
-    test "redirects to login page when the Log in button is clicked", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/user/register")
-
-      {:ok, _login_live, login_html} =
-        lv
-        |> element("main a", "Log in")
-        |> render_click()
-        |> follow_redirect(conn, ~p"/user/log-in")
-
-      assert login_html =~ "Log in"
+      assert html =~ "Log in"
     end
   end
 end
