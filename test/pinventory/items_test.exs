@@ -1,5 +1,5 @@
 defmodule Pinventory.ItemsTest do
-  use Pinventory.DataCase, async: true
+  use Pinventory.DataCase, async: false
 
   alias Pinventory.Items
   alias Pinventory.Items.Item
@@ -102,28 +102,84 @@ defmodule Pinventory.ItemsTest do
       refute "Hammer" in names
     end
 
-    test "treats ILIKE wildcards and backslashes in the query as literals" do
+    test "treats LIKE/FTS special characters in the query as literals" do
       assert {:ok, _} = Items.create_item(%{name: "100% wool"})
       assert {:ok, _} = Items.create_item(%{name: "100x wool"})
       assert {:ok, _} = Items.create_item(%{name: "under_score"})
       assert {:ok, _} = Items.create_item(%{name: "path\\to"})
       assert {:ok, _} = Items.create_item(%{name: "plain item"})
+      assert {:ok, _} = Items.create_item(%{name: "quote\"mark"})
 
-      # Unescaped "%" would match every name; with escaping only literal "%".
+      # Short query (< 3 chars) uses LIKE with escaping; "%" is not a wildcard.
       percent_only = Enum.map(Items.suggest_items("%"), & &1.name)
       assert percent_only == ["100% wool"]
 
+      # Longer query uses FTS5; special chars are phrase-escaped, not wildcards.
       percent_names = Enum.map(Items.suggest_items("100%"), & &1.name)
       assert "100% wool" in percent_names
       refute "100x wool" in percent_names
 
-      # Unescaped "_" is a single-char wildcard; escaped finds the literal underscore.
       underscore_names = Enum.map(Items.suggest_items("under_score"), & &1.name)
       assert "under_score" in underscore_names
 
       slash_names = Enum.map(Items.suggest_items("path\\t"), & &1.name)
       assert "path\\to" in slash_names
       refute "plain item" in slash_names
+
+      quote_names = Enum.map(Items.suggest_items("quote\"m"), & &1.name)
+      assert "quote\"mark" in quote_names
+    end
+
+    test "matches short prefixes with LIKE fallback" do
+      assert {:ok, _} = Items.create_item(%{name: "Saw"})
+      assert {:ok, _} = Items.create_item(%{name: "Sandpaper"})
+      assert {:ok, _} = Items.create_item(%{name: "Hammer"})
+
+      names = Enum.map(Items.suggest_items("sa"), & &1.name)
+
+      assert "Sandpaper" in names
+      assert "Saw" in names
+      refute "Hammer" in names
+    end
+
+    test "ranks prefix matches above non-prefix contains" do
+      assert {:ok, _} = Items.create_item(%{name: "Phillips screwdriver set"})
+      assert {:ok, _} = Items.create_item(%{name: "Screwdriver"})
+
+      names = Enum.map(Items.suggest_items("screw"), & &1.name)
+
+      assert names == ["Screwdriver", "Phillips screwdriver set"]
+    end
+
+    test "matches mixed-case queries case-insensitively for ASCII" do
+      assert {:ok, _} = Items.create_item(%{name: "Hex Bolt"})
+      assert {:ok, _} = Items.create_item(%{name: "Hammer"})
+
+      names = Enum.map(Items.suggest_items("HEX"), & &1.name)
+
+      assert names == ["Hex Bolt"]
+    end
+
+    test "rename updates FTS so old name no longer matches" do
+      assert {:ok, item} = Items.create_item(%{name: "Old Widget"})
+
+      assert Enum.map(Items.suggest_items("old"), & &1.name) == ["Old Widget"]
+
+      assert {:ok, _} = Items.update_item(item, %{name: "New Gadget"}, %{})
+
+      refute "Old Widget" in Enum.map(Items.suggest_items("old"), & &1.name)
+      assert Enum.map(Items.suggest_items("new"), & &1.name) == ["New Gadget"]
+      assert Enum.map(Items.suggest_items("gadget"), & &1.name) == ["New Gadget"]
+    end
+
+    test "delete removes the item from FTS results" do
+      assert {:ok, item} = Items.create_item(%{name: "Disposable Widget"})
+
+      assert Enum.map(Items.suggest_items("disposable"), & &1.name) == ["Disposable Widget"]
+
+      assert {:ok, _} = Items.delete_item(item)
+
+      assert Items.suggest_items("disposable") == []
     end
   end
 
@@ -152,6 +208,15 @@ defmodule Pinventory.ItemsTest do
       names = Enum.map(Items.list_items(filter: "nail"), & &1.name)
 
       assert names == ["Box Nails"]
+    end
+
+    test "trims whitespace-only filter to no filter" do
+      assert {:ok, _} = Items.create_item(%{name: "Alpha"})
+      assert {:ok, _} = Items.create_item(%{name: "Beta"})
+
+      names = Enum.map(Items.list_items(filter: "   "), & &1.name)
+
+      assert names == ["Alpha", "Beta"]
     end
 
     test "filters by location with stock" do

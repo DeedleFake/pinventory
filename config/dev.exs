@@ -1,15 +1,14 @@
 import Config
 
-# Configure your database
+# Configure your database (SQLite file; WAL is the ecto_sqlite3 default)
 config :pinventory, Pinventory.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  socket_dir: System.get_env("PGHOST"),
-  database: "pinventory_dev",
+  database:
+    System.get_env("DATABASE_PATH") ||
+      Path.expand("../priv/repo/pinventory_dev.db", __DIR__),
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+  pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5"),
+  default_transaction_mode: :immediate
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

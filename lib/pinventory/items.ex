@@ -1,6 +1,11 @@
 defmodule Pinventory.Items do
   @moduledoc """
   The Items context.
+
+  Name search uses SQLite FTS5 trigram matching for longer queries and `LIKE`
+  for short ones. Case folding for both paths follows SQLite defaults: ASCII
+  A–Z only. Non-ASCII letters are case-sensitive unless you add a normalized
+  search column later.
   """
 
   import Ecto.Query, warn: false
@@ -11,45 +16,34 @@ defmodule Pinventory.Items do
   alias Pinventory.Items.DraftStock
   alias Pinventory.Items.Item
   alias Pinventory.Items.ItemLocation
+  alias Pinventory.Locations.Location
 
-  # PostgreSQL ILIKE escape character (bound as a query parameter).
-  @like_escape "\\"
+  # FTS5 trigram needs at least 3 characters for MATCH; shorter queries use LIKE.
+  @fts_min_length 3
 
+  @doc """
+  Suggests items by partial name.
+
+  Uses FTS5 trigram MATCH for queries of three or more characters, with a
+  case-insensitive (ASCII) LIKE fallback for shorter queries. Ranking prefers
+  prefix matches, then substring matches, then FTS rank when available.
+
+  Empty or whitespace-only input returns `[]`.
+  """
   def suggest_items(partial_name, opts \\ []) do
     opts = Keyword.validate!(opts, limit: 10)
-    pattern = escape_like(partial_name)
-    prefix = "#{pattern}%"
-    contains = "%#{pattern}%"
+    query = partial_name |> to_string() |> String.trim()
 
-    q =
-      from item in Item,
-        where:
-          fragment("? ILIKE ? ESCAPE ?", item.name, ^contains, @like_escape) or
-            fragment("? % ?", item.name, ^partial_name),
-        order_by: [
-          desc:
-            fragment(
-              """
-              CASE
-                WHEN ? ILIKE ? ESCAPE ? THEN 3.0
-                WHEN ? ILIKE ? ESCAPE ? THEN 2.0
-                ELSE similarity(?, ?)
-              END
-              """,
-              item.name,
-              ^prefix,
-              @like_escape,
-              item.name,
-              ^contains,
-              @like_escape,
-              item.name,
-              ^partial_name
-            ),
-          asc: item.name
-        ],
-        limit: ^opts[:limit]
+    cond do
+      query == "" ->
+        []
 
-    Repo.all(q)
+      String.length(query) < @fts_min_length ->
+        suggest_items_like(query, opts[:limit])
+
+      true ->
+        suggest_items_fts(query, opts[:limit])
+    end
   end
 
   @doc """
@@ -60,7 +54,8 @@ defmodule Pinventory.Items do
 
   Options:
 
-    * `:filter` - case-insensitive name substring match
+    * `:filter` - ASCII case-insensitive name substring match (trimmed; blank
+      means no filter)
     * `:location_id` - only items with stock at this location
     * `:limit` - max rows (default 100)
   """
@@ -82,14 +77,93 @@ defmodule Pinventory.Items do
     |> Repo.all()
   end
 
-  defp maybe_filter_name(query, filter) when is_binary(filter) and filter != "" do
-    pattern = "%#{escape_like(filter)}%"
+  defp suggest_items_like(query, limit) do
+    escaped = escape_like(query)
+    pattern = "%#{escaped}%"
+    prefix = "#{escaped}%"
 
-    where(
-      query,
-      [item: item],
-      fragment("? ILIKE ? ESCAPE ?", item.name, ^pattern, @like_escape)
+    from(item in Item,
+      where: fragment("? LIKE ? ESCAPE '\\'", item.name, ^pattern),
+      order_by: [
+        desc:
+          fragment(
+            """
+            CASE
+              WHEN ? LIKE ? ESCAPE '\\' THEN 3
+              WHEN ? LIKE ? ESCAPE '\\' THEN 2
+              ELSE 1
+            END
+            """,
+            item.name,
+            ^prefix,
+            item.name,
+            ^pattern
+          ),
+        asc: item.name
+      ],
+      limit: ^limit
     )
+    |> Repo.all()
+  end
+
+  defp suggest_items_fts(query, limit) do
+    fts_query = escape_fts(query)
+    escaped = escape_like(query)
+    pattern = "%#{escaped}%"
+    prefix = "#{escaped}%"
+
+    # One MATCH: join FTS hits (with bm25) to items by stable item_id.
+    from(item in Item,
+      join:
+        fts in fragment(
+          """
+          (
+            SELECT item_id AS item_id, bm25(items_fts) AS rank
+            FROM items_fts
+            WHERE items_fts MATCH ?
+          )
+          """,
+          ^fts_query
+        ),
+      on: item.id == fragment("?.item_id", fts),
+      order_by: [
+        desc:
+          fragment(
+            """
+            CASE
+              WHEN ? LIKE ? ESCAPE '\\' THEN 3
+              WHEN ? LIKE ? ESCAPE '\\' THEN 2
+              ELSE 1
+            END
+            """,
+            item.name,
+            ^prefix,
+            item.name,
+            ^pattern
+          ),
+        # Lower bm25 is a better match.
+        asc: fragment("?.rank", fts),
+        asc: item.name
+      ],
+      limit: ^limit
+    )
+    |> Repo.all()
+  end
+
+  defp maybe_filter_name(query, filter) when is_binary(filter) do
+    case String.trim(filter) do
+      "" ->
+        query
+
+      trimmed ->
+        pattern = "%#{escape_like(trimmed)}%"
+
+        where(
+          query,
+          [item: item],
+          fragment("? LIKE ? ESCAPE '\\'", item.name, ^pattern)
+        )
+    end
   end
 
   defp maybe_filter_name(query, _), do: query
@@ -113,6 +187,11 @@ defmodule Pinventory.Items do
     |> String.replace("\\", "\\\\")
     |> String.replace("%", "\\%")
     |> String.replace("_", "\\_")
+  end
+
+  # Quote the string as an FTS5 phrase so operators and punctuation are literal.
+  defp escape_fts(value) do
+    "\"" <> String.replace(value, "\"", "\"\"") <> "\""
   end
 
   def get_item!(id) do
@@ -197,31 +276,57 @@ defmodule Pinventory.Items do
 
     desired_ids = Map.keys(desired)
 
-    delete_query =
-      if desired_ids == [] do
-        from il in ItemLocation, where: il.item_id == ^item_id
-      else
-        from il in ItemLocation,
-          where: il.item_id == ^item_id and il.location_id not in ^desired_ids
-      end
+    # SQLite does not reliably surface foreign-key constraint names to Ecto, so
+    # validate location ids before insert and return a normal changeset error.
+    with :ok <- validate_locations_exist(repo, desired_ids) do
+      delete_query =
+        if desired_ids == [] do
+          from il in ItemLocation, where: il.item_id == ^item_id
+        else
+          from il in ItemLocation,
+            where: il.item_id == ^item_id and il.location_id not in ^desired_ids
+        end
 
-    repo.delete_all(delete_query)
+      repo.delete_all(delete_query)
 
-    Enum.reduce_while(desired, {:ok, desired}, fn {location_id, quantity}, {:ok, _} = acc ->
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      Enum.reduce_while(desired, {:ok, desired}, fn {location_id, quantity}, {:ok, _} = acc ->
+        now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-      result =
-        %ItemLocation{item_id: item_id, location_id: location_id}
-        |> ItemLocation.changeset(%{quantity: quantity})
-        |> repo.insert(
-          on_conflict: [set: [quantity: quantity, updated_at: now]],
-          conflict_target: [:item_id, :location_id]
-        )
+        result =
+          %ItemLocation{item_id: item_id, location_id: location_id}
+          |> ItemLocation.changeset(%{quantity: quantity})
+          |> repo.insert(
+            on_conflict: [set: [quantity: quantity, updated_at: now]],
+            conflict_target: [:item_id, :location_id]
+          )
 
-      case result do
-        {:ok, _} -> {:cont, acc}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
+        case result do
+          {:ok, _} -> {:cont, acc}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    end
+  end
+
+  defp validate_locations_exist(_repo, []), do: :ok
+
+  defp validate_locations_exist(repo, location_ids) do
+    existing =
+      from(l in Location, where: l.id in ^location_ids, select: l.id)
+      |> repo.all()
+      |> MapSet.new()
+
+    case Enum.find(location_ids, &(not MapSet.member?(existing, &1))) do
+      nil ->
+        :ok
+
+      missing_id ->
+        changeset =
+          %ItemLocation{location_id: missing_id}
+          |> ItemLocation.changeset(%{quantity: 1})
+          |> Ecto.Changeset.add_error(:location_id, "does not exist")
+
+        {:error, changeset}
+    end
   end
 end

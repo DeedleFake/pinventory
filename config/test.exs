@@ -1,18 +1,21 @@
 import Config
 
-# Configure your database
+# Configure your database (SQLite file; no async DB tests — one writer at a time)
 #
 # The MIX_TEST_PARTITION environment variable can be used
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
 config :pinventory, Pinventory.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  socket_dir: System.get_env("PGHOST"),
-  database: "pinventory_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database:
+    System.get_env("DATABASE_PATH") ||
+      Path.expand(
+        "../priv/repo/pinventory_test#{System.get_env("MIX_TEST_PARTITION")}.db",
+        __DIR__
+      ),
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  # DB tests run with async: false (single writer); keep the pool small.
+  pool_size: 5,
+  default_transaction_mode: :immediate
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
