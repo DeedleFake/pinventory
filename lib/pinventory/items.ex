@@ -18,6 +18,19 @@ defmodule Pinventory.Items do
   alias Pinventory.Items.ItemLocation
   alias Pinventory.Locations.Location
 
+  # SQLite LIKE escape character. Used by escape_like/1 and embedded as a SQL
+  # literal in LIKE fragments (SQLite rejects bound ESCAPE parameters).
+  @like_escape "\\"
+  @like_escape_sql "'" <> String.replace(@like_escape, "'", "''") <> "'"
+  @like_match_sql "? LIKE ? ESCAPE " <> @like_escape_sql
+  @name_match_rank_sql """
+  CASE
+    WHEN ? LIKE ? ESCAPE #{@like_escape_sql} THEN 3
+    WHEN ? LIKE ? ESCAPE #{@like_escape_sql} THEN 2
+    ELSE 1
+  END
+  """
+
   # FTS5 trigram needs at least 3 characters for MATCH; shorter queries use LIKE.
   @fts_min_length 3
 
@@ -34,15 +47,10 @@ defmodule Pinventory.Items do
     opts = Keyword.validate!(opts, limit: 10)
     query = partial_name |> to_string() |> String.trim()
 
-    cond do
-      query == "" ->
-        []
-
-      String.length(query) < @fts_min_length ->
-        suggest_items_like(query, opts[:limit])
-
-      true ->
-        suggest_items_fts(query, opts[:limit])
+    if query == "" do
+      []
+    else
+      suggest_items_query(query, opts[:limit])
     end
   end
 
@@ -55,7 +63,7 @@ defmodule Pinventory.Items do
   Options:
 
     * `:filter` - ASCII case-insensitive name substring match (trimmed; blank
-      means no filter)
+      means no filter). Always uses `LIKE`, not FTS.
     * `:location_id` - only items with stock at this location
     * `:limit` - max rows (default 100)
   """
@@ -77,78 +85,63 @@ defmodule Pinventory.Items do
     |> Repo.all()
   end
 
-  defp suggest_items_like(query, limit) do
+  defp suggest_items_query(query, limit) do
     escaped = escape_like(query)
     pattern = "%#{escaped}%"
     prefix = "#{escaped}%"
+    use_fts? = String.length(query) >= @fts_min_length
 
-    from(item in Item,
-      where: fragment("? LIKE ? ESCAPE '\\'", item.name, ^pattern),
-      order_by: [
-        desc:
-          fragment(
-            """
-            CASE
-              WHEN ? LIKE ? ESCAPE '\\' THEN 3
-              WHEN ? LIKE ? ESCAPE '\\' THEN 2
-              ELSE 1
-            END
-            """,
-            item.name,
-            ^prefix,
-            item.name,
-            ^pattern
-          ),
-        asc: item.name
-      ],
-      limit: ^limit
-    )
+    Item
+    |> from(as: :item)
+    |> filter_suggest_candidates(query, pattern, use_fts?)
+    |> order_by_name_match_rank(prefix, pattern)
+    |> maybe_order_by_fts_rank(use_fts?)
+    |> order_by([item: item], asc: item.name)
+    |> limit(^limit)
     |> Repo.all()
   end
 
-  defp suggest_items_fts(query, limit) do
+  defp filter_suggest_candidates(queryable, _query, pattern, false) do
+    where(queryable, [item: item], fragment(@like_match_sql, item.name, ^pattern))
+  end
+
+  defp filter_suggest_candidates(queryable, query, _pattern, true) do
     fts_query = escape_fts(query)
-    escaped = escape_like(query)
-    pattern = "%#{escaped}%"
-    prefix = "#{escaped}%"
 
     # One MATCH: join FTS hits (with bm25) to items by stable item_id.
-    from(item in Item,
-      join:
-        fts in fragment(
-          """
-          (
-            SELECT item_id AS item_id, bm25(items_fts) AS rank
-            FROM items_fts
-            WHERE items_fts MATCH ?
-          )
-          """,
-          ^fts_query
-        ),
+    # Named :fts binding so bm25 order does not depend on join position.
+    join(
+      queryable,
+      :inner,
+      [item: item],
+      fts in fragment(
+        """
+        (
+          SELECT item_id AS item_id, bm25(items_fts) AS rank
+          FROM items_fts
+          WHERE items_fts MATCH ?
+        )
+        """,
+        ^fts_query
+      ),
       on: item.id == fragment("?.item_id", fts),
-      order_by: [
-        desc:
-          fragment(
-            """
-            CASE
-              WHEN ? LIKE ? ESCAPE '\\' THEN 3
-              WHEN ? LIKE ? ESCAPE '\\' THEN 2
-              ELSE 1
-            END
-            """,
-            item.name,
-            ^prefix,
-            item.name,
-            ^pattern
-          ),
-        # Lower bm25 is a better match.
-        asc: fragment("?.rank", fts),
-        asc: item.name
-      ],
-      limit: ^limit
+      as: :fts
     )
-    |> Repo.all()
   end
+
+  # Shared prefix/contains ranking used by both LIKE and FTS suggestion paths.
+  defp order_by_name_match_rank(queryable, prefix, pattern) do
+    order_by(queryable, [item: item],
+      desc: fragment(@name_match_rank_sql, item.name, ^prefix, item.name, ^pattern)
+    )
+  end
+
+  defp maybe_order_by_fts_rank(queryable, true) do
+    # Lower bm25 is a better match.
+    order_by(queryable, [fts: fts], asc: fragment("?.rank", fts))
+  end
+
+  defp maybe_order_by_fts_rank(queryable, false), do: queryable
 
   defp maybe_filter_name(query, filter) when is_binary(filter) do
     case String.trim(filter) do
@@ -161,7 +154,7 @@ defmodule Pinventory.Items do
         where(
           query,
           [item: item],
-          fragment("? LIKE ? ESCAPE '\\'", item.name, ^pattern)
+          fragment(@like_match_sql, item.name, ^pattern)
         )
     end
   end
@@ -184,9 +177,9 @@ defmodule Pinventory.Items do
 
   defp escape_like(value) do
     value
-    |> String.replace("\\", "\\\\")
-    |> String.replace("%", "\\%")
-    |> String.replace("_", "\\_")
+    |> String.replace(@like_escape, @like_escape <> @like_escape)
+    |> String.replace("%", @like_escape <> "%")
+    |> String.replace("_", @like_escape <> "_")
   end
 
   # Quote the string as an FTS5 phrase so operators and punctuation are literal.
@@ -278,7 +271,7 @@ defmodule Pinventory.Items do
 
     # SQLite does not reliably surface foreign-key constraint names to Ecto, so
     # validate location ids before insert and return a normal changeset error.
-    with :ok <- validate_locations_exist(repo, desired_ids) do
+    with :ok <- validate_locations_exist(repo, item_id, desired_ids) do
       delete_query =
         if desired_ids == [] do
           from il in ItemLocation, where: il.item_id == ^item_id
@@ -308,9 +301,9 @@ defmodule Pinventory.Items do
     end
   end
 
-  defp validate_locations_exist(_repo, []), do: :ok
+  defp validate_locations_exist(_repo, _item_id, []), do: :ok
 
-  defp validate_locations_exist(repo, location_ids) do
+  defp validate_locations_exist(repo, item_id, location_ids) do
     existing =
       from(l in Location, where: l.id in ^location_ids, select: l.id)
       |> repo.all()
@@ -322,8 +315,8 @@ defmodule Pinventory.Items do
 
       missing_id ->
         changeset =
-          %ItemLocation{location_id: missing_id}
-          |> ItemLocation.changeset(%{quantity: 1})
+          %ItemLocation{item_id: item_id, location_id: missing_id}
+          |> Ecto.Changeset.change()
           |> Ecto.Changeset.add_error(:location_id, "does not exist")
 
         {:error, changeset}

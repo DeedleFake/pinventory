@@ -178,7 +178,7 @@ defmodule PinventoryWeb.EditItemLiveTest do
       |> form("#item-form", item: %{name: "Orphan stock"})
       |> render_submit()
 
-    assert html =~ "Could not save item stock"
+    assert html =~ "Could not save item stock: location does not exist"
     assert has_element?(view, ~s(#item_name[value="Orphan stock"]))
     assert Items.list_items() == []
   end

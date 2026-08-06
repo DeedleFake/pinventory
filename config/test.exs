@@ -14,8 +14,7 @@ config :pinventory, Pinventory.Repo,
       ),
   pool: Ecto.Adapters.SQL.Sandbox,
   # DB tests run with async: false (single writer); keep the pool small.
-  pool_size: 5,
-  default_transaction_mode: :immediate
+  pool_size: 5
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.

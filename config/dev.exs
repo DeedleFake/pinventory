@@ -7,8 +7,7 @@ config :pinventory, Pinventory.Repo,
       Path.expand("../priv/repo/pinventory_dev.db", __DIR__),
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5"),
-  default_transaction_mode: :immediate
+  pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5")
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

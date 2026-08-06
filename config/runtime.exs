@@ -30,9 +30,7 @@ if config_env() == :prod do
 
   config :pinventory, Pinventory.Repo,
     database: database_path,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5"),
-    # Prefer immediate transactions for a balanced web read/write load on SQLite.
-    default_transaction_mode: :immediate
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5")
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

@@ -15,8 +15,15 @@ defmodule Pinventory.ItemsTest do
     test "returns an ItemLocation changeset when stock references a missing location" do
       fake_location_id = Ecto.UUID.generate()
 
-      assert {:error, %Ecto.Changeset{data: %ItemLocation{}}} =
+      assert {:error, changeset} =
                Items.create_item(%{name: "Orphan"}, %{fake_location_id => 1})
+
+      assert %Ecto.Changeset{
+               data: %ItemLocation{item_id: item_id, location_id: ^fake_location_id}
+             } = changeset
+
+      assert is_binary(item_id)
+      assert errors_on(changeset) == %{location_id: ["does not exist"]}
 
       assert Items.list_items() == []
     end
@@ -75,6 +82,23 @@ defmodule Pinventory.ItemsTest do
       assert Items.stock_map(updated) == %{}
       assert Repo.aggregate(ItemLocation, :count) == 0
     end
+
+    test "returns an ItemLocation changeset when stock references a missing location" do
+      {:ok, item} = Items.create_item(%{name: "Kept"})
+      fake_location_id = Ecto.UUID.generate()
+
+      assert {:error, changeset} =
+               Items.update_item(item, %{name: "Kept"}, %{fake_location_id => 1})
+
+      assert %Ecto.Changeset{
+               data: %ItemLocation{item_id: item_id, location_id: ^fake_location_id}
+             } = changeset
+
+      assert item_id == item.id
+      assert errors_on(changeset) == %{location_id: ["does not exist"]}
+      assert Items.get_item!(item.id).name == "Kept"
+      assert Items.stock_map(Items.get_item!(item.id)) == %{}
+    end
   end
 
   describe "get_item!/1" do
@@ -90,6 +114,14 @@ defmodule Pinventory.ItemsTest do
   end
 
   describe "suggest_items/1" do
+    test "returns empty list for blank or whitespace-only queries" do
+      assert {:ok, _} = Items.create_item(%{name: "Hammer"})
+
+      assert Items.suggest_items("") == []
+      assert Items.suggest_items("   ") == []
+      assert Items.suggest_items("\t\n") == []
+    end
+
     test "returns matching items by prefix" do
       assert {:ok, _} = Items.create_item(%{name: "Phillips screwdriver"})
       assert {:ok, _} = Items.create_item(%{name: "Flat screwdriver"})
@@ -149,6 +181,15 @@ defmodule Pinventory.ItemsTest do
       names = Enum.map(Items.suggest_items("screw"), & &1.name)
 
       assert names == ["Screwdriver", "Phillips screwdriver set"]
+    end
+
+    test "ranks prefix matches above non-prefix contains for short LIKE queries" do
+      assert {:ok, _} = Items.create_item(%{name: "Saw"})
+      assert {:ok, _} = Items.create_item(%{name: "Handsaw"})
+
+      names = Enum.map(Items.suggest_items("sa"), & &1.name)
+
+      assert names == ["Saw", "Handsaw"]
     end
 
     test "matches mixed-case queries case-insensitively for ASCII" do

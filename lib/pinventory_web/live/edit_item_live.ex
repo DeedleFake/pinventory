@@ -590,6 +590,9 @@ defmodule PinventoryWeb.EditItemLive do
          |> assign(:suggestions, suggestions)
          |> sync_dirty()}
 
+      {:error, %Ecto.Changeset{data: %Items.ItemLocation{}} = changeset} ->
+        {:noreply, put_flash(socket, :error, stock_save_error_message(changeset))}
+
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Could not save item stock")}
     end
@@ -602,6 +605,13 @@ defmodule PinventoryWeb.EditItemLive do
 
   defp page_heading(:new), do: "New item"
   defp page_heading(:edit), do: "Edit item"
+
+  defp stock_save_error_message(%Ecto.Changeset{} = changeset) do
+    case Keyword.get(changeset.errors, :location_id) do
+      {msg, _opts} -> "Could not save item stock: location #{msg}"
+      nil -> "Could not save item stock"
+    end
+  end
 
   defp to_item_form(changeset, opts \\ []) do
     to_form(changeset, Keyword.merge([as: :item, id: "item"], opts))

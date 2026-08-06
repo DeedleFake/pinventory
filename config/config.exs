@@ -11,6 +11,9 @@ config :pinventory,
   ecto_repos: [Pinventory.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+# Prefer immediate transactions for a balanced web read/write load on SQLite.
+config :pinventory, Pinventory.Repo, default_transaction_mode: :immediate
+
 # Configures the endpoint
 config :pinventory, PinventoryWeb.Endpoint,
   url: [host: "localhost"],
