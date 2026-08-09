@@ -9,8 +9,8 @@ defmodule Pinventory.Repo.Migrations.CreateInvites do
       add :revoked_at, :utc_datetime
       add :used_at, :utc_datetime
 
-      add :created_by_id, references(:user, type: :binary_id, on_delete: :nilify_all)
-      add :used_by_id, references(:user, type: :binary_id, on_delete: :nilify_all)
+      add :created_by_id, references(:users, type: :binary_id, on_delete: :nilify_all)
+      add :used_by_id, references(:users, type: :binary_id, on_delete: :nilify_all)
 
       timestamps(type: :utc_datetime)
     end

@@ -2,7 +2,7 @@ defmodule Pinventory.Repo.Migrations.CreateUserAuthTables do
   use Ecto.Migration
 
   def change do
-    create table(:user, primary_key: false) do
+    create table(:users, primary_key: false) do
       add :id, :binary_id, primary_key: true
       # SQLite has no citext; COLLATE NOCASE keeps email uniqueness case-insensitive.
       add :email, :string, null: false, collate: :nocase
@@ -12,11 +12,11 @@ defmodule Pinventory.Repo.Migrations.CreateUserAuthTables do
       timestamps(type: :utc_datetime)
     end
 
-    create unique_index(:user, [:email])
+    create unique_index(:users, [:email])
 
-    create table(:user_tokens, primary_key: false) do
+    create table(:users_tokens, primary_key: false) do
       add :id, :binary_id, primary_key: true
-      add :user_id, references(:user, type: :binary_id, on_delete: :delete_all), null: false
+      add :user_id, references(:users, type: :binary_id, on_delete: :delete_all), null: false
       add :token, :binary, null: false, size: 32
       add :context, :string, null: false
       add :sent_to, :string
@@ -25,7 +25,7 @@ defmodule Pinventory.Repo.Migrations.CreateUserAuthTables do
       timestamps(type: :utc_datetime, updated_at: false)
     end
 
-    create index(:user_tokens, [:user_id])
-    create unique_index(:user_tokens, [:context, :token])
+    create index(:users_tokens, [:user_id])
+    create unique_index(:users_tokens, [:context, :token])
   end
 end
