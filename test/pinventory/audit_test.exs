@@ -188,6 +188,44 @@ defmodule Pinventory.AuditTest do
       assert Enum.all?(events, &Ecto.assoc_loaded?(&1.user))
     end
 
+    test "list_edits_for_item groups by edit_id for one item", %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
+
+      {:ok, item} =
+        Items.create_item(scope, %{name: "Level"}, %{garage.id => 1, shelf.id => 2})
+
+      {:ok, other} = Items.create_item(scope, %{name: "Other"}, %{garage.id => 1})
+
+      edits = Audit.list_edits_for_item(item.id)
+      assert length(edits) == 1
+
+      [create_edit] = edits
+      assert length(create_edit.events) == 3
+      assert create_edit.user.id == scope.user.id
+      assert Enum.all?(create_edit.events, &(&1.item_id == item.id))
+      assert Enum.all?(create_edit.events, &Ecto.assoc_loaded?(&1.user))
+
+      # Other item's create does not appear
+      refute Enum.any?(edits, fn edit ->
+               Enum.any?(edit.events, &(&1.item_id == other.id))
+             end)
+
+      {:ok, item} =
+        Items.update_item(scope, item, %{name: "Spirit Level"}, %{garage.id => 1, shelf.id => 2})
+
+      edits = Audit.list_edits_for_item(item.id)
+      assert length(edits) == 2
+
+      rename_edit =
+        Enum.find(edits, fn edit ->
+          Enum.any?(edit.events, &(&1.action == "item.updated"))
+        end)
+
+      assert rename_edit
+      assert length(rename_edit.events) == 1
+    end
+
     test "list_recent_edits groups by edit_id", %{scope: scope} do
       {:ok, _} = Locations.create(scope, %{name: "A"})
       {:ok, garage} = Locations.create(scope, %{name: "B"})

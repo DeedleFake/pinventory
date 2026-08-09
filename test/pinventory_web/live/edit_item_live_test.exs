@@ -342,13 +342,16 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert has_element?(view, "#item-save:disabled")
   end
 
-  test "shows item activity timeline with actor and events", %{
+  test "shows item activity timeline grouped by edit with actor and events", %{
     conn: conn,
     scope: scope,
     user: user
   } do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, item} = Items.create_item(scope, %{name: "Level"}, %{garage.id => 1})
+    {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
+
+    {:ok, item} =
+      Items.create_item(scope, %{name: "Level"}, %{garage.id => 1, shelf.id => 2})
 
     {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
 
@@ -356,21 +359,33 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert has_element?(view, "#item-activity-list")
     refute has_element?(view, "#item-activity-empty")
 
-    events = Pinventory.Audit.list_for_item(item.id)
-    assert events != []
+    edits = Pinventory.Audit.list_edits_for_item(item.id)
+    assert edits != []
 
-    for event <- events do
+    create_edit =
+      Enum.find(edits, fn edit ->
+        Enum.any?(edit.events, &(&1.action == "item.created"))
+      end)
+
+    assert create_edit
+    # item.created + two stock.changed under one edit_id
+    assert length(create_edit.events) == 3
+
+    assert has_element?(view, "#item-edit-#{create_edit.edit_id}")
+    assert has_element?(view, "#item-edit-#{create_edit.edit_id}", user.email)
+    assert has_element?(view, "#item-edit-#{create_edit.edit_id}", "stock at 2 locations")
+
+    for event <- create_edit.events do
       assert has_element?(view, "#item-event-#{event.id}")
-      assert has_element?(view, "#item-event-#{event.id}", user.email)
     end
 
-    created = Enum.find(events, &(&1.action == "item.created"))
-    stock = Enum.find(events, &(&1.action == "stock.changed"))
+    created = Enum.find(create_edit.events, &(&1.action == "item.created"))
+    stock = Enum.find(create_edit.events, &(&1.action == "stock.changed"))
 
     assert created
     assert stock
     assert has_element?(view, "#item-event-#{created.id}", "Created item")
-    assert has_element?(view, "#item-event-#{stock.id}", "Stock at Garage")
+    assert has_element?(view, "#item-event-#{stock.id}", "Stock at")
   end
 
   test "shows empty locations state with a link", %{conn: conn} do

@@ -66,48 +66,38 @@ defmodule Pinventory.Audit do
   """
   def list_recent_edits(opts \\ []) do
     opts = Keyword.validate!(opts, limit: 50)
-    limit = opts[:limit]
+    load_edit_groups(base_edit_query(), opts[:limit])
+  end
 
-    edit_rows =
+  @doc """
+  Lists edits that touch an item, grouped by `edit_id` (newest edit first).
+
+  Only events with `item_id` equal to the given id are included in each group
+  (so a multi-entity edit would show only this item's lines). Preloads `:user`.
+
+  Options:
+
+    * `:limit` - max edit groups (default 50)
+  """
+  def list_edits_for_item(item_id, opts \\ []) when is_binary(item_id) do
+    opts = Keyword.validate!(opts, limit: 50)
+
+    edit_query =
       from(e in Event,
+        where: e.item_id == ^item_id,
         group_by: e.edit_id,
         order_by: [desc: max(e.inserted_at)],
-        limit: ^limit,
         select: %{edit_id: e.edit_id, inserted_at: max(e.inserted_at)}
       )
-      |> Repo.all()
 
-    edit_ids = Enum.map(edit_rows, & &1.edit_id)
-
-    events_by_edit =
-      if edit_ids == [] do
-        %{}
-      else
-        from(e in Event,
-          where: e.edit_id in ^edit_ids,
-          order_by: [asc: e.edit_seq, asc: e.inserted_at, asc: e.id],
-          preload: [:user]
-        )
-        |> Repo.all()
-        |> Enum.group_by(& &1.edit_id)
-      end
-
-    Enum.map(edit_rows, fn %{edit_id: edit_id, inserted_at: inserted_at} ->
-      events = Map.get(events_by_edit, edit_id, [])
-      user = events |> List.first() |> then(fn e -> e && e.user end)
-
-      %{
-        edit_id: edit_id,
-        inserted_at: inserted_at,
-        user: user,
-        events: events
-      }
-    end)
+    load_edit_groups(edit_query, opts[:limit], item_id: item_id)
   end
 
   @doc """
   Lists events for an item (item and stock events), newest first.
   With `:limit`, returns the N most recent events. Preloads `:user`.
+
+  Prefer `list_edits_for_item/2` for the item Activity UI (grouped by edit).
 
   Options:
 
@@ -123,6 +113,60 @@ defmodule Pinventory.Audit do
       preload: [:user]
     )
     |> Repo.all()
+  end
+
+  defp base_edit_query do
+    from(e in Event,
+      group_by: e.edit_id,
+      order_by: [desc: max(e.inserted_at)],
+      select: %{edit_id: e.edit_id, inserted_at: max(e.inserted_at)}
+    )
+  end
+
+  defp load_edit_groups(edit_query, limit, opts \\ []) do
+    item_id = Keyword.get(opts, :item_id)
+
+    edit_rows =
+      edit_query
+      |> limit(^limit)
+      |> Repo.all()
+
+    edit_ids = Enum.map(edit_rows, & &1.edit_id)
+
+    events_by_edit =
+      if edit_ids == [] do
+        %{}
+      else
+        events_query =
+          from(e in Event,
+            where: e.edit_id in ^edit_ids,
+            order_by: [asc: e.edit_seq, asc: e.inserted_at, asc: e.id],
+            preload: [:user]
+          )
+
+        events_query =
+          if item_id do
+            where(events_query, [e], e.item_id == ^item_id)
+          else
+            events_query
+          end
+
+        events_query
+        |> Repo.all()
+        |> Enum.group_by(& &1.edit_id)
+      end
+
+    Enum.map(edit_rows, fn %{edit_id: edit_id, inserted_at: inserted_at} ->
+      events = Map.get(events_by_edit, edit_id, [])
+      user = events |> List.first() |> then(fn e -> e && e.user end)
+
+      %{
+        edit_id: edit_id,
+        inserted_at: inserted_at,
+        user: user,
+        events: events
+      }
+    end)
   end
 
   @doc """

@@ -7,7 +7,7 @@ defmodule PinventoryWeb.EditItemLive do
   alias Pinventory.Items.Item
   alias Pinventory.Locations
 
-  import PinventoryWeb.AuditHelpers, only: [actor_label: 1, format_event_time: 1, event_line: 1]
+  import PinventoryWeb.AuditHelpers, only: [edit_heading: 1, event_line: 1, format_event_time: 1]
 
   @impl true
   def render(assigns) do
@@ -117,37 +117,43 @@ defmodule PinventoryWeb.EditItemLive do
           </div>
 
           <div
-            :if={@item_events == []}
+            :if={@item_edits == []}
             id="item-activity-empty"
             class="rounded-xl border border-base-300 px-3 py-6 text-center text-sm opacity-60"
           >
             No activity yet.
           </div>
 
-          <ol
-            :if={@item_events != []}
+          <div
+            :if={@item_edits != []}
             id="item-activity-list"
-            class="flex flex-col gap-2"
+            class="flex flex-col gap-1"
           >
-            <li
-              :for={event <- @item_events}
-              id={"item-event-#{event.id}"}
-              class="rounded-xl border border-base-300 bg-base-100 px-3 py-2.5 text-sm"
+            <article
+              :for={edit <- @item_edits}
+              id={"item-edit-#{edit.edit_id}"}
+              class="rounded-xl border border-base-300 bg-base-100 p-4 space-y-2"
             >
               <div class="flex flex-wrap items-baseline justify-between gap-2">
-                <span class="font-medium">{event_line(event)}</span>
+                <p class="text-sm font-medium">{edit_heading(edit)}</p>
                 <time
                   class="text-xs tabular-nums opacity-60"
-                  datetime={DateTime.to_iso8601(event.inserted_at)}
+                  datetime={DateTime.to_iso8601(edit.inserted_at)}
                 >
-                  {format_event_time(event.inserted_at)}
+                  {format_event_time(edit.inserted_at)}
                 </time>
               </div>
-              <p class="mt-0.5 text-xs opacity-70">
-                {actor_label(event.user)}
-              </p>
-            </li>
-          </ol>
+              <ul class="space-y-1 border-t border-base-300/80 pt-2">
+                <li
+                  :for={event <- edit.events}
+                  id={"item-event-#{event.id}"}
+                  class="text-sm opacity-80"
+                >
+                  {event_line(event)}
+                </li>
+              </ul>
+            </article>
+          </div>
         </section>
       </div>
     </Layouts.app>
@@ -378,7 +384,7 @@ defmodule PinventoryWeb.EditItemLive do
      |> assign(:move_to, nil)
      |> assign(:move_amount, 1)
      |> assign(:dirty?, false)
-     |> assign(:item_events, [])}
+     |> assign(:item_edits, [])}
   end
 
   @impl true
@@ -397,7 +403,7 @@ defmodule PinventoryWeb.EditItemLive do
       |> assign(:baseline_quantities, quantities)
       |> assign(:quantities, quantities)
       |> assign(:form, to_item_form(Items.change_item(item)))
-      |> assign(:item_events, Audit.list_for_item(item.id))
+      |> assign(:item_edits, Audit.list_edits_for_item(item.id))
       |> clear_suggestions()
       |> clear_move()
       |> sync_dirty()
@@ -420,7 +426,7 @@ defmodule PinventoryWeb.EditItemLive do
       |> assign(:baseline_quantities, quantities)
       |> assign(:quantities, quantities)
       |> assign(:form, to_item_form(Items.change_item(item)))
-      |> assign(:item_events, [])
+      |> assign(:item_edits, [])
       |> clear_suggestions()
       |> clear_move()
       |> sync_dirty()
@@ -616,7 +622,7 @@ defmodule PinventoryWeb.EditItemLive do
             |> assign(:baseline_quantities, quantities)
             |> assign(:quantities, quantities)
             |> assign(:form, to_item_form(Items.change_item(item)))
-            |> assign(:item_events, Audit.list_for_item(item.id))
+            |> assign(:item_edits, Audit.list_edits_for_item(item.id))
             |> clear_suggestions()
             |> clear_move()
             |> sync_dirty()
