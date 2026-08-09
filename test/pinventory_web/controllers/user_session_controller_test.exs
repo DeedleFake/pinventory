@@ -39,6 +39,21 @@ defmodule PinventoryWeb.UserSessionControllerTest do
       assert redirected_to(conn) == ~p"/"
     end
 
+    test "logs the user in without remember me cookie when unchecked", %{conn: conn, user: user} do
+      conn =
+        post(conn, ~p"/user/log-in", %{
+          "user" => %{
+            "email" => user.email,
+            "password" => valid_user_password(),
+            "remember_me" => "false"
+          }
+        })
+
+      assert get_session(conn, :user_token)
+      refute conn.resp_cookies["_pinventory_web_user_remember_me"]
+      assert redirected_to(conn) == ~p"/"
+    end
+
     test "logs the user in with return to", %{conn: conn, user: user} do
       conn =
         conn

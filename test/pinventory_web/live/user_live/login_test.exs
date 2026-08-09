@@ -7,10 +7,12 @@ defmodule PinventoryWeb.UserLive.LoginTest do
   describe "login page" do
     test "renders login page when users exist", %{conn: conn} do
       _user = user_fixture()
-      {:ok, _lv, html} = live(conn, ~p"/user/log-in")
+      {:ok, lv, html} = live(conn, ~p"/user/log-in")
 
       assert html =~ "Log in"
       assert html =~ "Password"
+      assert has_element?(lv, ~s|#user_remember_me[type="checkbox"][checked]|)
+      assert html =~ "Keep me logged in for 14 days"
       refute html =~ "Sign up"
       refute html =~ "Log in with email"
       refute html =~ "local mail adapter"

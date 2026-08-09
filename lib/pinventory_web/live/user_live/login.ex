@@ -35,7 +35,11 @@ defmodule PinventoryWeb.UserLive.Login do
             spellcheck="false"
             required
           />
-          <input type="hidden" name={@form[:remember_me].name} value="true" />
+          <.input
+            field={@form[:remember_me]}
+            type="checkbox"
+            label="Keep me logged in for 14 days"
+          />
           <.button class="btn btn-primary w-full">
             Log in
           </.button>
@@ -59,7 +63,7 @@ defmodule PinventoryWeb.UserLive.Login do
           Phoenix.Flash.get(socket.assigns.flash, :email) ||
             get_in(socket.assigns, [:current_scope, Access.key(:user), Access.key(:email)])
 
-        form = to_form(%{"email" => email}, as: "user")
+        form = to_form(%{"email" => email, "remember_me" => "true"}, as: "user")
 
         {:ok, assign(socket, form: form, trigger_submit: false)}
     end
