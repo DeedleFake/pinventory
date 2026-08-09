@@ -106,14 +106,14 @@ defmodule Pinventory.Accounts do
 
   """
   def register_bootstrap_user(attrs) do
-    # Hash password outside the transaction so Argon2 does not hold table locks.
+    # Hash password outside the transaction so Argon2 does not hold write locks.
     changeset = registration_insert_changeset(attrs)
 
     if changeset.valid? do
+      # SQLite serializes writers (Repo default_transaction_mode: :immediate).
+      # Check for existing users inside the transaction so concurrent bootstrap
+      # attempts cannot both create a first user.
       Repo.transact(fn ->
-        # Serialize bootstrap so two concurrent first-user attempts cannot both succeed.
-        Repo.query!("LOCK TABLE \"user\" IN EXCLUSIVE MODE")
-
         if any_users?() do
           {:error, :registration_closed}
         else
@@ -143,12 +143,15 @@ defmodule Pinventory.Accounts do
   Password hashing runs outside the invite lock transaction.
   """
   def register_user_with_invite(plain_token, attrs) when is_binary(plain_token) do
-    # Hash password outside the transaction so Argon2 does not hold row locks.
+    # Hash password outside the transaction so Argon2 does not hold write locks.
     changeset = registration_insert_changeset(attrs)
 
     if changeset.valid? do
+      # SQLite serializes writers (Repo default_transaction_mode: :immediate).
+      # Re-read the invite inside the transaction so a concurrent consumer cannot
+      # reuse the same ticket (SQLite has no FOR UPDATE row locks).
       Repo.transact(fn ->
-        with {:ok, invite} <- fetch_pending_invite_for_update(plain_token),
+        with {:ok, invite} <- fetch_pending_invite(plain_token),
              {:ok, user} <- Repo.insert(changeset),
              {:ok, _invite} <- Repo.update(Invite.use_changeset(invite, user.id)) do
           {:ok, user}
@@ -273,11 +276,9 @@ defmodule Pinventory.Accounts do
     "/user/invite/" <> plain_token
   end
 
-  defp fetch_pending_invite_for_update(plain_token) do
+  defp fetch_pending_invite(plain_token) do
     with {:ok, token_hash} <- Invite.hash_token(plain_token) do
-      invite =
-        from(i in Invite, where: i.token_hash == ^token_hash, lock: "FOR UPDATE")
-        |> Repo.one()
+      invite = Repo.get_by(Invite, token_hash: token_hash)
 
       if invite && Invite.pending?(invite) do
         {:ok, invite}

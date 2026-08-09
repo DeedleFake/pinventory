@@ -2,11 +2,10 @@ defmodule Pinventory.Repo.Migrations.CreateUserAuthTables do
   use Ecto.Migration
 
   def change do
-    execute "CREATE EXTENSION IF NOT EXISTS citext", ""
-
     create table(:user, primary_key: false) do
       add :id, :binary_id, primary_key: true
-      add :email, :citext, null: false
+      # SQLite has no citext; COLLATE NOCASE keeps email uniqueness case-insensitive.
+      add :email, :string, null: false, collate: :nocase
       add :hashed_password, :string
       add :confirmed_at, :utc_datetime
 
@@ -18,7 +17,7 @@ defmodule Pinventory.Repo.Migrations.CreateUserAuthTables do
     create table(:user_tokens, primary_key: false) do
       add :id, :binary_id, primary_key: true
       add :user_id, references(:user, type: :binary_id, on_delete: :delete_all), null: false
-      add :token, :binary, null: false
+      add :token, :binary, null: false, size: 32
       add :context, :string, null: false
       add :sent_to, :string
       add :authenticated_at, :utc_datetime

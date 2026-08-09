@@ -1,5 +1,5 @@
 defmodule PinventoryWeb.UserAuthTest do
-  use PinventoryWeb.ConnCase, async: true
+  use PinventoryWeb.ConnCase, async: false
 
   alias Phoenix.LiveView
   alias Pinventory.Accounts

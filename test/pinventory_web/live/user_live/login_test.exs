@@ -1,5 +1,5 @@
 defmodule PinventoryWeb.UserLive.LoginTest do
-  use PinventoryWeb.ConnCase, async: true
+  use PinventoryWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import Pinventory.AccountsFixtures

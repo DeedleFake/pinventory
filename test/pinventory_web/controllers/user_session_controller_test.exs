@@ -1,5 +1,5 @@
 defmodule PinventoryWeb.UserSessionControllerTest do
-  use PinventoryWeb.ConnCase, async: true
+  use PinventoryWeb.ConnCase, async: false
 
   import Pinventory.AccountsFixtures
 
