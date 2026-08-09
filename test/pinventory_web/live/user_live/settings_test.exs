@@ -32,37 +32,17 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       assert %{"error" => "You must log in to access this page."} = flash
     end
 
-    test "redirects if user is not in sudo mode", %{conn: conn} do
+    test "redirects every settings tab if user is not in sudo mode", %{conn: conn} do
       conn =
         log_in_user(conn, user_fixture(),
           token_authenticated_at: DateTime.add(DateTime.utc_now(:second), -11, :minute)
         )
 
-      assert {:error, {:redirect, %{to: path, flash: flash}}} = live(conn, ~p"/user/settings")
-      assert path == ~p"/user/log-in"
-      assert flash["error"] == "You must re-authenticate to access this page."
-    end
-
-    test "users tab does not require sudo mode", %{conn: conn} do
-      conn =
-        log_in_user(conn, user_fixture(),
-          token_authenticated_at: DateTime.add(DateTime.utc_now(:second), -11, :minute)
-        )
-
-      assert {:ok, view, _html} = live(conn, ~p"/user/settings/users")
-      assert has_element?(view, "#settings-users")
-      assert has_element?(view, "#generate-invite")
-    end
-
-    test "activity tab does not require sudo mode", %{conn: conn} do
-      conn =
-        log_in_user(conn, user_fixture(),
-          token_authenticated_at: DateTime.add(DateTime.utc_now(:second), -11, :minute)
-        )
-
-      assert {:ok, view, _html} = live(conn, ~p"/user/settings/activity")
-      assert has_element?(view, "#settings-activity")
-      assert has_element?(view, "#activity-heading", "Activity")
+      for path <- [~p"/user/settings", ~p"/user/settings/users", ~p"/user/settings/activity"] do
+        assert {:error, {:redirect, %{to: to, flash: flash}}} = live(conn, path)
+        assert to == ~p"/user/log-in"
+        assert flash["error"] == "You must re-authenticate to access this page."
+      end
     end
 
     test "activity tab groups events by edit_id with actor and stock lines", %{conn: conn} do

@@ -339,22 +339,12 @@ defmodule PinventoryWeb.UserLive.Settings do
     {:noreply, prepare_tab(socket)}
   end
 
-  defp prepare_tab(%{assigns: %{live_action: :users}} = socket) do
-    socket
-    |> assign(:page_title, "Users")
-    |> stream(:invites, Accounts.list_pending_invites(), reset: true)
-    |> stream(:users, Accounts.list_users(), reset: true)
-  end
-
-  defp prepare_tab(%{assigns: %{live_action: :activity}} = socket) do
-    socket
-    |> assign(:page_title, "Activity")
-    |> assign(:activity_edits, Audit.list_recent_edits(limit: 50))
-  end
-
-  defp prepare_tab(%{assigns: %{live_action: :edit}} = socket) do
+  # Account, Users, and Activity all require a recent password login (sudo mode).
+  # confirm-email is handled in mount and does not use this path.
+  defp prepare_tab(%{assigns: %{live_action: action}} = socket)
+       when action in [:edit, :users, :activity] do
     if Accounts.sudo_mode?(socket.assigns.current_scope.user, -10) do
-      assign(socket, :page_title, "Settings")
+      load_tab(socket, action)
     else
       socket
       |> put_flash(:error, "You must re-authenticate to access this page.")
@@ -363,6 +353,23 @@ defmodule PinventoryWeb.UserLive.Settings do
   end
 
   defp prepare_tab(socket), do: socket
+
+  defp load_tab(socket, :edit) do
+    assign(socket, :page_title, "Settings")
+  end
+
+  defp load_tab(socket, :users) do
+    socket
+    |> assign(:page_title, "Users")
+    |> stream(:invites, Accounts.list_pending_invites(), reset: true)
+    |> stream(:users, Accounts.list_users(), reset: true)
+  end
+
+  defp load_tab(socket, :activity) do
+    socket
+    |> assign(:page_title, "Activity")
+    |> assign(:activity_edits, Audit.list_recent_edits(limit: 50))
+  end
 
   defp activity_navigate_path({:item, item_id}), do: ~p"/item/#{item_id}"
 
