@@ -52,6 +52,7 @@ defmodule PinventoryWeb.Router do
 
       live "/user/settings", UserLive.Settings, :edit
       live "/user/settings/users", UserLive.Settings, :users
+      live "/user/settings/activity", UserLive.Settings, :activity
       live "/user/settings/confirm-email/:token", UserLive.Settings, :confirm_email
     end
 

@@ -1,10 +1,13 @@
 defmodule PinventoryWeb.EditItemLive do
   use PinventoryWeb, :live_view
 
+  alias Pinventory.Audit
   alias Pinventory.Items
   alias Pinventory.Items.DraftStock
   alias Pinventory.Items.Item
   alias Pinventory.Locations
+
+  import PinventoryWeb.AuditHelpers, only: [actor_label: 1, format_event_time: 1, event_line: 1]
 
   @impl true
   def render(assigns) do
@@ -101,6 +104,51 @@ defmodule PinventoryWeb.EditItemLive do
             </.button>
           </div>
         </div>
+
+        <section
+          :if={@live_action == :edit}
+          id="item-activity"
+          class="space-y-3 border-t border-base-300 pt-6"
+          aria-labelledby="item-activity-heading"
+        >
+          <div>
+            <h2 id="item-activity-heading" class="text-sm font-medium opacity-80">Activity</h2>
+            <p class="mt-0.5 text-xs opacity-60">History for this item</p>
+          </div>
+
+          <div
+            :if={@item_events == []}
+            id="item-activity-empty"
+            class="rounded-xl border border-base-300 px-3 py-6 text-center text-sm opacity-60"
+          >
+            No activity yet.
+          </div>
+
+          <ol
+            :if={@item_events != []}
+            id="item-activity-list"
+            class="flex flex-col gap-2"
+          >
+            <li
+              :for={event <- @item_events}
+              id={"item-event-#{event.id}"}
+              class="rounded-xl border border-base-300 bg-base-100 px-3 py-2.5 text-sm"
+            >
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <span class="font-medium">{event_line(event)}</span>
+                <time
+                  class="text-xs tabular-nums opacity-60"
+                  datetime={DateTime.to_iso8601(event.inserted_at)}
+                >
+                  {format_event_time(event.inserted_at)}
+                </time>
+              </div>
+              <p class="mt-0.5 text-xs opacity-70">
+                {actor_label(event.user)}
+              </p>
+            </li>
+          </ol>
+        </section>
       </div>
     </Layouts.app>
     """
@@ -329,7 +377,8 @@ defmodule PinventoryWeb.EditItemLive do
      |> assign(:move_from, nil)
      |> assign(:move_to, nil)
      |> assign(:move_amount, 1)
-     |> assign(:dirty?, false)}
+     |> assign(:dirty?, false)
+     |> assign(:item_events, [])}
   end
 
   @impl true
@@ -348,6 +397,7 @@ defmodule PinventoryWeb.EditItemLive do
       |> assign(:baseline_quantities, quantities)
       |> assign(:quantities, quantities)
       |> assign(:form, to_item_form(Items.change_item(item)))
+      |> assign(:item_events, Audit.list_for_item(item.id))
       |> clear_suggestions()
       |> clear_move()
       |> sync_dirty()
@@ -370,6 +420,7 @@ defmodule PinventoryWeb.EditItemLive do
       |> assign(:baseline_quantities, quantities)
       |> assign(:quantities, quantities)
       |> assign(:form, to_item_form(Items.change_item(item)))
+      |> assign(:item_events, [])
       |> clear_suggestions()
       |> clear_move()
       |> sync_dirty()
@@ -535,11 +586,12 @@ defmodule PinventoryWeb.EditItemLive do
     name = get_in(params, ["item", "name"]) || current_name(socket)
     quantities = socket.assigns.quantities
     attrs = %{"name" => name}
+    scope = socket.assigns.current_scope
 
     result =
       case socket.assigns.live_action do
-        :new -> Items.create_item(attrs, quantities)
-        :edit -> Items.update_item(socket.assigns.item, attrs, quantities)
+        :new -> Items.create_item(scope, attrs, quantities)
+        :edit -> Items.update_item(scope, socket.assigns.item, attrs, quantities)
       end
 
     case result do
@@ -564,6 +616,7 @@ defmodule PinventoryWeb.EditItemLive do
             |> assign(:baseline_quantities, quantities)
             |> assign(:quantities, quantities)
             |> assign(:form, to_item_form(Items.change_item(item)))
+            |> assign(:item_events, Audit.list_for_item(item.id))
             |> clear_suggestions()
             |> clear_move()
             |> sync_dirty()

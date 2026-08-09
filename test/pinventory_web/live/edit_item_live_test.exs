@@ -8,9 +8,9 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
   setup :register_and_log_in_user
 
-  test "renders the new item form with locations ordered by name", %{conn: conn} do
-    {:ok, _} = Locations.create(%{name: "Zebra"})
-    {:ok, _} = Locations.create(%{name: "Alpha"})
+  test "renders the new item form with locations ordered by name", %{conn: conn, scope: scope} do
+    {:ok, _} = Locations.create(scope, %{name: "Zebra"})
+    {:ok, _} = Locations.create(scope, %{name: "Alpha"})
 
     {:ok, view, html} = live(conn, ~p"/item")
 
@@ -20,9 +20,9 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert html =~ ~r/Alpha[\s\S]*Zebra/
   end
 
-  test "creates an item with stock and navigates to edit", %{conn: conn} do
-    {:ok, garage} = Locations.create(%{name: "Garage"})
-    {:ok, shelf} = Locations.create(%{name: "Shelf"})
+  test "creates an item with stock and navigates to edit", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
 
     {:ok, view, _html} = live(conn, ~p"/item")
 
@@ -58,10 +58,10 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert html =~ "can&#39;t be blank" or html =~ "can't be blank"
   end
 
-  test "edits an existing item name and quantities", %{conn: conn} do
-    {:ok, garage} = Locations.create(%{name: "Garage"})
-    {:ok, shelf} = Locations.create(%{name: "Shelf"})
-    {:ok, item} = Items.create_item(%{name: "Nails"}, %{garage.id => 5})
+  test "edits an existing item name and quantities", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
+    {:ok, item} = Items.create_item(scope, %{name: "Nails"}, %{garage.id => 5})
 
     {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
 
@@ -87,9 +87,9 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert Items.stock_map(updated) == %{garage.id => 2, shelf.id => 4}
   end
 
-  test "adjust buttons change draft quantities without saving", %{conn: conn} do
-    {:ok, garage} = Locations.create(%{name: "Garage"})
-    {:ok, item} = Items.create_item(%{name: "Tape"}, %{garage.id => 1})
+  test "adjust buttons change draft quantities without saving", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, item} = Items.create_item(scope, %{name: "Tape"}, %{garage.id => 1})
 
     {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
 
@@ -105,10 +105,10 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert Items.stock_map(Items.get_item!(item.id)) == %{garage.id => 1}
   end
 
-  test "marks dirty quantity rows when stock differs from baseline", %{conn: conn} do
-    {:ok, garage} = Locations.create(%{name: "Garage"})
-    {:ok, shelf} = Locations.create(%{name: "Shelf"})
-    {:ok, item} = Items.create_item(%{name: "Bolts"}, %{garage.id => 2, shelf.id => 4})
+  test "marks dirty quantity rows when stock differs from baseline", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
+    {:ok, item} = Items.create_item(scope, %{name: "Bolts"}, %{garage.id => 2, shelf.id => 4})
 
     {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
 
@@ -127,11 +127,12 @@ defmodule PinventoryWeb.EditItemLiveTest do
   end
 
   test "set_quantity updates only the edited location when multiple locations exist", %{
-    conn: conn
+    conn: conn,
+    scope: scope
   } do
-    {:ok, garage} = Locations.create(%{name: "Garage"})
-    {:ok, shelf} = Locations.create(%{name: "Shelf"})
-    {:ok, item} = Items.create_item(%{name: "Screws"}, %{garage.id => 1, shelf.id => 9})
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
+    {:ok, item} = Items.create_item(scope, %{name: "Screws"}, %{garage.id => 1, shelf.id => 9})
 
     {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
 
@@ -148,8 +149,11 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert has_element?(view, "#item-total", "Total: 13")
   end
 
-  test "stock controls live in a stock form separate from the name form", %{conn: conn} do
-    {:ok, garage} = Locations.create(%{name: "Garage"})
+  test "stock controls live in a stock form separate from the name form", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
 
     {:ok, view, _html} = live(conn, ~p"/item")
 
@@ -161,8 +165,8 @@ defmodule PinventoryWeb.EditItemLiveTest do
     refute has_element?(view, ~s(#item-stock-form button[type="submit"]))
   end
 
-  test "stock save failures keep the name form and flash an error", %{conn: conn} do
-    {:ok, garage} = Locations.create(%{name: "Garage"})
+  test "stock save failures keep the name form and flash an error", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
 
     {:ok, view, _html} = live(conn, ~p"/item")
 
@@ -185,10 +189,10 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert Items.list_items() == []
   end
 
-  test "moves quantity between locations in the draft", %{conn: conn} do
-    {:ok, garage} = Locations.create(%{name: "Garage"})
-    {:ok, shelf} = Locations.create(%{name: "Shelf"})
-    {:ok, item} = Items.create_item(%{name: "Bits"}, %{garage.id => 5})
+  test "moves quantity between locations in the draft", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
+    {:ok, item} = Items.create_item(scope, %{name: "Bits"}, %{garage.id => 5})
 
     {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
 
@@ -218,8 +222,8 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert Items.stock_map(Items.get_item!(item.id)) == %{garage.id => 5}
   end
 
-  test "shows name suggestions and navigates on select", %{conn: conn} do
-    {:ok, existing} = Items.create_item(%{name: "Screwdriver set"})
+  test "shows name suggestions and navigates on select", %{conn: conn, scope: scope} do
+    {:ok, existing} = Items.create_item(scope, %{name: "Screwdriver set"})
 
     {:ok, view, _html} = live(conn, ~p"/item")
 
@@ -241,8 +245,8 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert_redirect(view, "/item/#{existing.id}")
   end
 
-  test "hides name suggestions when the name field is blurred", %{conn: conn} do
-    {:ok, _existing} = Items.create_item(%{name: "Screwdriver set"})
+  test "hides name suggestions when the name field is blurred", %{conn: conn, scope: scope} do
+    {:ok, _existing} = Items.create_item(scope, %{name: "Screwdriver set"})
 
     {:ok, view, _html} = live(conn, ~p"/item")
 
@@ -266,9 +270,12 @@ defmodule PinventoryWeb.EditItemLiveTest do
     refute html =~ ~s(id="item-suggestions")
   end
 
-  test "does not reopen suggestions when editing quantities after blur", %{conn: conn} do
-    {:ok, garage} = Locations.create(%{name: "Garage"})
-    {:ok, _existing} = Items.create_item(%{name: "Paper towels"})
+  test "does not reopen suggestions when editing quantities after blur", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, _existing} = Items.create_item(scope, %{name: "Paper towels"})
 
     {:ok, view, _html} = live(conn, ~p"/item")
 
@@ -294,9 +301,9 @@ defmodule PinventoryWeb.EditItemLiveTest do
     refute has_element?(view, "#item-suggestions")
   end
 
-  test "does not show suggestions while editing", %{conn: conn} do
-    {:ok, item} = Items.create_item(%{name: "Wrench"})
-    {:ok, _other} = Items.create_item(%{name: "Wrench set"})
+  test "does not show suggestions while editing", %{conn: conn, scope: scope} do
+    {:ok, item} = Items.create_item(scope, %{name: "Wrench"})
+    {:ok, _other} = Items.create_item(scope, %{name: "Wrench set"})
 
     {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
 
@@ -311,8 +318,8 @@ defmodule PinventoryWeb.EditItemLiveTest do
     refute has_element?(view, "#item-suggestions")
   end
 
-  test "marks the form dirty and pushes unsaved-changes events", %{conn: conn} do
-    {:ok, item} = Items.create_item(%{name: "Level"})
+  test "marks the form dirty and pushes unsaved-changes events", %{conn: conn, scope: scope} do
+    {:ok, item} = Items.create_item(scope, %{name: "Level"})
 
     {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
 
@@ -333,6 +340,37 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert_push_event(view, "unsaved-changes", %{dirty: false})
     assert has_element?(view, ~s(#item-page[data-dirty="false"]))
     assert has_element?(view, "#item-save:disabled")
+  end
+
+  test "shows item activity timeline with actor and events", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, item} = Items.create_item(scope, %{name: "Level"}, %{garage.id => 1})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    assert has_element?(view, "#item-activity")
+    assert has_element?(view, "#item-activity-list")
+    refute has_element?(view, "#item-activity-empty")
+
+    events = Pinventory.Audit.list_for_item(item.id)
+    assert events != []
+
+    for event <- events do
+      assert has_element?(view, "#item-event-#{event.id}")
+      assert has_element?(view, "#item-event-#{event.id}", user.email)
+    end
+
+    created = Enum.find(events, &(&1.action == "item.created"))
+    stock = Enum.find(events, &(&1.action == "stock.changed"))
+
+    assert created
+    assert stock
+    assert has_element?(view, "#item-event-#{created.id}", "Created item")
+    assert has_element?(view, "#item-event-#{stock.id}", "Stock at Garage")
   end
 
   test "shows empty locations state with a link", %{conn: conn} do

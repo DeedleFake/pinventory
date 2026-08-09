@@ -17,6 +17,7 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       assert has_element?(lv, "#settings-tabs")
       assert has_element?(lv, "#settings-tab-account")
       assert has_element?(lv, "#settings-tab-users")
+      assert has_element?(lv, "#settings-tab-activity")
       assert has_element?(lv, "#settings-account")
     end
 
@@ -51,6 +52,59 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       assert {:ok, view, _html} = live(conn, ~p"/user/settings/users")
       assert has_element?(view, "#settings-users")
       assert has_element?(view, "#generate-invite")
+    end
+
+    test "activity tab does not require sudo mode", %{conn: conn} do
+      conn =
+        log_in_user(conn, user_fixture(),
+          token_authenticated_at: DateTime.add(DateTime.utc_now(:second), -11, :minute)
+        )
+
+      assert {:ok, view, _html} = live(conn, ~p"/user/settings/activity")
+      assert has_element?(view, "#settings-activity")
+      assert has_element?(view, "#activity-heading", "Activity")
+    end
+
+    test "activity tab groups events by edit_id with actor and stock lines", %{conn: conn} do
+      alias Pinventory.Accounts.Scope
+      alias Pinventory.Items
+      alias Pinventory.Locations
+
+      user = user_fixture()
+      scope = Scope.for_user(user)
+      conn = log_in_user(conn, user)
+
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
+
+      {:ok, item} =
+        Items.create_item(scope, %{name: "Widget"}, %{garage.id => 2, shelf.id => 1})
+
+      assert {:ok, view, _html} = live(conn, ~p"/user/settings/activity")
+
+      assert has_element?(view, "#settings-activity")
+      assert has_element?(view, "#activity-edits")
+      refute has_element?(view, "#activity-empty")
+
+      # Create edit groups item.created + two stock.changed under one edit_id
+      edits = Pinventory.Audit.list_recent_edits(limit: 20)
+
+      widget_edit =
+        Enum.find(edits, fn edit ->
+          Enum.any?(edit.events, &(&1.item_id == item.id and &1.action == "item.created"))
+        end)
+
+      assert widget_edit
+      assert has_element?(view, "#activity-edit-#{widget_edit.edit_id}")
+      assert has_element?(view, "#activity-edit-#{widget_edit.edit_id}", user.email)
+      assert has_element?(view, "#activity-edit-#{widget_edit.edit_id}", "Widget")
+      assert has_element?(view, "#activity-edit-#{widget_edit.edit_id}", "stock at 2 locations")
+
+      for event <- widget_edit.events do
+        assert has_element?(view, "#activity-event-#{event.id}")
+      end
+
+      assert has_element?(view, "#activity-event-#{hd(widget_edit.events).id}", "Created item")
     end
   end
 

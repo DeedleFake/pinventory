@@ -34,38 +34,41 @@ defmodule PinventoryWeb.ItemsLiveTest do
            )
   end
 
-  test "lists items with stock labels and links to edit", %{conn: conn} do
-    {:ok, garage} = Locations.create(%{name: "Garage"})
-    {:ok, shelf} = Locations.create(%{name: "Shelf"})
+  test "lists items with stock labels and links to edit", %{conn: conn, scope: scope, user: user} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
 
     {:ok, screws} =
-      Items.create_item(%{name: "Screws"}, %{garage.id => 5, shelf.id => 3})
+      Items.create_item(scope, %{name: "Screws"}, %{garage.id => 5, shelf.id => 3})
 
-    {:ok, empty} = Items.create_item(%{name: "Empty Box"})
+    {:ok, empty} = Items.create_item(scope, %{name: "Empty Box"})
 
     {:ok, view, _html} = live(conn, ~p"/")
 
     assert has_element?(view, "#items-#{screws.id}")
     assert has_element?(view, "a[href='/item/#{screws.id}']", "Screws")
     assert has_element?(view, "#items-#{screws.id}-stock", "8 total in 2 locations")
+    assert has_element?(view, "#items-#{screws.id}-last-stock", "Last quantity change:")
+    assert has_element?(view, "#items-#{screws.id}-last-stock", user.email)
 
     assert has_element?(view, "a[href='/item/#{empty.id}']", "Empty Box")
     assert has_element?(view, "#items-#{empty.id}-stock", "0 total")
     refute has_element?(view, "#items-#{empty.id}-stock", " in ")
+    refute has_element?(view, "#items-#{empty.id}-last-stock")
   end
 
-  test "uses singular location wording for one stock location", %{conn: conn} do
-    {:ok, garage} = Locations.create(%{name: "Garage"})
-    {:ok, item} = Items.create_item(%{name: "Hammer"}, %{garage.id => 2})
+  test "uses singular location wording for one stock location", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, item} = Items.create_item(scope, %{name: "Hammer"}, %{garage.id => 2})
 
     {:ok, view, _html} = live(conn, ~p"/")
 
     assert has_element?(view, "#items-#{item.id}-stock", "2 total in 1 location")
   end
 
-  test "filters items by name", %{conn: conn} do
-    {:ok, _} = Items.create_item(%{name: "Box Nails"})
-    {:ok, _} = Items.create_item(%{name: "Hammer"})
+  test "filters items by name", %{conn: conn, scope: scope} do
+    {:ok, _} = Items.create_item(scope, %{name: "Box Nails"})
+    {:ok, _} = Items.create_item(scope, %{name: "Hammer"})
 
     {:ok, view, _html} = live(conn, ~p"/")
 
@@ -78,12 +81,12 @@ defmodule PinventoryWeb.ItemsLiveTest do
     refute has_element?(view, "#items a", "Hammer")
   end
 
-  test "filters items by location", %{conn: conn} do
-    {:ok, garage} = Locations.create(%{name: "Garage"})
-    {:ok, shelf} = Locations.create(%{name: "Shelf"})
+  test "filters items by location", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
 
-    {:ok, _} = Items.create_item(%{name: "Drill"}, %{garage.id => 1})
-    {:ok, _} = Items.create_item(%{name: "Tape"}, %{shelf.id => 2})
+    {:ok, _} = Items.create_item(scope, %{name: "Drill"}, %{garage.id => 1})
+    {:ok, _} = Items.create_item(scope, %{name: "Tape"}, %{shelf.id => 2})
 
     {:ok, view, _html} = live(conn, ~p"/")
 
@@ -98,8 +101,8 @@ defmodule PinventoryWeb.ItemsLiveTest do
     refute has_element?(view, "#items a", "Tape")
   end
 
-  test "shows no-match empty state when filters exclude everything", %{conn: conn} do
-    {:ok, _} = Items.create_item(%{name: "Hammer"})
+  test "shows no-match empty state when filters exclude everything", %{conn: conn, scope: scope} do
+    {:ok, _} = Items.create_item(scope, %{name: "Hammer"})
 
     {:ok, view, _html} = live(conn, ~p"/?q=zzzz")
 
@@ -107,8 +110,8 @@ defmodule PinventoryWeb.ItemsLiveTest do
     refute has_element?(view, "#items a", "Hammer")
   end
 
-  test "navigates to the item editor when a row is clicked", %{conn: conn} do
-    {:ok, item} = Items.create_item(%{name: "Level"})
+  test "navigates to the item editor when a row is clicked", %{conn: conn, scope: scope} do
+    {:ok, item} = Items.create_item(scope, %{name: "Level"})
 
     {:ok, view, _html} = live(conn, ~p"/")
 

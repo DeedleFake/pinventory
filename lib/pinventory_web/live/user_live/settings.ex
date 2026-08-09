@@ -2,6 +2,9 @@ defmodule PinventoryWeb.UserLive.Settings do
   use PinventoryWeb, :live_view
 
   alias Pinventory.Accounts
+  alias Pinventory.Audit
+
+  import PinventoryWeb.AuditHelpers, only: [edit_heading: 1, event_line: 1]
 
   @impl true
   def render(assigns) do
@@ -36,6 +39,17 @@ defmodule PinventoryWeb.UserLive.Settings do
             ]}
           >
             Users
+          </.link>
+          <.link
+            id="settings-tab-activity"
+            patch={~p"/user/settings/activity"}
+            class={[
+              "flex-1 rounded-lg px-3 py-2 text-center text-sm font-medium transition-colors duration-150",
+              @live_action == :activity && "bg-base-100 text-base-content shadow-sm",
+              @live_action != :activity && "text-base-content/70 hover:text-base-content"
+            ]}
+          >
+            Activity
           </.link>
         </nav>
 
@@ -225,6 +239,52 @@ defmodule PinventoryWeb.UserLive.Settings do
             </div>
           </section>
         </div>
+
+        <div :if={@live_action == :activity} id="settings-activity" class="space-y-4">
+          <div>
+            <h2 id="activity-heading" class="text-lg font-semibold tracking-tight">Activity</h2>
+            <p class="mt-1 text-sm opacity-70">
+              Recent changes across items, locations, and stock.
+            </p>
+          </div>
+
+          <div
+            :if={@activity_edits == []}
+            id="activity-empty"
+            class="rounded-xl border border-base-300 px-3 py-8 text-center text-sm opacity-60"
+          >
+            No activity yet.
+          </div>
+
+          <div id="activity-edits" class="flex flex-col gap-3">
+            <article
+              :for={edit <- @activity_edits}
+              id={"activity-edit-#{edit.edit_id}"}
+              class="rounded-xl border border-base-300 bg-base-100 p-4 space-y-2"
+            >
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <p class="text-sm font-medium">
+                  {edit_heading(edit)}
+                </p>
+                <time
+                  class="text-xs tabular-nums opacity-60"
+                  datetime={DateTime.to_iso8601(edit.inserted_at)}
+                >
+                  {Calendar.strftime(edit.inserted_at, "%Y-%m-%d %H:%M UTC")}
+                </time>
+              </div>
+              <ul class="space-y-1 border-t border-base-300/80 pt-2">
+                <li
+                  :for={event <- edit.events}
+                  id={"activity-event-#{event.id}"}
+                  class="text-sm opacity-80"
+                >
+                  {event_line(event)}
+                </li>
+              </ul>
+            </article>
+          </div>
+        </div>
       </div>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".ClipboardCopy">
@@ -271,6 +331,7 @@ defmodule PinventoryWeb.UserLive.Settings do
      |> assign(:trigger_submit, false)
      |> assign(:latest_url, nil)
      |> assign(:latest_invite_id, nil)
+     |> assign(:activity_edits, [])
      |> stream(:invites, [])
      |> stream(:users, [])}
   end
@@ -285,6 +346,12 @@ defmodule PinventoryWeb.UserLive.Settings do
     |> assign(:page_title, "Users")
     |> stream(:invites, Accounts.list_pending_invites(), reset: true)
     |> stream(:users, Accounts.list_users(), reset: true)
+  end
+
+  defp prepare_tab(%{assigns: %{live_action: :activity}} = socket) do
+    socket
+    |> assign(:page_title, "Activity")
+    |> assign(:activity_edits, Audit.list_recent_edits(limit: 50))
   end
 
   defp prepare_tab(%{assigns: %{live_action: :edit}} = socket) do

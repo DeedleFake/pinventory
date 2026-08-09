@@ -133,7 +133,7 @@ defmodule PinventoryWeb.LocationsLive do
   def handle_event("save_new", %{"location" => params}, socket) do
     %Location{}
     |> Locations.change_location(params)
-    |> Locations.create()
+    |> then(&Locations.create(socket.assigns.current_scope, &1))
     |> case do
       {:ok, location} ->
         location = %{location | item_count: 0}
@@ -191,7 +191,7 @@ defmodule PinventoryWeb.LocationsLive do
     changeset = Locations.change_location(location, params)
 
     if row_dirty?(changeset) do
-      case Locations.update(changeset) do
+      case Locations.update(socket.assigns.current_scope, changeset) do
         {:ok, updated} ->
           updated = %{updated | item_count: location.item_count}
           form = to_location_form(updated)
