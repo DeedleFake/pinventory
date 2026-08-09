@@ -66,6 +66,67 @@ defmodule PinventoryWeb.AuditHelpers do
   def event_line(%{action: action}), do: action
 
   @doc """
+  Returns an item id that can be opened in the UI, or `nil`.
+
+  Skips `item.deleted` (the item row is gone) and events with no `item_id`.
+  """
+  def linkable_item_id(%{action: "item.deleted"}), do: nil
+
+  def linkable_item_id(%{item_id: item_id}) when is_binary(item_id) and item_id != "",
+    do: item_id
+
+  def linkable_item_id(_), do: nil
+
+  @doc """
+  First linkable item id among an edit group's events, or `nil`.
+  """
+  def linkable_item_id_for_edit(%{events: events}) when is_list(events) do
+    Enum.find_value(events, &linkable_item_id/1)
+  end
+
+  def linkable_item_id_for_edit(_), do: nil
+
+  @doc """
+  Returns a location id that can be opened in the UI, or `nil`.
+
+  There is no location delete action today; all location-bearing events are eligible.
+  """
+  def linkable_location_id(%{location_id: location_id})
+      when is_binary(location_id) and location_id != "",
+      do: location_id
+
+  def linkable_location_id(_), do: nil
+
+  @doc """
+  First linkable location id among an edit group's events, or `nil`.
+  """
+  def linkable_location_id_for_edit(%{events: events}) when is_list(events) do
+    Enum.find_value(events, &linkable_location_id/1)
+  end
+
+  def linkable_location_id_for_edit(_), do: nil
+
+  @doc """
+  Navigation target for an activity edit group.
+
+  Prefers the item page when the edit touches an item; otherwise the locations
+  page anchor for a location-only edit. Returns `{:item, id}`, `{:location, id}`,
+  or `nil`.
+  """
+  def activity_link_target(edit) do
+    cond do
+      item_id = linkable_item_id_for_edit(edit) ->
+        {:item, item_id}
+
+      location_id = linkable_location_id_for_edit(edit) ->
+        {:location, location_id}
+
+      true ->
+        nil
+    end
+  end
+
+  @doc """
   Heading for an edit group (`list_recent_edits/1` map).
   """
   def edit_heading(%{user: user, events: events}) do

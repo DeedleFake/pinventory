@@ -4,7 +4,8 @@ defmodule PinventoryWeb.UserLive.Settings do
   alias Pinventory.Accounts
   alias Pinventory.Audit
 
-  import PinventoryWeb.AuditHelpers, only: [edit_heading: 1, event_line: 1]
+  import PinventoryWeb.AuditHelpers,
+    only: [activity_link_target: 1, edit_heading: 1, event_line: 1]
 
   @impl true
   def render(assigns) do
@@ -256,33 +257,30 @@ defmodule PinventoryWeb.UserLive.Settings do
             No activity yet.
           </div>
 
-          <div id="activity-edits" class="flex flex-col gap-3">
-            <article
-              :for={edit <- @activity_edits}
-              id={"activity-edit-#{edit.edit_id}"}
-              class="rounded-xl border border-base-300 bg-base-100 p-4 space-y-2"
-            >
-              <div class="flex flex-wrap items-baseline justify-between gap-2">
-                <p class="text-sm font-medium">
-                  {edit_heading(edit)}
-                </p>
-                <time
-                  class="text-xs tabular-nums opacity-60"
-                  datetime={DateTime.to_iso8601(edit.inserted_at)}
-                >
-                  {Calendar.strftime(edit.inserted_at, "%Y-%m-%d %H:%M UTC")}
-                </time>
-              </div>
-              <ul class="space-y-1 border-t border-base-300/80 pt-2">
-                <li
-                  :for={event <- edit.events}
-                  id={"activity-event-#{event.id}"}
-                  class="text-sm opacity-80"
-                >
-                  {event_line(event)}
-                </li>
-              </ul>
-            </article>
+          <div id="activity-edits" class="flex flex-col gap-1">
+            <%= for edit <- @activity_edits do %>
+              <% target = activity_link_target(edit) %>
+              <.link
+                :if={target}
+                id={"activity-edit-#{edit.edit_id}"}
+                navigate={activity_navigate_path(target)}
+                class={[
+                  "flex items-start gap-3 rounded-xl border border-base-300 bg-base-100 p-4",
+                  "transition-all hover:border-base-content/20 hover:bg-base-200/40"
+                ]}
+              >
+                <.activity_edit_body edit={edit} />
+                <.icon name="hero-chevron-right" class="mt-0.5 size-4 shrink-0 opacity-40" />
+              </.link>
+
+              <article
+                :if={!target}
+                id={"activity-edit-#{edit.edit_id}"}
+                class="rounded-xl border border-base-300 bg-base-100 p-4 space-y-2"
+              >
+                <.activity_edit_body edit={edit} />
+              </article>
+            <% end %>
           </div>
         </div>
       </div>
@@ -365,6 +363,38 @@ defmodule PinventoryWeb.UserLive.Settings do
   end
 
   defp prepare_tab(socket), do: socket
+
+  defp activity_navigate_path({:item, item_id}), do: ~p"/item/#{item_id}"
+
+  defp activity_navigate_path({:location, location_id}),
+    do: ~p"/locations#location-#{location_id}"
+
+  attr :edit, :map, required: true
+
+  defp activity_edit_body(assigns) do
+    ~H"""
+    <div class="min-w-0 flex-1 space-y-2">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <p class="text-sm font-medium">{edit_heading(@edit)}</p>
+        <time
+          class="text-xs tabular-nums opacity-60"
+          datetime={DateTime.to_iso8601(@edit.inserted_at)}
+        >
+          {Calendar.strftime(@edit.inserted_at, "%Y-%m-%d %H:%M UTC")}
+        </time>
+      </div>
+      <ul class="space-y-1 border-t border-base-300/80 pt-2">
+        <li
+          :for={event <- @edit.events}
+          id={"activity-event-#{event.id}"}
+          class="text-sm opacity-80"
+        >
+          {event_line(event)}
+        </li>
+      </ul>
+    </div>
+    """
+  end
 
   @impl true
   def handle_event("validate_email", params, socket) do

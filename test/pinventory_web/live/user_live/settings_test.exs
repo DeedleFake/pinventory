@@ -105,6 +105,68 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       end
 
       assert has_element?(view, "#activity-event-#{hd(widget_edit.events).id}", "Created item")
+
+      assert has_element?(
+               view,
+               ~s|a#activity-edit-#{widget_edit.edit_id}[href="/item/#{item.id}"]|
+             )
+    end
+
+    test "activity tab links location-only edits to the locations page", %{conn: conn} do
+      alias Pinventory.Accounts.Scope
+      alias Pinventory.Locations
+
+      user = user_fixture()
+      scope = Scope.for_user(user)
+      conn = log_in_user(conn, user)
+
+      {:ok, garage} = Locations.create(scope, %{name: "Garage Link"})
+
+      assert {:ok, view, _html} = live(conn, ~p"/user/settings/activity")
+
+      garage_edit =
+        Pinventory.Audit.list_recent_edits(limit: 20)
+        |> Enum.find(fn edit ->
+          Enum.any?(
+            edit.events,
+            &(&1.action == "location.created" and &1.location_id == garage.id)
+          )
+        end)
+
+      assert garage_edit
+
+      assert has_element?(
+               view,
+               ~s|a#activity-edit-#{garage_edit.edit_id}[href="/locations#location-#{garage.id}"]|
+             )
+    end
+
+    test "activity tab does not link deleted item entries", %{conn: conn} do
+      alias Pinventory.Accounts.Scope
+      alias Pinventory.Items
+
+      user = user_fixture()
+      scope = Scope.for_user(user)
+      conn = log_in_user(conn, user)
+
+      {:ok, item} = Items.create_item(scope, %{name: "Gone"}, %{})
+      item_id = item.id
+      assert {:ok, _} = Items.delete_item(scope, item)
+
+      assert {:ok, view, _html} = live(conn, ~p"/user/settings/activity")
+
+      deleted =
+        Pinventory.Audit.list_recent_edits(limit: 20)
+        |> Enum.find(fn edit ->
+          Enum.any?(edit.events, &(&1.action == "item.deleted" and &1.item_id == item_id))
+        end)
+
+      assert deleted
+      [event] = deleted.events
+      assert has_element?(view, "#activity-event-#{event.id}", "Deleted item")
+      # Non-linkable edits render as <article>, not an <a>
+      refute has_element?(view, ~s|a#activity-edit-#{deleted.edit_id}|)
+      assert has_element?(view, "article#activity-edit-#{deleted.edit_id}")
     end
   end
 
