@@ -18,7 +18,10 @@ defmodule Pinventory.Repo.Migrations.CreateLocationsAndItemLocations do
       add :location_id, references(:locations, type: :binary_id, on_delete: :delete_all),
         null: false
 
-      add :quantity, :integer, null: false
+      # SQLite only supports CHECK constraints on column definitions via Ecto.
+      add :quantity, :integer,
+        null: false,
+        check: %{name: "quantity_must_be_positive", expr: "quantity > 0"}
 
       timestamps(type: :utc_datetime)
     end
@@ -26,9 +29,5 @@ defmodule Pinventory.Repo.Migrations.CreateLocationsAndItemLocations do
     create unique_index(:item_locations, [:item_id, :location_id])
     create index(:item_locations, [:item_id])
     create index(:item_locations, [:location_id])
-
-    alter table(:items) do
-      remove :quantity
-    end
   end
 end

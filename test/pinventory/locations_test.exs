@@ -1,5 +1,5 @@
 defmodule Pinventory.LocationsTest do
-  use Pinventory.DataCase, async: true
+  use Pinventory.DataCase, async: false
 
   alias Pinventory.Items
   alias Pinventory.Locations

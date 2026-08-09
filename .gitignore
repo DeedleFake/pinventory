@@ -22,6 +22,10 @@ erl_crash.dump
 # Temporary files, for example, from tests.
 /tmp/
 
+# SQLite database files (dev/test/prod local data and WAL sidecars)
+/priv/repo/*.db
+/priv/repo/*.db-*
+
 # Ignore package tarball (built via "mix hex.build").
 pinventory-*.tar
 
