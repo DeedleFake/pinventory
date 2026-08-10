@@ -26,6 +26,10 @@ erl_crash.dump
 /priv/repo/*.db
 /priv/repo/*.db-*
 
+# Dialyzer PLTs (rebuilt locally and cached in CI)
+/priv/plts/*.plt
+/priv/plts/*.plt.hash
+
 # Ignore package tarball (built via "mix hex.build").
 pinventory-*.tar
 

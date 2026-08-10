@@ -48,6 +48,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-mix-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-
 
+      - name: Cache Dialyzer PLT
+        uses: actions/cache@v4
+        with:
+          path: priv/plts
+          key: ${{ runner.os }}-plt-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-plt-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-
+
       - name: Install Hex and Rebar
         run: |
           mix local.hex --force
@@ -73,6 +81,12 @@ jobs:
 
       - name: Run tests
         run: mix test --warnings-as-errors
+
+      - name: Run Dialyzer
+        run: mix dialyzer --format github
+        env:
+          # Analyze app code paths (not test/support).
+          MIX_ENV: dev
 
       - name: Compile for production
         run: mix compile --warnings-as-errors
