@@ -115,7 +115,7 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert Items.stock_map(Items.get_item!(item.id)) == %{garage.id => 1}
   end
 
-  test "shows was and now totals when stock moves keep the total the same", %{
+  test "shows was and now totals when stock rebalance keeps the total the same", %{
     conn: conn,
     scope: scope
   } do
@@ -218,40 +218,6 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert html =~ "Could not save item stock: location does not exist"
     assert has_element?(view, ~s(#item_name[value="Orphan stock"]))
     assert Items.list_items() == []
-  end
-
-  test "moves quantity between locations in the draft", %{conn: conn, scope: scope} do
-    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
-    {:ok, item} = Items.create_item(scope, %{name: "Bits"}, %{garage.id => 5})
-
-    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
-
-    view
-    |> element("#move-start-#{garage.id}")
-    |> render_click()
-
-    assert has_element?(view, "#move-panel-#{garage.id}")
-
-    view
-    |> element("#move-to-#{garage.id}")
-    |> render_change(%{"move_to" => shelf.id, "location-id" => garage.id})
-
-    view
-    |> element("#move-amount-#{garage.id}")
-    |> render_change(%{"move_amount" => "2", "location-id" => garage.id})
-
-    view
-    |> element("#move-confirm-#{garage.id}")
-    |> render_click()
-
-    assert_quantity(view, garage.id, 3)
-    assert_quantity(view, shelf.id, 2)
-    assert has_element?(view, "#item-total-was", "5")
-    assert has_element?(view, "#item-total-value", "5")
-    refute has_element?(view, "#move-panel-#{garage.id}")
-
-    assert Items.stock_map(Items.get_item!(item.id)) == %{garage.id => 5}
   end
 
   test "shows name suggestions and navigates on select", %{conn: conn, scope: scope} do

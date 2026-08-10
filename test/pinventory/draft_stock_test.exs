@@ -29,22 +29,6 @@ defmodule Pinventory.Items.DraftStockTest do
     assert DraftStock.put(quantities, "a", 4)["a"] == 4
   end
 
-  test "move transfers stock between known locations" do
-    quantities = DraftStock.from_locations(locations(), %{"a" => 5})
-
-    assert {:ok, moved} = DraftStock.move(quantities, "a", "b", 2)
-    assert moved == %{"a" => 3, "b" => 2, "c" => 0}
-  end
-
-  test "move rejects invalid amounts and destinations" do
-    quantities = DraftStock.from_locations(locations(), %{"a" => 1})
-
-    assert DraftStock.move(quantities, "a", "b", 0) == {:error, :invalid}
-    assert DraftStock.move(quantities, "a", "b", 2) == {:error, :invalid}
-    assert DraftStock.move(quantities, "a", "a", 1) == {:error, :invalid}
-    assert DraftStock.move(quantities, "a", "missing", 1) == {:error, :invalid}
-  end
-
   test "total and dirty? compare draft maps" do
     baseline = DraftStock.from_locations(locations(), %{"a" => 1})
     draft = DraftStock.adjust(baseline, "b", 2)

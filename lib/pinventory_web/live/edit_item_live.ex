@@ -84,10 +84,6 @@ defmodule PinventoryWeb.EditItemLive do
                   DraftStock.get(@quantities, location.id) !=
                     DraftStock.get(@baseline_quantities, location.id)
                 }
-                move_from={@move_from}
-                move_to={@move_to}
-                move_amount={@move_amount}
-                destinations={move_destinations(@locations, location.id)}
               />
             </div>
           </form>
@@ -314,10 +310,6 @@ defmodule PinventoryWeb.EditItemLive do
   attr :location, :map, required: true
   attr :quantity, :integer, required: true
   attr :dirty?, :boolean, required: true
-  attr :move_from, :any, default: nil
-  attr :move_to, :any, default: nil
-  attr :move_amount, :integer, required: true
-  attr :destinations, :list, required: true
 
   defp location_row(assigns) do
     ~H"""
@@ -372,100 +364,7 @@ defmodule PinventoryWeb.EditItemLive do
           >
             <.icon name="hero-plus" class="size-4" />
           </button>
-
-          <button
-            type="button"
-            id={"move-start-#{@location.id}"}
-            class="btn btn-sm btn-ghost"
-            phx-click="start_move"
-            phx-value-location-id={@location.id}
-            disabled={@quantity == 0}
-          >
-            Move
-          </button>
         </div>
-      </div>
-
-      <.move_panel
-        :if={@move_from == @location.id}
-        location={@location}
-        quantity={@quantity}
-        move_to={@move_to}
-        move_amount={@move_amount}
-        destinations={@destinations}
-      />
-    </div>
-    """
-  end
-
-  attr :location, :map, required: true
-  attr :quantity, :integer, required: true
-  attr :move_to, :any, default: nil
-  attr :move_amount, :integer, required: true
-  attr :destinations, :list, required: true
-
-  defp move_panel(assigns) do
-    ~H"""
-    <div
-      id={"move-panel-#{@location.id}"}
-      class="mt-2 flex flex-col gap-2 rounded-lg border border-dashed border-base-300 bg-base-200/50 p-2 sm:flex-row sm:items-end"
-    >
-      <div class="flex-1">
-        <label class="label py-0 text-xs" for={"move-to-#{@location.id}"}>To</label>
-        <select
-          id={"move-to-#{@location.id}"}
-          name="move_to"
-          class="select select-sm w-full"
-          phx-change="set_move_to"
-          phx-value-location-id={@location.id}
-        >
-          <option value="">Select location...</option>
-          <option
-            :for={dest <- @destinations}
-            value={dest.id}
-            selected={@move_to == dest.id}
-          >
-            {dest.name}
-          </option>
-        </select>
-      </div>
-
-      <div class="w-full sm:w-24">
-        <label class="label py-0 text-xs" for={"move-amount-#{@location.id}"}>
-          Amount
-        </label>
-        <input
-          type="number"
-          id={"move-amount-#{@location.id}"}
-          name="move_amount"
-          value={@move_amount}
-          min="1"
-          max={@quantity}
-          step="1"
-          class="input input-sm w-full tabular-nums"
-          phx-change="set_move_amount"
-          phx-value-location-id={@location.id}
-        />
-      </div>
-
-      <div class="flex gap-1">
-        <button
-          type="button"
-          id={"move-confirm-#{@location.id}"}
-          class="btn btn-sm btn-primary"
-          phx-click="confirm_move"
-          disabled={not can_confirm_move?(@move_to, @move_amount, @quantity)}
-        >
-          Confirm
-        </button>
-        <button
-          type="button"
-          id={"move-cancel-#{@location.id}"}
-          class="btn btn-sm btn-ghost"
-          phx-click="cancel_move"
-        >
-          Cancel
-        </button>
       </div>
     </div>
     """
@@ -481,9 +380,6 @@ defmodule PinventoryWeb.EditItemLive do
      |> assign(:suggestions, [])
      |> assign(:show_suggestions?, false)
      |> assign(:hide_suggestions_ref, nil)
-     |> assign(:move_from, nil)
-     |> assign(:move_to, nil)
-     |> assign(:move_amount, 1)
      |> assign(:dirty?, false)
      |> assign(:item_edits, [])}
   end
@@ -506,7 +402,6 @@ defmodule PinventoryWeb.EditItemLive do
       |> assign(:form, to_item_form(Items.change_item(item)))
       |> assign(:item_edits, Audit.list_edits_for_item(item.id))
       |> clear_suggestions()
-      |> clear_move()
       |> sync_dirty()
 
     {:noreply, socket}
@@ -529,7 +424,6 @@ defmodule PinventoryWeb.EditItemLive do
       |> assign(:form, to_item_form(Items.change_item(item)))
       |> assign(:item_edits, [])
       |> clear_suggestions()
-      |> clear_move()
       |> sync_dirty()
 
     {:noreply, socket}
@@ -582,13 +476,10 @@ defmodule PinventoryWeb.EditItemLive do
         quantity = DraftStock.parse_non_neg_int(raw)
         quantities = DraftStock.put(socket.assigns.quantities, location_id, quantity)
 
-        socket =
-          socket
-          |> assign(:quantities, quantities)
-          |> maybe_clear_move(location_id)
-          |> sync_dirty()
-
-        {:noreply, socket}
+        {:noreply,
+         socket
+         |> assign(:quantities, quantities)
+         |> sync_dirty()}
 
       :error ->
         {:noreply, socket}
@@ -600,80 +491,13 @@ defmodule PinventoryWeb.EditItemLive do
       {:ok, delta} ->
         quantities = DraftStock.adjust(socket.assigns.quantities, location_id, delta)
 
-        socket =
-          socket
-          |> assign(:quantities, quantities)
-          |> maybe_clear_move(location_id)
-          |> sync_dirty()
-
-        {:noreply, socket}
-
-      :error ->
-        {:noreply, socket}
-    end
-  end
-
-  def handle_event("start_move", %{"location-id" => location_id}, socket) do
-    qty = DraftStock.get(socket.assigns.quantities, location_id)
-
-    if qty > 0 do
-      {:noreply,
-       socket
-       |> assign(:move_from, location_id)
-       |> assign(:move_to, nil)
-       |> assign(:move_amount, 1)}
-    else
-      {:noreply, put_flash(socket, :error, "No stock to move from this location")}
-    end
-  end
-
-  def handle_event("cancel_move", _params, socket) do
-    {:noreply, clear_move(socket)}
-  end
-
-  def handle_event("set_move_to", %{"location-id" => _from, "move_to" => to_id}, socket) do
-    to_id = if to_id == "", do: nil, else: to_id
-    {:noreply, assign(socket, :move_to, to_id)}
-  end
-
-  def handle_event("set_move_amount", params, socket) do
-    amount =
-      params
-      |> Map.get("move_amount", "1")
-      |> DraftStock.parse_non_neg_int()
-      |> max(1)
-
-    from_id = socket.assigns.move_from || params["location-id"]
-    max_qty = DraftStock.get(socket.assigns.quantities, from_id)
-    amount = min(amount, max(max_qty, 1))
-
-    {:noreply, assign(socket, :move_amount, amount)}
-  end
-
-  def handle_event("confirm_move", _params, socket) do
-    from_id = socket.assigns.move_from
-    to_id = socket.assigns.move_to
-    amount = socket.assigns.move_amount
-
-    case DraftStock.move(socket.assigns.quantities, from_id, to_id, amount) do
-      {:ok, quantities} ->
         {:noreply,
          socket
          |> assign(:quantities, quantities)
-         |> clear_move()
          |> sync_dirty()}
 
-      {:error, :invalid} ->
-        message =
-          cond do
-            from_id == nil or to_id == nil or from_id == to_id ->
-              "Choose a destination location"
-
-            true ->
-              "Invalid move amount"
-          end
-
-        {:noreply, put_flash(socket, :error, message)}
+      :error ->
+        {:noreply, socket}
     end
   end
 
@@ -725,7 +549,6 @@ defmodule PinventoryWeb.EditItemLive do
             |> assign(:form, to_item_form(Items.change_item(item)))
             |> assign(:item_edits, Audit.list_edits_for_item(item.id))
             |> clear_suggestions()
-            |> clear_move()
             |> sync_dirty()
           end
 
@@ -797,30 +620,6 @@ defmodule PinventoryWeb.EditItemLive do
     end
 
     assign(socket, :hide_suggestions_ref, nil)
-  end
-
-  defp move_destinations(locations, from_id) do
-    Enum.reject(locations, &(&1.id == from_id))
-  end
-
-  defp can_confirm_move?(to_id, amount, from_qty) do
-    to_id not in [nil, ""] and amount >= 1 and amount <= from_qty
-  end
-
-  defp clear_move(socket) do
-    socket
-    |> assign(:move_from, nil)
-    |> assign(:move_to, nil)
-    |> assign(:move_amount, 1)
-  end
-
-  defp maybe_clear_move(socket, location_id) do
-    if socket.assigns.move_from == location_id and
-         DraftStock.get(socket.assigns.quantities, location_id) == 0 do
-      clear_move(socket)
-    else
-      socket
-    end
   end
 
   defp parse_adjust_delta("1"), do: {:ok, 1}
