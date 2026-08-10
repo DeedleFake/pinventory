@@ -11,7 +11,8 @@ defmodule Pinventory.MixProject do
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      dialyzer: dialyzer()
     ]
   end
 
@@ -40,6 +41,7 @@ defmodule Pinventory.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:argon2_elixir, "~> 4.0"},
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
@@ -65,7 +67,24 @@ defmodule Pinventory.MixProject do
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.5"},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+    ]
+  end
+
+  defp dialyzer do
+    [
+      plt_local_path: "priv/plts",
+      plt_core_path: "priv/plts",
+      plt_add_apps: [:ex_unit, :mix],
+      ignore_warnings: ".dialyzer_ignore.exs",
+      list_unused_filters: true,
+      flags: [
+        :error_handling,
+        :extra_return,
+        :missing_return,
+        :underspecs
+      ]
     ]
   end
 

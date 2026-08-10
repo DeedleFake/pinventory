@@ -1,13 +1,16 @@
 defmodule PinventoryWeb.ItemsLive do
   use PinventoryWeb, :live_view
 
+  alias Pinventory.Audit
   alias Pinventory.Items
   alias Pinventory.Locations
+
+  import PinventoryWeb.AuditHelpers, only: [last_stock_label: 1]
 
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash}>
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div id="items-page" class="space-y-6">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 class="text-xl font-semibold tracking-tight">Items</h1>
@@ -83,6 +86,13 @@ defmodule PinventoryWeb.ItemsLive do
                 >
                   {stock_label(item)}
                 </div>
+                <div
+                  :if={last = Map.get(@last_stock_by_item, item.id)}
+                  id={"#{id}-last-stock"}
+                  class="truncate text-xs opacity-50"
+                >
+                  Last quantity change: {last_stock_label(last)}
+                </div>
               </div>
               <.icon name="hero-chevron-right" class="size-4 shrink-0 opacity-40" />
             </.link>
@@ -103,18 +113,21 @@ defmodule PinventoryWeb.ItemsLive do
      socket
      |> assign(:page_title, "Items")
      |> assign(:location_options, location_options)
-     |> assign(:filter_active?, false)}
+     |> assign(:filter_active?, false)
+     |> assign(:last_stock_by_item, %{})}
   end
 
   @impl true
   def handle_params(params, _uri, socket) do
     items = Items.list_items(list_opts(params))
+    last_stock_by_item = Audit.latest_stock_changes_for_items(Enum.map(items, & &1.id))
 
     socket =
       socket
       |> stream(:items, items, reset: true)
       |> assign(:query, to_form(params))
       |> assign(:filter_active?, filter_active?(params))
+      |> assign(:last_stock_by_item, last_stock_by_item)
 
     {:noreply, socket}
   end

@@ -1,27 +1,25 @@
 defmodule PinventoryWeb.EditItemLive do
   use PinventoryWeb, :live_view
 
+  alias Pinventory.Audit
   alias Pinventory.Items
   alias Pinventory.Items.DraftStock
   alias Pinventory.Items.Item
   alias Pinventory.Locations
 
+  import PinventoryWeb.AuditHelpers, only: [edit_heading: 1, event_line: 1, format_event_time: 1]
+
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash}>
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div
         id="item-page"
         class="space-y-4"
         phx-hook="UnsavedChanges"
         data-dirty={to_string(@dirty?)}
       >
-        <div class="flex items-center justify-between gap-3">
-          <h1 class="text-xl font-semibold tracking-tight">{page_heading(@live_action)}</h1>
-          <.link navigate={~p"/"} class="btn btn-ghost btn-sm">
-            Back
-          </.link>
-        </div>
+        <h1 class="text-xl font-semibold tracking-tight">{page_heading(@live_action)}</h1>
 
         <%!-- Name lives in its own form so stock Enter keys do not submit Save. --%>
         <.form
@@ -106,6 +104,57 @@ defmodule PinventoryWeb.EditItemLive do
             </.button>
           </div>
         </div>
+
+        <section
+          :if={@live_action == :edit}
+          id="item-activity"
+          class="space-y-3 border-t border-base-300 pt-6"
+          aria-labelledby="item-activity-heading"
+        >
+          <div>
+            <h2 id="item-activity-heading" class="text-sm font-medium opacity-80">Activity</h2>
+            <p class="mt-0.5 text-xs opacity-60">History for this item</p>
+          </div>
+
+          <div
+            :if={@item_edits == []}
+            id="item-activity-empty"
+            class="rounded-xl border border-base-300 px-3 py-6 text-center text-sm opacity-60"
+          >
+            No activity yet.
+          </div>
+
+          <div
+            :if={@item_edits != []}
+            id="item-activity-list"
+            class="flex flex-col gap-1"
+          >
+            <article
+              :for={edit <- @item_edits}
+              id={"item-edit-#{edit.edit_id}"}
+              class="rounded-xl border border-base-300 bg-base-100 p-4 space-y-2"
+            >
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <p class="text-sm font-medium">{edit_heading(edit)}</p>
+                <time
+                  class="text-xs tabular-nums opacity-60"
+                  datetime={DateTime.to_iso8601(edit.inserted_at)}
+                >
+                  {format_event_time(edit.inserted_at)}
+                </time>
+              </div>
+              <ul class="space-y-1 border-t border-base-300/80 pt-2">
+                <li
+                  :for={event <- edit.events}
+                  id={"item-event-#{event.id}"}
+                  class="text-sm opacity-80"
+                >
+                  {event_line(event)}
+                </li>
+              </ul>
+            </article>
+          </div>
+        </section>
       </div>
     </Layouts.app>
     """
@@ -334,7 +383,8 @@ defmodule PinventoryWeb.EditItemLive do
      |> assign(:move_from, nil)
      |> assign(:move_to, nil)
      |> assign(:move_amount, 1)
-     |> assign(:dirty?, false)}
+     |> assign(:dirty?, false)
+     |> assign(:item_edits, [])}
   end
 
   @impl true
@@ -353,6 +403,7 @@ defmodule PinventoryWeb.EditItemLive do
       |> assign(:baseline_quantities, quantities)
       |> assign(:quantities, quantities)
       |> assign(:form, to_item_form(Items.change_item(item)))
+      |> assign(:item_edits, Audit.list_edits_for_item(item.id))
       |> clear_suggestions()
       |> clear_move()
       |> sync_dirty()
@@ -375,6 +426,7 @@ defmodule PinventoryWeb.EditItemLive do
       |> assign(:baseline_quantities, quantities)
       |> assign(:quantities, quantities)
       |> assign(:form, to_item_form(Items.change_item(item)))
+      |> assign(:item_edits, [])
       |> clear_suggestions()
       |> clear_move()
       |> sync_dirty()
@@ -540,11 +592,12 @@ defmodule PinventoryWeb.EditItemLive do
     name = get_in(params, ["item", "name"]) || current_name(socket)
     quantities = socket.assigns.quantities
     attrs = %{"name" => name}
+    scope = socket.assigns.current_scope
 
     result =
       case socket.assigns.live_action do
-        :new -> Items.create_item(attrs, quantities)
-        :edit -> Items.update_item(socket.assigns.item, attrs, quantities)
+        :new -> Items.create_item(scope, attrs, quantities)
+        :edit -> Items.update_item(scope, socket.assigns.item, attrs, quantities)
       end
 
     case result do
@@ -569,6 +622,7 @@ defmodule PinventoryWeb.EditItemLive do
             |> assign(:baseline_quantities, quantities)
             |> assign(:quantities, quantities)
             |> assign(:form, to_item_form(Items.change_item(item)))
+            |> assign(:item_edits, Audit.list_edits_for_item(item.id))
             |> clear_suggestions()
             |> clear_move()
             |> sync_dirty()

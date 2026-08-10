@@ -6,16 +6,17 @@ defmodule PinventoryWeb.LocationsLiveTest do
   alias Pinventory.Items
   alias Pinventory.Locations
 
-  test "renders locations ordered by name with item counts", %{conn: conn} do
-    {:ok, garage} = Locations.create(%{name: "Garage"})
-    {:ok, _alpha} = Locations.create(%{name: "Alpha"})
+  setup :register_and_log_in_user
 
-    {:ok, _} = Items.create_item(%{name: "Drill"}, %{garage.id => 3})
+  test "renders locations ordered by name with item counts", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, _alpha} = Locations.create(scope, %{name: "Alpha"})
+
+    {:ok, _} = Items.create_item(scope, %{name: "Drill"}, %{garage.id => 3})
 
     {:ok, view, html} = live(conn, ~p"/locations")
 
     assert html =~ "Locations"
-    assert has_element?(view, "#locations-back", "Back")
     assert has_element?(view, "#location-new-form")
     assert has_element?(view, "#locations")
 
@@ -25,8 +26,8 @@ defmodule PinventoryWeb.LocationsLiveTest do
     assert has_element?(view, "#location-#{garage.id}-item-count", "1 item")
   end
 
-  test "adds a new location at the top of the list", %{conn: conn} do
-    {:ok, existing} = Locations.create(%{name: "Existing"})
+  test "adds a new location at the top of the list", %{conn: conn, scope: scope} do
+    {:ok, existing} = Locations.create(scope, %{name: "Existing"})
 
     {:ok, view, _html} = live(conn, ~p"/locations")
 
@@ -54,8 +55,8 @@ defmodule PinventoryWeb.LocationsLiveTest do
     assert html =~ "can&#39;t be blank" or html =~ "can't be blank"
   end
 
-  test "renames a location without removing it from the list", %{conn: conn} do
-    {:ok, location} = Locations.create(%{name: "Old Name"})
+  test "renames a location without removing it from the list", %{conn: conn, scope: scope} do
+    {:ok, location} = Locations.create(scope, %{name: "Old Name"})
 
     {:ok, view, _html} = live(conn, ~p"/locations")
 
@@ -69,8 +70,8 @@ defmodule PinventoryWeb.LocationsLiveTest do
     refute render(view) =~ "Old Name"
   end
 
-  test "disables save until the name changes and marks the dirty row", %{conn: conn} do
-    {:ok, location} = Locations.create(%{name: "Shelf"})
+  test "disables save until the name changes and marks the dirty row", %{conn: conn, scope: scope} do
+    {:ok, location} = Locations.create(scope, %{name: "Shelf"})
 
     {:ok, view, _html} = live(conn, ~p"/locations")
 
@@ -92,8 +93,8 @@ defmodule PinventoryWeb.LocationsLiveTest do
     refute has_element?(view, "#location-#{location.id}.border-primary")
   end
 
-  test "disables save again after a successful rename", %{conn: conn} do
-    {:ok, location} = Locations.create(%{name: "Bin"})
+  test "disables save again after a successful rename", %{conn: conn, scope: scope} do
+    {:ok, location} = Locations.create(scope, %{name: "Bin"})
 
     {:ok, view, _html} = live(conn, ~p"/locations")
 
@@ -105,8 +106,8 @@ defmodule PinventoryWeb.LocationsLiveTest do
     refute has_element?(view, "#location-#{location.id}.border-primary")
   end
 
-  test "pushes unsaved-changes events when edits start and clear", %{conn: conn} do
-    {:ok, location} = Locations.create(%{name: "Drawer"})
+  test "pushes unsaved-changes events when edits start and clear", %{conn: conn, scope: scope} do
+    {:ok, location} = Locations.create(scope, %{name: "Drawer"})
 
     {:ok, view, _html} = live(conn, ~p"/locations")
 
@@ -127,8 +128,8 @@ defmodule PinventoryWeb.LocationsLiveTest do
     assert has_element?(view, ~s(#locations-page[data-dirty="false"]))
   end
 
-  test "clears unsaved-changes after a successful save", %{conn: conn} do
-    {:ok, location} = Locations.create(%{name: "Crate"})
+  test "clears unsaved-changes after a successful save", %{conn: conn, scope: scope} do
+    {:ok, location} = Locations.create(scope, %{name: "Crate"})
 
     {:ok, view, _html} = live(conn, ~p"/locations")
 
@@ -161,8 +162,8 @@ defmodule PinventoryWeb.LocationsLiveTest do
     assert_push_event(view, "unsaved-changes", %{dirty: false})
   end
 
-  test "shows zero items for a location with no stock", %{conn: conn} do
-    {:ok, location} = Locations.create(%{name: "Empty"})
+  test "shows zero items for a location with no stock", %{conn: conn, scope: scope} do
+    {:ok, location} = Locations.create(scope, %{name: "Empty"})
 
     {:ok, view, _html} = live(conn, ~p"/locations")
 

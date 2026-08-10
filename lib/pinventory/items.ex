@@ -6,11 +6,16 @@ defmodule Pinventory.Items do
   for short ones. Case folding for both paths follows SQLite defaults: ASCII
   A–Z only. Non-ASCII letters are case-sensitive unless you add a normalized
   search column later.
+
+  Mutating APIs take an authenticated `Pinventory.Accounts.Scope` as the first
+  argument and write audit events in the same transaction as the change.
   """
 
   import Ecto.Query, warn: false
 
   alias Ecto.Multi
+  alias Pinventory.Accounts.Scope
+  alias Pinventory.Audit
   alias Pinventory.Repo
 
   alias Pinventory.Items.DraftStock
@@ -199,13 +204,50 @@ defmodule Pinventory.Items do
 
   @doc """
   Creates an item and stores stock for locations with quantity greater than zero.
-  `quantities` is a map of `location_id => quantity`.
+
+  Writes audit events (`item.created` and any `stock.changed`) under one
+  `edit_id`.
+
+  `quantities` is a **full replacement** map of `location_id => quantity`.
+  Only positive quantities are stored; omitted locations and zeros are not.
+  Defaults to `%{}` (create with no stock rows).
   """
-  def create_item(attrs, quantities \\ %{}) do
+  def create_item(%Scope{} = scope, attrs, quantities \\ %{}) do
+    user_id = Audit.actor_id(scope)
+    edit_id = Audit.new_edit_id()
+    desired = normalize_desired_stock(quantities)
+
     Multi.new()
     |> Multi.insert(:item, change_item(%Item{}, attrs))
     |> Multi.run(:stock, fn repo, %{item: item} ->
-      sync_stock(repo, item.id, quantities)
+      sync_stock(repo, item.id, desired)
+    end)
+    |> Multi.run(:audit_events, fn repo, %{item: item} ->
+      location_names = location_names(repo, Map.keys(desired))
+
+      events =
+        [
+          Audit.item_event_attrs(
+            action: "item.created",
+            edit_id: edit_id,
+            user_id: user_id,
+            item: item,
+            changes: %{"name" => %{"from" => nil, "to" => item.name}},
+            edit_seq: 0
+          )
+        ] ++
+          Audit.stock_change_attrs(
+            edit_id: edit_id,
+            user_id: user_id,
+            item_id: item.id,
+            item_name: item.name,
+            before: %{},
+            after: desired,
+            location_names: location_names,
+            start_seq: 1
+          )
+
+      Audit.insert_events(repo, events)
     end)
     |> Multi.run(:result, fn repo, %{item: item} ->
       {:ok, repo.preload(item, :item_locations)}
@@ -216,23 +258,110 @@ defmodule Pinventory.Items do
 
   @doc """
   Updates an item name and replaces stock so only positive quantities remain.
-  `quantities` is a map of `location_id => quantity`.
+
+  Skips the write (and audit) when the name and stock are unchanged.
+  All events for a successful save share one `edit_id`.
+
+  `quantities` is a **full replacement** map of `location_id => quantity`.
+  Locations omitted from the map or set to 0 are cleared (and audited as
+  quantity → 0 when they previously had stock). Defaults to `%{}`, which
+  clears all stock. Always pass the complete desired stock map when updating.
   """
-  def update_item(%Item{} = item, attrs, quantities \\ %{}) do
-    Multi.new()
-    |> Multi.update(:item, change_item(item, attrs))
-    |> Multi.run(:stock, fn repo, %{item: item} ->
-      sync_stock(repo, item.id, quantities)
-    end)
-    |> Multi.run(:result, fn repo, %{item: item} ->
-      {:ok, repo.preload(item, :item_locations, force: true)}
-    end)
-    |> Repo.transaction()
-    |> unwrap_item_transaction()
+  def update_item(%Scope{} = scope, %Item{} = item, attrs, quantities \\ %{}) do
+    user_id = Audit.actor_id(scope)
+    edit_id = Audit.new_edit_id()
+    item = ensure_item_locations(item)
+    before_stock = stock_map(item)
+    desired = normalize_desired_stock(quantities)
+    changeset = change_item(item, attrs)
+
+    name_change = name_change_diff(changeset)
+    stock_diffs? = stock_changed?(before_stock, desired)
+
+    cond do
+      not changeset.valid? ->
+        {:error, changeset}
+
+      name_change == nil and not stock_diffs? ->
+        {:ok, item}
+
+      true ->
+        Multi.new()
+        |> Multi.update(:item, changeset)
+        |> Multi.run(:stock, fn repo, %{item: updated} ->
+          sync_stock(repo, updated.id, desired)
+        end)
+        |> Multi.run(:audit_events, fn repo, %{item: updated} ->
+          location_ids =
+            Map.keys(before_stock) ++ Map.keys(desired)
+
+          location_names = location_names(repo, location_ids)
+
+          {seq, events} =
+            if name_change do
+              {1,
+               [
+                 Audit.item_event_attrs(
+                   action: "item.updated",
+                   edit_id: edit_id,
+                   user_id: user_id,
+                   item: updated,
+                   changes: %{"name" => name_change},
+                   edit_seq: 0
+                 )
+               ]}
+            else
+              {0, []}
+            end
+
+          events =
+            events ++
+              Audit.stock_change_attrs(
+                edit_id: edit_id,
+                user_id: user_id,
+                item_id: updated.id,
+                item_name: updated.name,
+                before: before_stock,
+                after: desired,
+                location_names: location_names,
+                start_seq: seq
+              )
+
+          Audit.insert_events(repo, events)
+        end)
+        |> Multi.run(:result, fn repo, %{item: updated} ->
+          {:ok, repo.preload(updated, :item_locations, force: true)}
+        end)
+        |> Repo.transaction()
+        |> unwrap_item_transaction()
+    end
   end
 
-  def delete_item(%Item{} = item) do
-    Repo.delete(item)
+  @doc """
+  Deletes an item and records an `item.deleted` audit event in the same
+  transaction.
+  """
+  def delete_item(%Scope{} = scope, %Item{} = item) do
+    user_id = Audit.actor_id(scope)
+    edit_id = Audit.new_edit_id()
+
+    Multi.new()
+    |> Multi.run(:audit_events, fn repo, _ ->
+      Audit.insert_events(repo, [
+        Audit.item_event_attrs(
+          action: "item.deleted",
+          edit_id: edit_id,
+          user_id: user_id,
+          item: item,
+          changes: %{"name" => %{"from" => item.name, "to" => nil}},
+          edit_seq: 0
+        )
+      ])
+    end)
+    |> Multi.delete(:item, item)
+    |> Multi.run(:result, fn _repo, %{item: deleted} -> {:ok, deleted} end)
+    |> Repo.transaction()
+    |> unwrap_item_transaction()
   end
 
   @doc """
@@ -249,24 +378,68 @@ defmodule Pinventory.Items do
     |> stock_map()
   end
 
+  defp ensure_item_locations(%Item{item_locations: item_locations} = item)
+       when is_list(item_locations),
+       do: item
+
+  defp ensure_item_locations(%Item{} = item) do
+    Repo.preload(item, :item_locations)
+  end
+
   defp unwrap_item_transaction(result) do
     case result do
       {:ok, %{result: item}} -> {:ok, item}
       {:error, :item, changeset, _} -> {:error, changeset}
       {:error, :stock, reason, _} -> {:error, reason}
+      {:error, :audit_events, reason, _} -> {:error, reason}
       {:error, _step, reason, _} -> {:error, reason}
     end
   end
 
-  defp sync_stock(repo, item_id, quantities) do
-    desired =
-      quantities
-      |> Enum.map(fn {location_id, quantity} ->
-        {to_string(location_id), DraftStock.parse_non_neg_int(quantity)}
-      end)
-      |> Enum.filter(fn {_location_id, quantity} -> quantity > 0 end)
-      |> Map.new()
+  defp name_change_diff(%Ecto.Changeset{} = changeset) do
+    case Ecto.Changeset.fetch_change(changeset, :name) do
+      :error ->
+        nil
 
+      {:ok, new_name} ->
+        old_name = changeset.data.name
+
+        if old_name == new_name do
+          nil
+        else
+          %{"from" => old_name, "to" => new_name}
+        end
+    end
+  end
+
+  defp stock_changed?(before_map, after_map) do
+    keys = MapSet.new(Map.keys(before_map) ++ Map.keys(after_map))
+
+    Enum.any?(keys, fn location_id ->
+      Audit.quantity_at(before_map, location_id) != Audit.quantity_at(after_map, location_id)
+    end)
+  end
+
+  defp normalize_desired_stock(quantities) do
+    quantities
+    |> Enum.map(fn {location_id, quantity} ->
+      {to_string(location_id), DraftStock.parse_non_neg_int(quantity)}
+    end)
+    |> Enum.filter(fn {_location_id, quantity} -> quantity > 0 end)
+    |> Map.new()
+  end
+
+  defp location_names(_repo, []), do: %{}
+
+  defp location_names(repo, location_ids) do
+    location_ids = location_ids |> Enum.uniq() |> Enum.reject(&is_nil/1)
+
+    from(l in Location, where: l.id in ^location_ids, select: {l.id, l.name})
+    |> repo.all()
+    |> Map.new()
+  end
+
+  defp sync_stock(repo, item_id, desired) when is_map(desired) do
     desired_ids = Map.keys(desired)
 
     # SQLite does not reliably surface foreign-key constraint names to Ecto, so
