@@ -61,10 +61,8 @@ defmodule PinventoryWeb.UserLive.Login do
   def mount(_params, _session, socket) do
     cond do
       not Accounts.any_users?() ->
-        {:ok,
-         socket
-         |> put_flash(:info, "Create the first account to get started.")
-         |> redirect(to: ~p"/user/register")}
+        # Bootstrap register page heading explains the first-account flow.
+        {:ok, redirect(socket, to: ~p"/user/register")}
 
       true ->
         reauth? = match?(%{user: %{id: _}}, socket.assigns.current_scope)
