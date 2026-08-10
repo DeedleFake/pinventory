@@ -29,7 +29,15 @@ defmodule PinventoryWeb.EditItemLive do
           phx-change="validate"
           phx-submit="save"
         >
-          <div class="relative space-y-1">
+          <div
+            id="item-name-section"
+            data-name-dirty={to_string(@name_dirty?)}
+            class={[
+              "relative space-y-1 rounded-xl border px-3 py-2 transition-colors duration-200",
+              @name_dirty? && "border-primary ring-1 ring-primary/30 bg-primary/5",
+              not @name_dirty? && "border-base-300 bg-base-100"
+            ]}
+          >
             <.input
               type="text"
               field={@form[:name]}
@@ -41,6 +49,14 @@ defmodule PinventoryWeb.EditItemLive do
               phx-blur="name_blur"
               wrapperclass="mb-0"
             />
+
+            <p
+              :if={@name_dirty?}
+              id="item-name-hint"
+              class="text-xs text-primary"
+            >
+              Unsaved name change · was {@baseline_name}
+            </p>
 
             <.suggestion_list
               :if={@live_action == :new and @suggestions != []}
@@ -380,6 +396,7 @@ defmodule PinventoryWeb.EditItemLive do
      |> assign(:suggestions, [])
      |> assign(:show_suggestions?, false)
      |> assign(:hide_suggestions_ref, nil)
+     |> assign(:name_dirty?, false)
      |> assign(:dirty?, false)
      |> assign(:item_edits, [])}
   end
@@ -656,12 +673,16 @@ defmodule PinventoryWeb.EditItemLive do
 
   defp sync_dirty(socket) do
     name = current_name(socket)
+    # Only flag on edit: new items always start from an empty baseline name.
+    name_dirty? = socket.assigns.live_action == :edit and name != socket.assigns.baseline_name
 
     dirty? =
       name != socket.assigns.baseline_name or
         DraftStock.dirty?(socket.assigns.quantities, socket.assigns.baseline_quantities)
 
-    assign_dirty(socket, dirty?)
+    socket
+    |> assign(:name_dirty?, name_dirty?)
+    |> assign_dirty(dirty?)
   end
 
   defp assign_dirty(socket, dirty?) do

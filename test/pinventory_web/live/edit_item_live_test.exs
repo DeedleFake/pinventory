@@ -340,6 +340,51 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert has_element?(view, "#item-save:disabled")
   end
 
+  test "highlights an unsaved name change on edit", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, item} = Items.create_item(scope, %{name: "Level"}, %{garage.id => 1})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    assert has_element?(view, ~s(#item-name-section[data-name-dirty="false"]))
+    refute has_element?(view, "#item-name-hint")
+
+    view
+    |> form("#item-form", item: %{name: "Spirit Level"})
+    |> render_change()
+
+    assert has_element?(view, ~s(#item-name-section[data-name-dirty="true"]))
+    assert has_element?(view, "#item-name-hint", "Unsaved name change")
+    assert has_element?(view, "#item-name-hint", "Level")
+
+    # Quantity-only edits do not mark the name as dirty.
+    set_quantity(view, garage.id, 2)
+
+    assert has_element?(view, ~s(#item-name-section[data-name-dirty="true"]))
+    assert has_element?(view, ~s(#item-total[data-stock-dirty="true"]))
+
+    view
+    |> form("#item-form", item: %{name: "Level"})
+    |> render_change()
+
+    assert has_element?(view, ~s(#item-name-section[data-name-dirty="false"]))
+    refute has_element?(view, "#item-name-hint")
+    assert has_element?(view, ~s(#item-total[data-stock-dirty="true"]))
+  end
+
+  test "does not mark name dirty on the new item page while typing", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/item")
+
+    assert has_element?(view, ~s(#item-name-section[data-name-dirty="false"]))
+
+    view
+    |> form("#item-form", item: %{name: "Hammer"})
+    |> render_change()
+
+    assert has_element?(view, ~s(#item-name-section[data-name-dirty="false"]))
+    refute has_element?(view, "#item-name-hint")
+  end
+
   test "shows item activity timeline grouped by edit with actor and events", %{
     conn: conn,
     scope: scope,
