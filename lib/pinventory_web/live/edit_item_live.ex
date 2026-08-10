@@ -50,12 +50,12 @@ defmodule PinventoryWeb.EditItemLive do
         </.form>
 
         <div class="space-y-4">
-          <div class="flex items-baseline justify-between gap-3">
-            <h2 class="text-sm font-medium opacity-80">Locations</h2>
-            <p id="item-total" class="text-sm tabular-nums opacity-70">
-              Total: {DraftStock.total(@quantities)}
-            </p>
-          </div>
+          <.stock_total
+            quantities={@quantities}
+            baseline_quantities={@baseline_quantities}
+          />
+
+          <h2 class="text-sm font-medium opacity-80">Locations</h2>
 
           <div
             :if={@locations == []}
@@ -157,6 +157,107 @@ defmodule PinventoryWeb.EditItemLive do
         </section>
       </div>
     </Layouts.app>
+    """
+  end
+
+  attr :quantities, :map, required: true
+  attr :baseline_quantities, :map, required: true
+
+  defp stock_total(assigns) do
+    current = DraftStock.total(assigns.quantities)
+    baseline = DraftStock.total(assigns.baseline_quantities)
+    stock_dirty? = DraftStock.dirty?(assigns.quantities, assigns.baseline_quantities)
+    total_changed? = stock_dirty? and current != baseline
+
+    assigns =
+      assigns
+      |> assign(:current, current)
+      |> assign(:baseline, baseline)
+      |> assign(:stock_dirty?, stock_dirty?)
+      |> assign(:total_changed?, total_changed?)
+
+    ~H"""
+    <%!-- Fixed min-height: dirty content fits without growing; clean content centers. --%>
+    <div
+      id="item-total"
+      data-stock-dirty={to_string(@stock_dirty?)}
+      data-total-changed={to_string(@total_changed?)}
+      class={[
+        "flex min-h-20 items-center justify-between gap-4 rounded-2xl border px-4 py-3",
+        "ring-1 transition-colors duration-200",
+        @stock_dirty? && @total_changed? &&
+          "border-warning/50 bg-warning/10 ring-warning/25",
+        @stock_dirty? && not @total_changed? &&
+          "border-primary/50 bg-primary/10 ring-primary/25",
+        not @stock_dirty? && "border-base-300 bg-base-100 ring-transparent"
+      ]}
+    >
+      <div class="min-w-0">
+        <p class="text-xs font-semibold tracking-wide uppercase opacity-60">
+          Total quantity
+        </p>
+        <p
+          :if={@stock_dirty?}
+          id="item-total-hint"
+          class="mt-0.5 text-xs opacity-70"
+        >
+          <%= if @total_changed? do %>
+            Unsaved · total changed
+          <% else %>
+            Unsaved · total unchanged
+          <% end %>
+        </p>
+      </div>
+
+      <div class="flex shrink-0 items-center gap-2 sm:gap-3">
+        <div
+          :if={@stock_dirty?}
+          class="flex min-w-[1.75rem] flex-col items-center text-center leading-none"
+        >
+          <span class="text-[0.65rem] font-medium uppercase tracking-wide opacity-50">
+            Was
+          </span>
+          <span
+            id="item-total-was"
+            class="text-lg font-medium tabular-nums opacity-50 line-through decoration-base-content/30"
+          >
+            {@baseline}
+          </span>
+        </div>
+
+        <.icon
+          :if={@stock_dirty?}
+          name="hero-arrow-right"
+          class={
+            "size-4 shrink-0 sm:size-5 " <>
+              if(@total_changed?, do: "text-warning", else: "text-primary")
+          }
+        />
+
+        <div class="flex min-w-[1.75rem] flex-col items-center justify-center text-center leading-none">
+          <span
+            :if={@stock_dirty?}
+            class={[
+              "text-[0.65rem] font-medium uppercase tracking-wide",
+              @total_changed? && "text-warning",
+              not @total_changed? && "text-primary"
+            ]}
+          >
+            Now
+          </span>
+          <span
+            id="item-total-value"
+            class={[
+              "text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl",
+              @stock_dirty? && @total_changed? && "text-warning",
+              @stock_dirty? && not @total_changed? && "text-primary"
+            ]}
+          >
+            {@current}
+          </span>
+        </div>
+      </div>
+    </div>
     """
   end
 
