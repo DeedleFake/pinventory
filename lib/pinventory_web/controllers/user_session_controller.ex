@@ -28,7 +28,7 @@ defmodule PinventoryWeb.UserSessionController do
   defp maybe_put_info_flash(conn, nil), do: conn
   defp maybe_put_info_flash(conn, info), do: put_flash(conn, :info, info)
 
-  def update_password(conn, %{"user" => user_params} = params) do
+  def update_password(conn, %{"user" => user_params}) do
     user = conn.assigns.current_scope.user
 
     cond do
@@ -42,9 +42,13 @@ defmodule PinventoryWeb.UserSessionController do
           {:ok, {_user, expired_tokens}} ->
             UserAuth.disconnect_sessions(expired_tokens)
 
+            # Re-login as the session user only. Do not trust form email
+            # (hidden field for password managers can be rewritten by the client).
+            login_params = %{"user" => Map.put(user_params, "email", user.email)}
+
             conn
             |> put_session(:user_return_to, ~p"/user/settings")
-            |> create(params, "Password updated successfully!")
+            |> create(login_params, "Password updated successfully!")
 
           {:error, _changeset} ->
             conn

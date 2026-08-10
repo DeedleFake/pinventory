@@ -138,6 +138,34 @@ defmodule PinventoryWeb.UserSessionControllerTest do
       assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Unable to update password."
       assert Accounts.get_user_by_email_and_password(user.email, valid_user_password())
     end
+
+    test "re-logs in as the session user when form email is rewritten", %{conn: conn, user: user} do
+      other = user_fixture()
+      new_password = "a brand new password"
+
+      conn =
+        conn
+        |> log_in_user(user)
+        |> post(~p"/user/update-password", %{
+          "user" => %{
+            "email" => other.email,
+            "password" => new_password,
+            "password_confirmation" => new_password
+          }
+        })
+
+      assert redirected_to(conn) == ~p"/user/settings"
+      assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "Password updated successfully"
+      assert get_session(conn, :user_token)
+
+      assert Accounts.get_user_by_email_and_password(user.email, new_password)
+      refute Accounts.get_user_by_email_and_password(other.email, new_password)
+      assert Accounts.get_user_by_email_and_password(other.email, valid_user_password())
+
+      # Session belongs to the original user, not the form email victim.
+      {session_user, _} = Accounts.get_user_by_session_token(get_session(conn, :user_token))
+      assert session_user.id == user.id
+    end
   end
 
   describe "DELETE /user/log-out" do
