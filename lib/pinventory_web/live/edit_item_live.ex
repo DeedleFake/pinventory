@@ -67,8 +67,9 @@ defmodule PinventoryWeb.EditItemLive do
 
         <div class="space-y-4">
           <.stock_total
-            quantities={@quantities}
-            baseline_quantities={@baseline_quantities}
+            mode={@stock_total_mode}
+            current={@total_current}
+            baseline={@total_baseline}
           />
 
           <h2 class="text-sm font-medium opacity-80">Locations</h2>
@@ -96,10 +97,7 @@ defmodule PinventoryWeb.EditItemLive do
                 :for={location <- @locations}
                 location={location}
                 quantity={DraftStock.get(@quantities, location.id)}
-                dirty?={
-                  DraftStock.get(@quantities, location.id) !=
-                    DraftStock.get(@baseline_quantities, location.id)
-                }
+                dirty?={Map.get(@location_dirty, location.id, false)}
               />
             </div>
           </form>
@@ -172,22 +170,14 @@ defmodule PinventoryWeb.EditItemLive do
     """
   end
 
-  attr :quantities, :map, required: true
-  attr :baseline_quantities, :map, required: true
+  attr :mode, :atom, required: true
+  attr :current, :integer, required: true
+  attr :baseline, :integer, required: true
 
+  # Presentation only: mode / totals come from sync_dirty/1.
   defp stock_total(assigns) do
-    current = DraftStock.total(assigns.quantities)
-    baseline = DraftStock.total(assigns.baseline_quantities)
-
-    mode =
-      cond do
-        not DraftStock.dirty?(assigns.quantities, assigns.baseline_quantities) -> :clean
-        current != baseline -> :total_changed
-        true -> :rebalance
-      end
-
     {chrome_class, accent_class, hint} =
-      case mode do
+      case assigns.mode do
         :clean ->
           {"border-base-300 bg-base-100 ring-transparent", nil, nil}
 
@@ -202,9 +192,6 @@ defmodule PinventoryWeb.EditItemLive do
 
     assigns =
       assigns
-      |> assign(:current, current)
-      |> assign(:baseline, baseline)
-      |> assign(:mode, mode)
       |> assign(:chrome_class, chrome_class)
       |> assign(:accent_class, accent_class)
       |> assign(:hint, hint)
@@ -403,6 +390,10 @@ defmodule PinventoryWeb.EditItemLive do
      |> assign(:hide_suggestions_ref, nil)
      |> assign(:name_dirty?, false)
      |> assign(:dirty?, false)
+     |> assign(:stock_total_mode, :clean)
+     |> assign(:total_current, 0)
+     |> assign(:total_baseline, 0)
+     |> assign(:location_dirty, %{})
      |> assign(:item_edits, [])}
   end
 
@@ -676,17 +667,38 @@ defmodule PinventoryWeb.EditItemLive do
 
   defp quantity_change_from_params(_), do: :error
 
+  # Single owner of dirty / total-mode rules for name, stock, rows, and save.
   defp sync_dirty(socket) do
     name = current_name(socket)
+    quantities = socket.assigns.quantities
+    baseline_quantities = socket.assigns.baseline_quantities
+    stock_dirty? = DraftStock.dirty?(quantities, baseline_quantities)
+    total_current = DraftStock.total(quantities)
+    total_baseline = DraftStock.total(baseline_quantities)
+
     # Only flag on edit: new items always start from an empty baseline name.
     name_dirty? = socket.assigns.live_action == :edit and name != socket.assigns.baseline_name
 
-    dirty? =
-      name != socket.assigns.baseline_name or
-        DraftStock.dirty?(socket.assigns.quantities, socket.assigns.baseline_quantities)
+    stock_total_mode =
+      cond do
+        not stock_dirty? -> :clean
+        total_current != total_baseline -> :total_changed
+        true -> :rebalance
+      end
+
+    location_dirty =
+      Map.new(quantities, fn {location_id, qty} ->
+        {location_id, qty != DraftStock.get(baseline_quantities, location_id)}
+      end)
+
+    dirty? = name != socket.assigns.baseline_name or stock_dirty?
 
     socket
     |> assign(:name_dirty?, name_dirty?)
+    |> assign(:stock_total_mode, stock_total_mode)
+    |> assign(:total_current, total_current)
+    |> assign(:total_baseline, total_baseline)
+    |> assign(:location_dirty, location_dirty)
     |> assign_dirty(dirty?)
   end
 
