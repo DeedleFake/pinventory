@@ -41,7 +41,8 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       for path <- [~p"/user/settings", ~p"/user/settings/users", ~p"/user/settings/activity"] do
         assert {:error, {:redirect, %{to: to, flash: flash}}} = live(conn, path)
         assert to == ~p"/user/log-in"
-        assert flash["error"] == "You must re-authenticate to access this page."
+        # Reauth is expected; do not treat it as an error flash.
+        refute Map.has_key?(flash, "error")
       end
     end
 

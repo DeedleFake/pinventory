@@ -44,9 +44,8 @@ defmodule PinventoryWeb.UserSessionController do
 
     cond do
       not Accounts.sudo_mode?(user) ->
-        conn
-        |> put_flash(:error, "You must re-authenticate to access this page.")
-        |> redirect(to: ~p"/user/log-in")
+        # Expected reauth when sudo mode expired. Login page copy explains.
+        redirect(conn, to: ~p"/user/log-in")
 
       true ->
         case Accounts.update_user_password(user, user_params) do

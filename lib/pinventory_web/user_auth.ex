@@ -238,12 +238,8 @@ defmodule PinventoryWeb.UserAuth do
     if Accounts.sudo_mode?(socket.assigns.current_scope.user) do
       {:cont, socket}
     else
-      socket =
-        socket
-        |> Phoenix.LiveView.put_flash(:error, "You must re-authenticate to access this page.")
-        |> Phoenix.LiveView.redirect(to: ~p"/user/log-in")
-
-      {:halt, socket}
+      # Expected reauth flow. Login page copy explains; avoid error flash noise.
+      {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/user/log-in")}
     end
   end
 

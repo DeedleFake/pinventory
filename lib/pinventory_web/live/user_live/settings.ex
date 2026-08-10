@@ -390,9 +390,9 @@ defmodule PinventoryWeb.UserLive.Settings do
   defp prepare_tab(socket), do: socket
 
   defp require_sudo_redirect(socket) do
-    socket
-    |> put_flash(:error, "You must re-authenticate to access this page.")
-    |> redirect(to: ~p"/user/log-in")
+    # Expected flow when sudo mode expired. Login reauth copy explains why.
+    # Do not flash :error — that looks like a failure on open.
+    redirect(socket, to: ~p"/user/log-in")
   end
 
   defp invite_email_errors(form) do
