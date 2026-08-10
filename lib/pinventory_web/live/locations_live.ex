@@ -20,23 +20,42 @@ defmodule PinventoryWeb.LocationsLive do
           for={@new_form}
           id="location-new-form"
           class={[
-            "flex flex-row items-start gap-2 rounded-xl border border-dashed",
-            "border-base-300 bg-base-200/50 p-2 transition-colors",
+            "space-y-1.5 rounded-xl border border-dashed p-2 transition-colors",
+            "border-base-300 bg-base-200/50",
             "focus-within:border-primary/40 focus-within:bg-base-200"
           ]}
           phx-change="validate_new"
           phx-submit="save_new"
         >
-          <.input
-            type="text"
-            field={@new_form[:name]}
-            placeholder="New location name..."
-            wrapperclass="mb-0 flex-1"
-            autocomplete="off"
-          />
-          <.button variant="primary" type="submit" id="location-add-button">
-            Add
-          </.button>
+          <div class="join w-full">
+            <input
+              type="text"
+              id={@new_form[:name].id}
+              name={@new_form[:name].name}
+              value={Phoenix.HTML.Form.normalize_value("text", @new_form[:name].value)}
+              placeholder="New location name..."
+              autocomplete="off"
+              class={[
+                "input join-item min-w-0 grow",
+                @new_form[:name].errors != [] &&
+                  Phoenix.Component.used_input?(@new_form[:name]) && "input-error"
+              ]}
+            />
+            <button
+              type="submit"
+              id="location-add-button"
+              class="btn btn-primary join-item shrink-0"
+            >
+              Add
+            </button>
+          </div>
+          <p
+            :for={msg <- field_errors(@new_form[:name])}
+            class="flex items-center gap-2 text-sm text-error"
+          >
+            <.icon name="hero-exclamation-circle" class="size-5" />
+            {msg}
+          </p>
         </.form>
 
         <div id="locations" class="flex flex-col gap-1" phx-update="stream">
@@ -69,7 +88,7 @@ defmodule PinventoryWeb.LocationsLive do
       for={@form}
       id={@id}
       class={[
-        "flex flex-row items-start gap-2 rounded-xl border bg-base-100 p-2 transition-all",
+        "space-y-1.5 rounded-xl border bg-base-100 p-2 transition-all",
         @row_dirty? && "border-primary ring-1 ring-primary/30 bg-primary/5",
         not @row_dirty? && "border-base-300 hover:border-base-content/20"
       ]}
@@ -77,22 +96,44 @@ defmodule PinventoryWeb.LocationsLive do
       phx-submit="save"
       phx-value-id={@form.data.id}
     >
-      <.input
-        type="text"
-        field={@form[:name]}
-        placeholder="Name..."
-        wrapperclass="mb-0 flex-1"
-        autocomplete="off"
-      />
-      <div
-        id={"#{@id}-item-count"}
-        class="flex h-10 shrink-0 items-center px-2 text-sm tabular-nums opacity-70"
-      >
-        {item_count_label(@form.data.item_count || 0)}
+      <div class="flex flex-row items-stretch gap-2">
+        <div class="join min-w-0 flex-1">
+          <input
+            type="text"
+            id={@form[:name].id}
+            name={@form[:name].name}
+            value={Phoenix.HTML.Form.normalize_value("text", @form[:name].value)}
+            placeholder="Name..."
+            autocomplete="off"
+            class={[
+              "input join-item min-w-0 grow",
+              @form[:name].errors != [] &&
+                Phoenix.Component.used_input?(@form[:name]) && "input-error"
+            ]}
+          />
+          <button
+            type="submit"
+            id={"#{@id}-save"}
+            class="btn btn-primary join-item shrink-0"
+            disabled={not @row_dirty?}
+          >
+            Save
+          </button>
+        </div>
+        <div
+          id={"#{@id}-item-count"}
+          class="flex w-16 shrink-0 items-center justify-end text-sm tabular-nums opacity-70"
+        >
+          {item_count_label(@form.data.item_count || 0)}
+        </div>
       </div>
-      <.button variant="primary" type="submit" id={"#{@id}-save"} disabled={not @row_dirty?}>
-        Save
-      </.button>
+      <p
+        :for={msg <- field_errors(@form[:name])}
+        class="flex items-center gap-2 text-sm text-error"
+      >
+        <.icon name="hero-exclamation-circle" class="size-5" />
+        {msg}
+      </p>
     </.form>
     """
   end
@@ -296,4 +337,12 @@ defmodule PinventoryWeb.LocationsLive do
 
   defp item_count_label(1), do: "1 item"
   defp item_count_label(count), do: "#{count} items"
+
+  defp field_errors(field) do
+    if Phoenix.Component.used_input?(field) do
+      Enum.map(field.errors, &translate_error/1)
+    else
+      []
+    end
+  end
 end

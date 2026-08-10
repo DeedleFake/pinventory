@@ -168,33 +168,33 @@ defmodule PinventoryWeb.UserLive.Settings do
               id="latest-invite"
               class="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3"
             >
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <p class="text-sm font-medium">New invite ready</p>
-                  <p :if={@latest_email} class="text-xs opacity-70 mt-0.5">
-                    For {@latest_email}
-                  </p>
-                  <p class="text-xs opacity-70 mt-0.5">
-                    Copy this link now. It cannot be shown again after you leave this page.
-                  </p>
-                </div>
+              <div>
+                <p class="text-sm font-medium">New invite ready</p>
+                <p :if={@latest_email} class="text-xs opacity-70 mt-0.5">
+                  For {@latest_email}
+                </p>
+                <p class="text-xs opacity-70 mt-0.5">
+                  Copy this link now. It cannot be shown again after you leave this page.
+                </p>
+              </div>
+              <div class="join w-full">
+                <input
+                  id="latest-invite-url"
+                  type="text"
+                  readonly
+                  value={@latest_url}
+                  class="input join-item min-w-0 grow font-mono text-xs"
+                />
                 <button
                   type="button"
                   id="copy-latest-invite"
-                  class="btn btn-sm btn-primary"
+                  class="btn btn-primary join-item shrink-0"
                   phx-hook=".ClipboardCopy"
                   data-copy={@latest_url}
                 >
                   <.icon name="hero-clipboard-document" class="size-4" /> Copy
                 </button>
               </div>
-              <input
-                id="latest-invite-url"
-                type="text"
-                readonly
-                value={@latest_url}
-                class="input input-bordered w-full font-mono text-xs"
-              />
             </div>
 
             <div id="invites" phx-update="stream" class="flex flex-col gap-2">
