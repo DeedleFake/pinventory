@@ -16,6 +16,13 @@ defmodule PinventoryWeb.UserLive.LoginTest do
       refute html =~ "Sign up"
       refute html =~ "Log in with email"
       refute html =~ "local mail adapter"
+
+      # Email is editable and focused on normal login; password is not focused.
+      assert has_element?(lv, ~s|#user_email|)
+      refute has_element?(lv, ~s|#user_email[disabled]|)
+      assert has_element?(lv, ~s|#user_email[phx-mounted]|)
+      refute has_element?(lv, ~s|#user_password[phx-mounted]|)
+      assert has_element?(lv, "#login_form_password button", "Log in")
     end
 
     test "redirects to bootstrap registration when no users exist", %{conn: conn} do
@@ -63,14 +70,42 @@ defmodule PinventoryWeb.UserLive.LoginTest do
       %{user: user, conn: log_in_user(conn, user)}
     end
 
-    test "shows login page with email filled in", %{conn: conn, user: user} do
+    test "shows confirm password page with email filled in", %{conn: conn, user: user} do
       {:ok, lv, html} = live(conn, ~p"/user/log-in")
 
       assert has_element?(lv, "#login_form_password")
+      assert html =~ "Confirm your password"
+      assert html =~ "Enter your password again"
+      assert has_element?(lv, "#login_form_password button", "Confirm")
+      refute has_element?(lv, "#login_form_password button", "Log in")
+      refute html =~ "Keep me logged in for 14 days"
+      refute has_element?(lv, ~s|#user_remember_me|)
       refute html =~ "Register"
       refute html =~ "Log in with email"
 
-      assert html =~ ~s(value="#{user.email}")
+      # Email is disabled (display only); password is focused for reauth.
+      assert has_element?(lv, ~s|#user_email[disabled]|)
+      assert has_element?(lv, ~s|#user_email[value="#{user.email}"]|)
+      assert has_element?(lv, ~s|#user_password[phx-mounted]|)
+      refute has_element?(lv, ~s|#user_email[phx-mounted]|)
+    end
+
+    test "re-authenticates with password only and redirects to settings", %{
+      conn: conn,
+      user: user
+    } do
+      {:ok, lv, _html} = live(conn, ~p"/user/log-in")
+
+      form =
+        form(lv, "#login_form_password",
+          user: %{email: user.email, password: valid_user_password()}
+        )
+
+      conn = submit_form(form, conn)
+
+      assert redirected_to(conn) == ~p"/user/settings"
+      assert get_session(conn, :user_token)
+      refute conn.resp_cookies["_pinventory_web_user_remember_me"]
     end
   end
 end

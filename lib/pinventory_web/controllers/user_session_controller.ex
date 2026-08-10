@@ -10,6 +10,17 @@ defmodule PinventoryWeb.UserSessionController do
 
   # email + password login
   defp create(conn, %{"user" => user_params}, info) do
+    # When already logged in (sudo re-auth), do not trust form email. A client can
+    # rewrite the read-only field and switch sessions; lock to the session user.
+    user_params =
+      case conn.assigns do
+        %{current_scope: %{user: %{email: session_email}}} when is_binary(session_email) ->
+          Map.put(user_params, "email", session_email)
+
+        _ ->
+          user_params
+      end
+
     %{"email" => email, "password" => password} = user_params
 
     if user = Accounts.get_user_by_email_and_password(email, password) do

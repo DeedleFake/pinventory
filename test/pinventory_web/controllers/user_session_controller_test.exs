@@ -79,6 +79,48 @@ defmodule PinventoryWeb.UserSessionControllerTest do
       assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Invalid email or password"
       assert redirected_to(conn) == ~p"/user/log-in"
     end
+
+    test "re-auth uses session email and ignores rewritten form email", %{conn: conn, user: user} do
+      other = user_fixture()
+
+      conn =
+        conn
+        |> log_in_user(user)
+        |> post(~p"/user/log-in", %{
+          "user" => %{
+            "email" => other.email,
+            "password" => valid_user_password()
+          }
+        })
+
+      # Session user password authenticates against the locked session email.
+      assert redirected_to(conn) == ~p"/user/settings"
+      assert get_session(conn, :user_token)
+
+      {session_user, _} = Accounts.get_user_by_session_token(get_session(conn, :user_token))
+      assert session_user.id == user.id
+    end
+
+    test "re-auth does not switch user when form email has a different password", %{
+      conn: conn,
+      user: user
+    } do
+      other = user_fixture()
+
+      conn =
+        conn
+        |> log_in_user(user)
+        |> post(~p"/user/log-in", %{
+          "user" => %{
+            "email" => other.email,
+            "password" => "not-the-session-user-password"
+          }
+        })
+
+      # Email is forced to the session user; wrong password for that user fails.
+      assert redirected_to(conn) == ~p"/user/log-in"
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Invalid email or password"
+    end
   end
 
   describe "POST /user/update-password" do
