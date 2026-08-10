@@ -221,14 +221,8 @@ defmodule PinventoryWeb.UserAuth do
     if socket.assigns.current_scope && socket.assigns.current_scope.user do
       {:cont, socket}
     else
-      {path, message} = unauthenticated_redirect()
-
-      socket =
-        socket
-        |> Phoenix.LiveView.put_flash(:error, message)
-        |> Phoenix.LiveView.redirect(to: path)
-
-      {:halt, socket}
+      # Expected gate. Login / bootstrap register pages explain themselves.
+      {:halt, Phoenix.LiveView.redirect(socket, to: unauthenticated_path())}
     end
   end
 
@@ -238,12 +232,8 @@ defmodule PinventoryWeb.UserAuth do
     if Accounts.sudo_mode?(socket.assigns.current_scope.user) do
       {:cont, socket}
     else
-      socket =
-        socket
-        |> Phoenix.LiveView.put_flash(:error, "You must re-authenticate to access this page.")
-        |> Phoenix.LiveView.redirect(to: ~p"/user/log-in")
-
-      {:halt, socket}
+      # Expected reauth flow. Login page copy explains; avoid error flash noise.
+      {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/user/log-in")}
     end
   end
 
@@ -273,21 +263,19 @@ defmodule PinventoryWeb.UserAuth do
     if conn.assigns.current_scope && conn.assigns.current_scope.user do
       conn
     else
-      {path, message} = unauthenticated_redirect()
-
+      # Expected gate. Login / bootstrap register pages explain themselves.
       conn
-      |> put_flash(:error, message)
       |> maybe_store_return_to()
-      |> redirect(to: path)
+      |> redirect(to: unauthenticated_path())
       |> halt()
     end
   end
 
-  defp unauthenticated_redirect do
+  defp unauthenticated_path do
     if Accounts.any_users?() do
-      {~p"/user/log-in", "You must log in to access this page."}
+      ~p"/user/log-in"
     else
-      {~p"/user/register", "Create the first account to get started."}
+      ~p"/user/register"
     end
   end
 

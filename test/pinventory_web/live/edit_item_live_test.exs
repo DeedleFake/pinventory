@@ -16,7 +16,8 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
     assert html =~ "New item"
     assert has_element?(view, "#item-form")
-    assert has_element?(view, "#item-total", "Total: 0")
+    assert has_element?(view, ~s(#item-total[data-stock-dirty="false"]))
+    assert has_element?(view, "#item-total-value", "0")
     assert html =~ ~r/Alpha[\s\S]*Zebra/
   end
 
@@ -40,7 +41,8 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert html =~ "Edit item"
     assert_quantity(view, garage.id, 3)
     assert_quantity(view, shelf.id, 0)
-    assert has_element?(view, "#item-total", "Total: 3")
+    assert has_element?(view, ~s(#item-total[data-stock-dirty="false"]))
+    assert has_element?(view, "#item-total-value", "3")
 
     [item] = Items.list_items()
     assert item.name == "Hammer"
@@ -80,7 +82,8 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert has_element?(view, "#item-save:disabled")
     assert_quantity(view, garage.id, 2)
     assert_quantity(view, shelf.id, 4)
-    assert has_element?(view, "#item-total", "Total: 6")
+    assert has_element?(view, ~s(#item-total[data-stock-dirty="false"]))
+    assert has_element?(view, "#item-total-value", "6")
 
     updated = Items.get_item!(item.id)
     assert updated.name == "Box Nails"
@@ -93,16 +96,43 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
 
+    assert has_element?(view, ~s(#item-total[data-stock-dirty="false"]))
+    assert has_element?(view, "#item-total-value", "1")
+
     view
     |> element("#quantity-inc-#{garage.id}")
     |> render_click()
 
     assert_quantity(view, garage.id, 2)
-    assert has_element?(view, "#item-total", "Total: 2")
+    assert has_element?(view, ~s(#item-total[data-stock-dirty="true"]))
+    assert has_element?(view, ~s(#item-total[data-total-changed="true"]))
+    assert has_element?(view, "#item-total-was", "1")
+    assert has_element?(view, "#item-total-value", "2")
+    assert has_element?(view, "#item-total-hint", "total changed")
     refute has_element?(view, "#item-save:disabled")
 
     # Not saved yet
     assert Items.stock_map(Items.get_item!(item.id)) == %{garage.id => 1}
+  end
+
+  test "shows was and now totals when stock rebalance keeps the total the same", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
+    {:ok, item} = Items.create_item(scope, %{name: "Washers"}, %{garage.id => 5})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    set_quantity(view, garage.id, 3)
+    set_quantity(view, shelf.id, 2)
+
+    assert has_element?(view, ~s(#item-total[data-stock-dirty="true"]))
+    assert has_element?(view, ~s(#item-total[data-total-changed="false"]))
+    assert has_element?(view, "#item-total-was", "5")
+    assert has_element?(view, "#item-total-value", "5")
+    assert has_element?(view, "#item-total-hint", "total unchanged")
   end
 
   test "marks dirty quantity rows when stock differs from baseline", %{conn: conn, scope: scope} do
@@ -146,7 +176,8 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
     assert_quantity(view, garage.id, 4)
     assert_quantity(view, shelf.id, 9)
-    assert has_element?(view, "#item-total", "Total: 13")
+    assert has_element?(view, "#item-total-was", "10")
+    assert has_element?(view, "#item-total-value", "13")
   end
 
   test "stock controls live in a stock form separate from the name form", %{
@@ -187,39 +218,6 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert html =~ "Could not save item stock: location does not exist"
     assert has_element?(view, ~s(#item_name[value="Orphan stock"]))
     assert Items.list_items() == []
-  end
-
-  test "moves quantity between locations in the draft", %{conn: conn, scope: scope} do
-    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
-    {:ok, item} = Items.create_item(scope, %{name: "Bits"}, %{garage.id => 5})
-
-    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
-
-    view
-    |> element("#move-start-#{garage.id}")
-    |> render_click()
-
-    assert has_element?(view, "#move-panel-#{garage.id}")
-
-    view
-    |> element("#move-to-#{garage.id}")
-    |> render_change(%{"move_to" => shelf.id, "location-id" => garage.id})
-
-    view
-    |> element("#move-amount-#{garage.id}")
-    |> render_change(%{"move_amount" => "2", "location-id" => garage.id})
-
-    view
-    |> element("#move-confirm-#{garage.id}")
-    |> render_click()
-
-    assert_quantity(view, garage.id, 3)
-    assert_quantity(view, shelf.id, 2)
-    assert has_element?(view, "#item-total", "Total: 5")
-    refute has_element?(view, "#move-panel-#{garage.id}")
-
-    assert Items.stock_map(Items.get_item!(item.id)) == %{garage.id => 5}
   end
 
   test "shows name suggestions and navigates on select", %{conn: conn, scope: scope} do
@@ -340,6 +338,51 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert_push_event(view, "unsaved-changes", %{dirty: false})
     assert has_element?(view, ~s(#item-page[data-dirty="false"]))
     assert has_element?(view, "#item-save:disabled")
+  end
+
+  test "highlights an unsaved name change on edit", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, item} = Items.create_item(scope, %{name: "Level"}, %{garage.id => 1})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    assert has_element?(view, ~s(#item-name-section[data-name-dirty="false"]))
+    refute has_element?(view, "#item-name-hint")
+
+    view
+    |> form("#item-form", item: %{name: "Spirit Level"})
+    |> render_change()
+
+    assert has_element?(view, ~s(#item-name-section[data-name-dirty="true"]))
+    assert has_element?(view, "#item-name-hint", "Unsaved name change")
+    assert has_element?(view, "#item-name-hint", "Level")
+
+    # Quantity-only edits do not mark the name as dirty.
+    set_quantity(view, garage.id, 2)
+
+    assert has_element?(view, ~s(#item-name-section[data-name-dirty="true"]))
+    assert has_element?(view, ~s(#item-total[data-stock-dirty="true"]))
+
+    view
+    |> form("#item-form", item: %{name: "Level"})
+    |> render_change()
+
+    assert has_element?(view, ~s(#item-name-section[data-name-dirty="false"]))
+    refute has_element?(view, "#item-name-hint")
+    assert has_element?(view, ~s(#item-total[data-stock-dirty="true"]))
+  end
+
+  test "does not mark name dirty on the new item page while typing", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/item")
+
+    assert has_element?(view, ~s(#item-name-section[data-name-dirty="false"]))
+
+    view
+    |> form("#item-form", item: %{name: "Hammer"})
+    |> render_change()
+
+    assert has_element?(view, ~s(#item-name-section[data-name-dirty="false"]))
+    refute has_element?(view, "#item-name-hint")
   end
 
   test "shows item activity timeline grouped by edit with actor and events", %{

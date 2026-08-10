@@ -41,28 +41,6 @@ defmodule Pinventory.Items.DraftStock do
   end
 
   @doc """
-  Moves `amount` from one location to another.
-
-  Returns `{:ok, quantities}` or `{:error, :invalid}`.
-  """
-  def move(quantities, from_id, to_id, amount)
-      when is_integer(amount) and amount >= 1 and from_id != to_id do
-    from_qty = get(quantities, from_id)
-
-    if amount <= from_qty and Map.has_key?(quantities, from_id) and
-         Map.has_key?(quantities, to_id) do
-      {:ok,
-       quantities
-       |> Map.put(from_id, from_qty - amount)
-       |> Map.put(to_id, get(quantities, to_id) + amount)}
-    else
-      {:error, :invalid}
-    end
-  end
-
-  def move(_quantities, _from_id, _to_id, _amount), do: {:error, :invalid}
-
-  @doc """
   Sums all quantities in the draft map.
   """
   def total(quantities) do

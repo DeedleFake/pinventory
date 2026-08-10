@@ -327,9 +327,7 @@ defmodule PinventoryWeb.UserAuthTest do
 
       assert conn.halted
       assert redirected_to(conn) == ~p"/user/register"
-
-      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
-               "Create the first account to get started."
+      refute Phoenix.Flash.get(conn.assigns.flash, :error)
     end
 
     test "on_mount redirects to bootstrap register", %{conn: conn} do
@@ -357,9 +355,7 @@ defmodule PinventoryWeb.UserAuthTest do
       assert conn.halted
 
       assert redirected_to(conn) == ~p"/user/log-in"
-
-      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
-               "You must log in to access this page."
+      refute Phoenix.Flash.get(conn.assigns.flash, :error)
     end
 
     test "stores the path to redirect to on GET", %{conn: conn} do

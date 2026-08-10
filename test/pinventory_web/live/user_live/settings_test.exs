@@ -29,7 +29,7 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
 
       assert {:redirect, %{to: path, flash: flash}} = redirect
       assert path == ~p"/user/log-in"
-      assert %{"error" => "You must log in to access this page."} = flash
+      refute Map.has_key?(flash, "error")
     end
 
     test "redirects every settings tab if user is not in sudo mode", %{conn: conn} do
@@ -41,7 +41,8 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       for path <- [~p"/user/settings", ~p"/user/settings/users", ~p"/user/settings/activity"] do
         assert {:error, {:redirect, %{to: to, flash: flash}}} = live(conn, path)
         assert to == ~p"/user/log-in"
-        assert flash["error"] == "You must re-authenticate to access this page."
+        # Reauth is expected; do not treat it as an error flash.
+        refute Map.has_key?(flash, "error")
       end
     end
 
@@ -318,8 +319,7 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       {:error, redirect} = live(conn, ~p"/user/settings/confirm-email/#{token}")
       assert {:redirect, %{to: path, flash: flash}} = redirect
       assert path == ~p"/user/log-in"
-      assert %{"error" => message} = flash
-      assert message == "You must log in to access this page."
+      refute Map.has_key?(flash, "error")
     end
   end
 end
