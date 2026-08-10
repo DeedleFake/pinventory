@@ -125,27 +125,42 @@ defmodule PinventoryWeb.UserLive.Settings do
               id="generate-invite-form"
               phx-submit="generate"
               phx-change="validate_invite"
-              class="flex flex-col gap-3 sm:flex-row sm:items-end"
+              class="space-y-1.5"
             >
-              <div class="flex-1 min-w-0">
-                <.input
-                  field={@invite_form[:email]}
+              <label class="label" for={@invite_form[:email].id}>Invite email</label>
+              <%!-- join keeps input and button the same height (daisyUI). --%>
+              <div class="join w-full">
+                <input
                   type="email"
-                  label="Invite email"
+                  id={@invite_form[:email].id}
+                  name={@invite_form[:email].name}
+                  value={Phoenix.HTML.Form.normalize_value("email", @invite_form[:email].value)}
                   placeholder="user@example.com"
                   autocomplete="off"
                   spellcheck="false"
                   required
+                  class={[
+                    "input join-item min-w-0 grow",
+                    @invite_form[:email].errors != [] &&
+                      Phoenix.Component.used_input?(@invite_form[:email]) && "input-error"
+                  ]}
                 />
+                <button
+                  id="generate-invite"
+                  type="submit"
+                  class="btn btn-primary join-item shrink-0"
+                  phx-disable-with="Creating..."
+                >
+                  <.icon name="hero-plus" class="size-4" /> Generate invite
+                </button>
               </div>
-              <.button
-                id="generate-invite"
-                type="submit"
-                variant="primary"
-                phx-disable-with="Creating..."
+              <p
+                :for={msg <- invite_email_errors(@invite_form)}
+                class="mt-1 flex items-center gap-2 text-sm text-error"
               >
-                <.icon name="hero-plus" class="size-4" /> Generate invite
-              </.button>
+                <.icon name="hero-exclamation-circle" class="size-5" />
+                {msg}
+              </p>
             </.form>
 
             <div
@@ -378,6 +393,16 @@ defmodule PinventoryWeb.UserLive.Settings do
     socket
     |> put_flash(:error, "You must re-authenticate to access this page.")
     |> redirect(to: ~p"/user/log-in")
+  end
+
+  defp invite_email_errors(form) do
+    field = form[:email]
+
+    if Phoenix.Component.used_input?(field) do
+      Enum.map(field.errors, &translate_error/1)
+    else
+      []
+    end
   end
 
   defp load_tab(socket, :edit) do
