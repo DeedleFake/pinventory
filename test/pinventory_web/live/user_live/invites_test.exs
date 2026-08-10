@@ -16,31 +16,67 @@ defmodule PinventoryWeb.UserLive.InvitesTest do
     assert path == ~p"/user/log-in"
   end
 
-  test "users tab lists empty invites and generates an invite once", %{conn: conn, user: user} do
+  test "users tab lists empty invites and generates an invite with email", %{
+    conn: conn,
+    user: user
+  } do
     {:ok, view, html} = live(conn, ~p"/user/settings/users")
 
     assert html =~ "Invites"
     assert html =~ "Users"
     assert has_element?(view, "#settings-tab-users")
     assert has_element?(view, "#invites-empty", "No pending invites")
+    assert has_element?(view, "#generate-invite-form")
     assert has_element?(view, "#generate-invite")
     assert has_element?(view, "#users-#{user.id}")
     assert has_element?(view, "#users-#{user.id}", user.email)
 
-    view |> element("#generate-invite") |> render_click()
+    invite_email = unique_user_email()
+
+    view
+    |> form("#generate-invite-form", invite: %{email: invite_email})
+    |> render_submit()
 
     html = render(view)
     assert html =~ "Invite created"
     assert has_element?(view, "#latest-invite")
     assert has_element?(view, "#latest-invite-url")
     assert has_element?(view, "#copy-latest-invite")
+    assert html =~ invite_email
 
     [invite] = Accounts.list_pending_invites()
+    assert invite.email == invite_email
     assert has_element?(view, "#invites-#{invite.id}")
+    assert has_element?(view, "#invites-#{invite.id}", invite_email)
     assert has_element?(view, "#revoke-invite-#{invite.id}")
     # Plain token is not re-exposed on list rows
     refute has_element?(view, "#copy-invite-#{invite.id}")
     refute has_element?(view, "#invite-url-#{invite.id}")
+  end
+
+  test "generate invite form validates email", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/user/settings/users")
+
+    html =
+      view
+      |> form("#generate-invite-form", invite: %{email: "bad"})
+      |> render_change()
+
+    assert html =~ "must have the @ sign"
+    assert Accounts.list_pending_invites() == []
+  end
+
+  test "generate invite submit rejects invalid email without minting", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/user/settings/users")
+
+    html =
+      view
+      |> form("#generate-invite-form", invite: %{email: "bad"})
+      |> render_submit()
+
+    assert html =~ "must have the @ sign"
+    refute has_element?(view, "#latest-invite")
+    assert Accounts.list_pending_invites() == []
   end
 
   test "users tab lists all users", %{conn: conn, user: user} do
@@ -68,7 +104,12 @@ defmodule PinventoryWeb.UserLive.InvitesTest do
   test "clears latest invite panel when that invite is revoked", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/user/settings/users")
 
-    view |> element("#generate-invite") |> render_click()
+    invite_email = unique_user_email()
+
+    view
+    |> form("#generate-invite-form", invite: %{email: invite_email})
+    |> render_submit()
+
     assert has_element?(view, "#latest-invite")
 
     [invite] = Accounts.list_pending_invites()

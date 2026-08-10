@@ -113,23 +113,40 @@ defmodule PinventoryWeb.UserLive.Settings do
 
         <div :if={@live_action == :users} id="settings-users" class="space-y-8">
           <section id="invites-section" class="space-y-4" aria-labelledby="invites-heading">
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 id="invites-heading" class="text-lg font-semibold tracking-tight">Invites</h2>
-                <p class="mt-1 text-sm opacity-70">
-                  One-time registration links. Share them out of band.
-                </p>
+            <div>
+              <h2 id="invites-heading" class="text-lg font-semibold tracking-tight">Invites</h2>
+              <p class="mt-1 text-sm opacity-70">
+                One-time registration links bound to an email. Share them out of band.
+              </p>
+            </div>
+
+            <.form
+              for={@invite_form}
+              id="generate-invite-form"
+              phx-submit="generate"
+              phx-change="validate_invite"
+              class="flex flex-col gap-3 sm:flex-row sm:items-end"
+            >
+              <div class="flex-1 min-w-0">
+                <.input
+                  field={@invite_form[:email]}
+                  type="email"
+                  label="Invite email"
+                  placeholder="user@example.com"
+                  autocomplete="off"
+                  spellcheck="false"
+                  required
+                />
               </div>
-              <button
+              <.button
                 id="generate-invite"
-                type="button"
-                phx-click="generate"
-                class="btn btn-primary"
+                type="submit"
+                variant="primary"
                 phx-disable-with="Creating..."
               >
                 <.icon name="hero-plus" class="size-4" /> Generate invite
-              </button>
-            </div>
+              </.button>
+            </.form>
 
             <div
               :if={@latest_url}
@@ -139,6 +156,9 @@ defmodule PinventoryWeb.UserLive.Settings do
               <div class="flex items-start justify-between gap-3">
                 <div>
                   <p class="text-sm font-medium">New invite ready</p>
+                  <p :if={@latest_email} class="text-xs opacity-70 mt-0.5">
+                    For {@latest_email}
+                  </p>
                   <p class="text-xs opacity-70 mt-0.5">
                     Copy this link now. It cannot be shown again after you leave this page.
                   </p>
@@ -179,7 +199,7 @@ defmodule PinventoryWeb.UserLive.Settings do
                 ]}
               >
                 <div class="min-w-0 space-y-1 flex-1">
-                  <p class="text-sm font-medium">Pending invite</p>
+                  <p class="text-sm font-medium truncate">{invite.email}</p>
                   <p class="text-xs opacity-70">
                     Created {Calendar.strftime(invite.inserted_at, "%Y-%m-%d %H:%M UTC")}
                   </p>
@@ -326,8 +346,10 @@ defmodule PinventoryWeb.UserLive.Settings do
      |> assign(:current_email, user.email)
      |> assign(:email_form, to_form(email_changeset))
      |> assign(:password_form, to_form(password_changeset))
+     |> assign(:invite_form, to_form(Accounts.change_invite(%{}), as: :invite))
      |> assign(:trigger_submit, false)
      |> assign(:latest_url, nil)
+     |> assign(:latest_email, nil)
      |> assign(:latest_invite_id, nil)
      |> assign(:activity_edits, [])
      |> stream(:invites, [])
@@ -473,20 +495,34 @@ defmodule PinventoryWeb.UserLive.Settings do
     end
   end
 
-  def handle_event("generate", _params, socket) do
-    case Accounts.create_invite(socket.assigns.current_scope) do
+  def handle_event("validate_invite", %{"invite" => invite_params}, socket) do
+    invite_form =
+      invite_params
+      |> Accounts.change_invite()
+      |> Map.put(:action, :validate)
+      |> to_form(as: :invite)
+
+    {:noreply, assign(socket, invite_form: invite_form)}
+  end
+
+  def handle_event("generate", %{"invite" => invite_params}, socket) do
+    email = Map.get(invite_params, "email", "")
+
+    case Accounts.create_invite(email, socket.assigns.current_scope) do
       {:ok, invite, plain_token} ->
         invite_url = url(~p"/user/invite/#{plain_token}")
 
         {:noreply,
          socket
          |> assign(:latest_url, invite_url)
+         |> assign(:latest_email, invite.email)
          |> assign(:latest_invite_id, invite.id)
+         |> assign(:invite_form, to_form(Accounts.change_invite(%{}), as: :invite))
          |> stream_insert(:invites, invite, at: 0)
          |> put_flash(:info, "Invite created. Copy the link now — it will not be shown again.")}
 
-      {:error, _changeset} ->
-        {:noreply, put_flash(socket, :error, "Could not create invite.")}
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, invite_form: to_form(changeset, as: :invite, action: :insert))}
     end
   end
 
@@ -502,6 +538,7 @@ defmodule PinventoryWeb.UserLive.Settings do
           if socket.assigns.latest_invite_id == invite.id do
             socket
             |> assign(:latest_url, nil)
+            |> assign(:latest_email, nil)
             |> assign(:latest_invite_id, nil)
           else
             socket

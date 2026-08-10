@@ -6,7 +6,7 @@ defmodule Pinventory.Release do
 
       bin/pinventory eval 'Pinventory.Release.migrate()'
       bin/pinventory eval 'Pinventory.Release.create_user("admin@example.com", "a long password")'
-      bin/pinventory eval 'Pinventory.Release.create_invite()'
+      bin/pinventory eval 'Pinventory.Release.create_invite("user@example.com")'
 
   """
 
@@ -34,7 +34,8 @@ defmodule Pinventory.Release do
       when is_binary(email) and is_binary(password) do
     load_app()
 
-    {:ok, _, result} =
+    # with_repo/2 returns {:ok, fun_result, started_apps}
+    {:ok, result, _} =
       Ecto.Migrator.with_repo(Pinventory.Repo, fn _repo ->
         Pinventory.Accounts.create_user(%{
           "email" => email,
@@ -54,26 +55,33 @@ defmodule Pinventory.Release do
   end
 
   @doc """
-  Mints a blank invite and prints the registration URL.
+  Mints an email-bound invite and prints the registration URL.
+
+  The invite is not sent by email; share the printed URL out of band.
 
   Returns `{:ok, invite, url}`.
   """
-  def create_invite do
+  def create_invite(email) when is_binary(email) do
     load_app()
 
-    {:ok, _, result} =
+    # with_repo/2 returns {:ok, fun_result, started_apps}
+    {:ok, result, _} =
       Ecto.Migrator.with_repo(Pinventory.Repo, fn _repo ->
-        Pinventory.Accounts.create_invite()
+        Pinventory.Accounts.create_invite(email)
       end)
 
     case result do
       {:ok, invite, plain_token} ->
         url = PinventoryWeb.Endpoint.url() <> Pinventory.Accounts.invite_path(plain_token)
         IO.puts("Invite #{invite.id}")
+        IO.puts("Email: #{invite.email}")
         IO.puts("Expires at: #{invite.expires_at}")
         IO.puts("Registration URL:")
         IO.puts(url)
         {:ok, invite, url}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        raise "failed to create invite: #{inspect(changeset.errors)}"
 
       {:error, reason} ->
         raise "failed to create invite: #{inspect(reason)}"

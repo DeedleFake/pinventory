@@ -67,8 +67,31 @@ defmodule Pinventory.AccountsFixtures do
     )
   end
 
-  def invite_fixture(created_by \\ nil) do
-    {:ok, invite, plain_token} = Accounts.create_invite(created_by)
+  @doc """
+  Creates a pending invite.
+
+  ## Options
+
+    * `:email` — bound registration email (default: unique fixture email)
+    * `:created_by` — `%User{}`, `%Scope{}`, or `nil`
+
+  ## Examples
+
+      invite_fixture()
+      invite_fixture(email: "user@example.com")
+      invite_fixture(created_by: user, email: "user@example.com")
+  """
+  def invite_fixture(opts \\ [])
+
+  def invite_fixture(opts) when is_list(opts) do
+    email = Keyword.get_lazy(opts, :email, &unique_user_email/0)
+    created_by = Keyword.get(opts, :created_by)
+    {:ok, invite, plain_token} = Accounts.create_invite(email, created_by)
     {invite, plain_token}
+  end
+
+  # Back-compat: invite_fixture(user) where user is a %User{} or similar struct
+  def invite_fixture(%_{} = created_by) do
+    invite_fixture(created_by: created_by)
   end
 end

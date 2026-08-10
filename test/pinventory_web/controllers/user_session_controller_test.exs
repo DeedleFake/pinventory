@@ -116,6 +116,7 @@ defmodule PinventoryWeb.UserSessionControllerTest do
         })
 
       assert redirected_to(conn) == ~p"/user/log-in"
+
       assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
                "You must re-authenticate to access this page."
 

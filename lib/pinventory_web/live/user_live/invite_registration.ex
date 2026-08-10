@@ -62,6 +62,11 @@ defmodule PinventoryWeb.UserLive.InviteRegistration do
   end
 
   def mount(%{"token" => token}, _session, socket) do
+    # Mount intentionally distinguishes pending vs invalid tokens for UX
+    # (show form vs redirect). Bound email is never assigned or rendered.
+    # On submit, wrong email / bad / expired / used / revoked all share the
+    # same generic flash so email mismatch is not enumerable relative to
+    # other accept failures.
     case Accounts.get_pending_invite_by_token(token) do
       {:ok, _invite} ->
         changeset = Accounts.change_user_registration(%User{}, %{}, hash_password: false)

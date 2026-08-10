@@ -139,33 +139,93 @@ defmodule Pinventory.Accounts do
   @doc """
   Registers a user with a valid one-time invite token.
 
+  The registration email must match the invite's bound email
+  (case-insensitive). A mismatch returns `{:error, :invalid_or_expired}`
+  with the same shape as a bad, expired, used, or revoked token so the
+  UI cannot distinguish those cases.
+
+  Uniqueness errors are only returned after the invite is pending **and**
+  the email matches. That way a wrong email that already belongs to a user
+  cannot surface "has already been taken" on the accept form.
+
+  When format/password precheck passes, Argon2 runs **once before** the
+  invite/email branch so match and mismatch pay equal hash cost (timing
+  oracle defense for the bound email when a token URL is known). The hash
+  is reused on the success path — no double-hash.
+
   On success the invite is consumed and the user is confirmed.
   Password hashing runs outside the write transaction.
   """
   def register_user_with_invite(plain_token, attrs) when is_binary(plain_token) do
-    # Hash outside the transaction so Argon2 does not keep a writer transaction open.
-    changeset = registration_insert_changeset(attrs)
+    # Hash outside the transaction (Argon2 is slow). validate_unique: false so
+    # uniqueness cannot leak before invite/email match. When this changeset is
+    # valid, Argon2 has already run exactly once.
+    changeset =
+      %User{}
+      |> User.registration_changeset(attrs, hash_password: true, validate_unique: false)
+      |> Ecto.Changeset.change(%{confirmed_at: DateTime.utc_now(:second)})
 
     if changeset.valid? do
-      # SQLite serializes writers at the database level (immediate transactions).
-      # Re-read the invite inside the transaction so two concurrent consumers
-      # cannot both consume the same ticket.
-      Repo.transact(fn ->
-        with {:ok, invite} <- get_pending_invite_by_token(plain_token),
-             {:ok, user} <- Repo.insert(changeset),
-             {:ok, _invite} <- Repo.update(Invite.use_changeset(invite, user.id)) do
-          {:ok, user}
-        else
-          {:error, :invalid_or_expired} ->
-            {:error, :invalid_or_expired}
+      # Invite/match branching runs *after* hashing so invalid_or_expired paths
+      # (wrong email, bad/expired/used/revoked token) pay the same Argon2 cost
+      # as a matching free email. Do not re-hash on the success path.
+      case get_pending_invite_by_token(plain_token) do
+        {:error, :invalid_or_expired} ->
+          {:error, :invalid_or_expired}
 
-          {:error, %Ecto.Changeset{} = err_changeset} ->
-            {:error, err_changeset}
-        end
-      end)
+        {:ok, invite} ->
+          if Invite.email_matches?(invite, registration_email(attrs)) do
+            # Uniqueness only after match — taken wrong emails stay generic.
+            changeset = apply_registration_email_uniqueness(changeset)
+
+            if changeset.valid? do
+              # SQLite serializes writers at the database level (immediate transactions).
+              # Re-read the invite inside the transaction so two concurrent consumers
+              # cannot both consume the same ticket.
+              Repo.transact(fn ->
+                with {:ok, invite} <- get_pending_invite_by_token(plain_token),
+                     :ok <- ensure_invite_email_matches(invite, attrs),
+                     {:ok, user} <- Repo.insert(changeset),
+                     {:ok, _invite} <- Repo.update(Invite.use_changeset(invite, user.id)) do
+                  {:ok, user}
+                else
+                  {:error, :invalid_or_expired} ->
+                    {:error, :invalid_or_expired}
+
+                  {:error, %Ecto.Changeset{} = err_changeset} ->
+                    {:error, err_changeset}
+                end
+              end)
+            else
+              {:error, changeset}
+            end
+          else
+            {:error, :invalid_or_expired}
+          end
+      end
     else
       {:error, changeset}
     end
+  end
+
+  defp ensure_invite_email_matches(invite, attrs) do
+    email = registration_email(attrs)
+
+    if Invite.email_matches?(invite, email) do
+      :ok
+    else
+      {:error, :invalid_or_expired}
+    end
+  end
+
+  defp registration_email(%{"email" => email}) when is_binary(email), do: email
+  defp registration_email(%{email: email}) when is_binary(email), do: email
+  defp registration_email(_), do: nil
+
+  defp apply_registration_email_uniqueness(changeset) do
+    changeset
+    |> Ecto.Changeset.unsafe_validate_unique(:email, Repo)
+    |> Ecto.Changeset.unique_constraint(:email)
   end
 
   defp registration_insert_changeset(attrs) do
@@ -177,17 +237,20 @@ defmodule Pinventory.Accounts do
   ## Invites
 
   @doc """
-  Creates a blank invite registration ticket.
+  Creates an email-bound invite registration ticket.
+
+  The invite can only be used to register that email (case-insensitive).
+  The invite is not sent by email; the creator shares the URL out of band.
 
   Returns `{:ok, invite, plain_token}`. `created_by` may be a `%Scope{}`,
   `%User{}`, or `nil` (ops / bootstrap tooling).
   """
-  def create_invite(created_by \\ nil) do
+  def create_invite(email, created_by \\ nil) when is_binary(email) do
     attrs =
       case created_by do
-        %Scope{user: %User{id: id}} -> %{created_by_id: id}
-        %User{id: id} -> %{created_by_id: id}
-        _ -> %{}
+        %Scope{user: %User{id: id}} -> %{created_by_id: id, email: email}
+        %User{id: id} -> %{created_by_id: id, email: email}
+        _ -> %{email: email}
       end
 
     {changeset, plain_token} = Invite.build(attrs)
@@ -196,6 +259,13 @@ defmodule Pinventory.Accounts do
       {:ok, invite} -> {:ok, invite, plain_token}
       {:error, changeset} -> {:error, changeset}
     end
+  end
+
+  @doc """
+  Returns an `%Ecto.Changeset{}` for the invite email form (Settings).
+  """
+  def change_invite(attrs \\ %{}) do
+    Invite.email_changeset(attrs)
   end
 
   @doc """
