@@ -178,30 +178,47 @@ defmodule PinventoryWeb.EditItemLive do
   defp stock_total(assigns) do
     current = DraftStock.total(assigns.quantities)
     baseline = DraftStock.total(assigns.baseline_quantities)
-    stock_dirty? = DraftStock.dirty?(assigns.quantities, assigns.baseline_quantities)
-    total_changed? = stock_dirty? and current != baseline
+
+    mode =
+      cond do
+        not DraftStock.dirty?(assigns.quantities, assigns.baseline_quantities) -> :clean
+        current != baseline -> :total_changed
+        true -> :rebalance
+      end
+
+    {chrome_class, accent_class, hint} =
+      case mode do
+        :clean ->
+          {"border-base-300 bg-base-100 ring-transparent", nil, nil}
+
+        :rebalance ->
+          {"border-primary/50 bg-primary/10 ring-primary/25", "text-primary",
+           "Unsaved · total unchanged"}
+
+        :total_changed ->
+          {"border-warning/50 bg-warning/10 ring-warning/25", "text-warning",
+           "Unsaved · total changed"}
+      end
 
     assigns =
       assigns
       |> assign(:current, current)
       |> assign(:baseline, baseline)
-      |> assign(:stock_dirty?, stock_dirty?)
-      |> assign(:total_changed?, total_changed?)
+      |> assign(:mode, mode)
+      |> assign(:chrome_class, chrome_class)
+      |> assign(:accent_class, accent_class)
+      |> assign(:hint, hint)
 
     ~H"""
     <%!-- Fixed min-height: dirty content fits without growing; clean content centers. --%>
     <div
       id="item-total"
-      data-stock-dirty={to_string(@stock_dirty?)}
-      data-total-changed={to_string(@total_changed?)}
+      data-stock-dirty={to_string(@mode != :clean)}
+      data-total-changed={to_string(@mode == :total_changed)}
       class={[
         "flex min-h-20 items-center justify-between gap-4 rounded-2xl border px-4 py-3",
         "ring-1 transition-colors duration-200",
-        @stock_dirty? && @total_changed? &&
-          "border-warning/50 bg-warning/10 ring-warning/25",
-        @stock_dirty? && not @total_changed? &&
-          "border-primary/50 bg-primary/10 ring-primary/25",
-        not @stock_dirty? && "border-base-300 bg-base-100 ring-transparent"
+        @chrome_class
       ]}
     >
       <div class="min-w-0">
@@ -209,21 +226,17 @@ defmodule PinventoryWeb.EditItemLive do
           Total quantity
         </p>
         <p
-          :if={@stock_dirty?}
+          :if={@hint}
           id="item-total-hint"
           class="mt-0.5 text-xs opacity-70"
         >
-          <%= if @total_changed? do %>
-            Unsaved · total changed
-          <% else %>
-            Unsaved · total unchanged
-          <% end %>
+          {@hint}
         </p>
       </div>
 
       <div class="flex shrink-0 items-center gap-2 sm:gap-3">
         <div
-          :if={@stock_dirty?}
+          :if={@mode != :clean}
           class="flex min-w-[1.75rem] flex-col items-center text-center leading-none"
         >
           <span class="text-[0.65rem] font-medium uppercase tracking-wide opacity-50">
@@ -238,22 +251,15 @@ defmodule PinventoryWeb.EditItemLive do
         </div>
 
         <.icon
-          :if={@stock_dirty?}
+          :if={@mode != :clean}
           name="hero-arrow-right"
-          class={
-            "size-4 shrink-0 sm:size-5 " <>
-              if(@total_changed?, do: "text-warning", else: "text-primary")
-          }
+          class={"size-4 shrink-0 sm:size-5 #{@accent_class}"}
         />
 
         <div class="flex min-w-[1.75rem] flex-col items-center justify-center text-center leading-none">
           <span
-            :if={@stock_dirty?}
-            class={[
-              "text-[0.65rem] font-medium uppercase tracking-wide",
-              @total_changed? && "text-warning",
-              not @total_changed? && "text-primary"
-            ]}
+            :if={@mode != :clean}
+            class={["text-[0.65rem] font-medium uppercase tracking-wide", @accent_class]}
           >
             Now
           </span>
@@ -261,8 +267,7 @@ defmodule PinventoryWeb.EditItemLive do
             id="item-total-value"
             class={[
               "text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl",
-              @stock_dirty? && @total_changed? && "text-warning",
-              @stock_dirty? && not @total_changed? && "text-primary"
+              @accent_class
             ]}
           >
             {@current}
