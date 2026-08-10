@@ -35,7 +35,7 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
     test "redirects every settings tab if user is not in sudo mode", %{conn: conn} do
       conn =
         log_in_user(conn, user_fixture(),
-          token_authenticated_at: DateTime.add(DateTime.utc_now(:second), -11, :minute)
+          token_authenticated_at: DateTime.add(DateTime.utc_now(:second), -21, :minute)
         )
 
       for path <- [~p"/user/settings", ~p"/user/settings/users", ~p"/user/settings/activity"] do

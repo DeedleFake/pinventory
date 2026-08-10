@@ -343,7 +343,7 @@ defmodule PinventoryWeb.UserLive.Settings do
   # confirm-email is handled in mount and does not use this path.
   defp prepare_tab(%{assigns: %{live_action: action}} = socket)
        when action in [:edit, :users, :activity] do
-    if Accounts.sudo_mode?(socket.assigns.current_scope.user, -10) do
+    if Accounts.sudo_mode?(socket.assigns.current_scope.user) do
       load_tab(socket, action)
     else
       require_sudo_redirect(socket)

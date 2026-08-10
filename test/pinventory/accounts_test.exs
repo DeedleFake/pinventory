@@ -250,12 +250,13 @@ defmodule Pinventory.AccountsTest do
   describe "sudo_mode?/2" do
     test "validates the authenticated_at time" do
       now = DateTime.utc_now()
+      assert Accounts.sudo_mode_minutes() == -20
 
       assert Accounts.sudo_mode?(%User{authenticated_at: DateTime.utc_now()})
       assert Accounts.sudo_mode?(%User{authenticated_at: DateTime.add(now, -19, :minute)})
       refute Accounts.sudo_mode?(%User{authenticated_at: DateTime.add(now, -21, :minute)})
 
-      # minute override
+      # custom shorter window still works
       refute Accounts.sudo_mode?(
                %User{authenticated_at: DateTime.add(now, -11, :minute)},
                -10
