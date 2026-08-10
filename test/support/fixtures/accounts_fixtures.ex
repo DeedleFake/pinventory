@@ -25,15 +25,6 @@ defmodule Pinventory.AccountsFixtures do
     |> Map.put_new(:password_confirmation, Map.get(attrs, :password) || valid_user_password())
   end
 
-  def unconfirmed_user_fixture(attrs \\ %{}) do
-    {:ok, user} =
-      attrs
-      |> valid_user_attributes()
-      |> Accounts.register_user()
-
-    user
-  end
-
   def user_fixture(attrs \\ %{}) do
     {:ok, user} =
       attrs
@@ -52,13 +43,6 @@ defmodule Pinventory.AccountsFixtures do
     Scope.for_user(user)
   end
 
-  def set_password(user) do
-    {:ok, {user, _expired_tokens}} =
-      Accounts.update_user_password(user, %{password: valid_user_password()})
-
-    user
-  end
-
   def extract_user_token(fun) do
     {:ok, captured_email} = fun.(&"[TOKEN]#{&1}[TOKEN]")
     [_, token | _] = String.split(captured_email.text_body, "[TOKEN]")
@@ -72,12 +56,6 @@ defmodule Pinventory.AccountsFixtures do
       ),
       set: [authenticated_at: authenticated_at]
     )
-  end
-
-  def generate_user_magic_link_token(user) do
-    {encoded_token, user_token} = Accounts.UserToken.build_email_token(user, "login")
-    Pinventory.Repo.insert!(user_token)
-    {encoded_token, user_token.token}
   end
 
   def offset_user_token(token, amount_to_add, unit) do

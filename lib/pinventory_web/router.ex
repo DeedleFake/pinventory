@@ -62,7 +62,6 @@ defmodule PinventoryWeb.Router do
   ## Public authentication routes
   #
   # live_session :current_user — login, bootstrap register, and invite register.
-  # Password-only daily login; no public magic-link login route.
   scope "/", PinventoryWeb do
     pipe_through [:browser]
 

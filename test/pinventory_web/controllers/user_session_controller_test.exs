@@ -1,6 +1,7 @@
 defmodule PinventoryWeb.UserSessionControllerTest do
   use PinventoryWeb.ConnCase, async: false
 
+  alias Pinventory.Accounts
   import Pinventory.AccountsFixtures
 
   setup do
@@ -77,6 +78,65 @@ defmodule PinventoryWeb.UserSessionControllerTest do
 
       assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Invalid email or password"
       assert redirected_to(conn) == ~p"/user/log-in"
+    end
+  end
+
+  describe "POST /user/update-password" do
+    test "updates password and re-logs in when in sudo mode", %{conn: conn, user: user} do
+      new_password = "a brand new password"
+
+      conn =
+        conn
+        |> log_in_user(user)
+        |> post(~p"/user/update-password", %{
+          "user" => %{
+            "email" => user.email,
+            "password" => new_password,
+            "password_confirmation" => new_password
+          }
+        })
+
+      assert redirected_to(conn) == ~p"/user/settings"
+      assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "Password updated successfully"
+      assert Accounts.get_user_by_email_and_password(user.email, new_password)
+    end
+
+    test "redirects to log in when not in sudo mode", %{conn: conn, user: user} do
+      conn =
+        conn
+        |> log_in_user(user,
+          token_authenticated_at: DateTime.add(DateTime.utc_now(:second), -21, :minute)
+        )
+        |> post(~p"/user/update-password", %{
+          "user" => %{
+            "email" => user.email,
+            "password" => "a brand new password",
+            "password_confirmation" => "a brand new password"
+          }
+        })
+
+      assert redirected_to(conn) == ~p"/user/log-in"
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+               "You must re-authenticate to access this page."
+
+      assert Accounts.get_user_by_email_and_password(user.email, valid_user_password())
+    end
+
+    test "redirects with error on invalid password data", %{conn: conn, user: user} do
+      conn =
+        conn
+        |> log_in_user(user)
+        |> post(~p"/user/update-password", %{
+          "user" => %{
+            "email" => user.email,
+            "password" => "short",
+            "password_confirmation" => "short"
+          }
+        })
+
+      assert redirected_to(conn) == ~p"/user/settings"
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Unable to update password."
+      assert Accounts.get_user_by_email_and_password(user.email, valid_user_password())
     end
   end
 
