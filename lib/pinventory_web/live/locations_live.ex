@@ -66,93 +66,41 @@ defmodule PinventoryWeb.LocationsLive do
             No locations yet. Add one above.
           </div>
 
-          <.location_row
-            :for={{dom_id, form} <- @streams.locations}
-            id={dom_id}
-            form={form}
-          />
+          <.link
+            :for={{id, location} <- @streams.locations}
+            navigate={~p"/location/#{location.id}"}
+            id={id}
+            class={[
+              "flex items-center gap-3 rounded-xl border border-base-300 bg-base-100 p-3",
+              "transition-all hover:border-base-content/20 hover:bg-base-200/40"
+            ]}
+          >
+            <div class="min-w-0 flex-1 truncate font-medium">{location.name}</div>
+            <div
+              id={"#{id}-item-count"}
+              class="shrink-0 text-sm tabular-nums opacity-70"
+            >
+              {item_count_label(location.item_count || 0)}
+            </div>
+            <.icon name="hero-chevron-right" class="size-4 shrink-0 opacity-40" />
+          </.link>
         </div>
       </div>
     </Layouts.app>
     """
   end
 
-  attr :id, :string, required: true
-  attr :form, Phoenix.HTML.Form, required: true
-
-  defp location_row(assigns) do
-    assigns = assign(assigns, :row_dirty?, row_dirty?(assigns.form))
-
-    ~H"""
-    <.form
-      for={@form}
-      id={@id}
-      class={[
-        "space-y-1.5 rounded-xl border bg-base-100 p-2 transition-all",
-        @row_dirty? && "border-primary ring-1 ring-primary/30 bg-primary/5",
-        not @row_dirty? && "border-base-300 hover:border-base-content/20"
-      ]}
-      phx-change="validate"
-      phx-submit="save"
-      phx-value-id={@form.data.id}
-    >
-      <div class="flex flex-row items-stretch gap-2">
-        <div class="join min-w-0 flex-1">
-          <input
-            type="text"
-            id={@form[:name].id}
-            name={@form[:name].name}
-            value={Phoenix.HTML.Form.normalize_value("text", @form[:name].value)}
-            placeholder="Name..."
-            autocomplete="off"
-            class={[
-              "input join-item min-w-0 grow",
-              @form[:name].errors != [] &&
-                Phoenix.Component.used_input?(@form[:name]) && "input-error"
-            ]}
-          />
-          <button
-            type="submit"
-            id={"#{@id}-save"}
-            class="btn btn-primary join-item shrink-0"
-            disabled={not @row_dirty?}
-          >
-            Save
-          </button>
-        </div>
-        <div
-          id={"#{@id}-item-count"}
-          class="flex w-16 shrink-0 items-center justify-end text-sm tabular-nums opacity-70"
-        >
-          {item_count_label(@form.data.item_count || 0)}
-        </div>
-      </div>
-      <p
-        :for={msg <- field_errors(@form[:name])}
-        class="flex items-center gap-2 text-sm text-error"
-      >
-        <.icon name="hero-exclamation-circle" class="size-5" />
-        {msg}
-      </p>
-    </.form>
-    """
-  end
-
   @impl true
   def mount(_params, _session, socket) do
     locations = Locations.list_with_item_counts()
-    locations_by_id = Map.new(locations, &{&1.id, &1})
-    forms = Enum.map(locations, &to_location_form/1)
 
     socket =
       socket
       |> assign(:page_title, "Locations")
-      |> assign(:locations_by_id, locations_by_id)
       |> assign(:new_form, empty_new_form())
-      |> assign(:dirty_ids, MapSet.new())
       |> assign(:dirty?, false)
-      |> stream_configure(:locations, dom_id: &location_dom_id/1)
-      |> stream(:locations, forms)
+      |> stream_configure(:locations, dom_id: &"location-#{&1.id}")
+      |> stream(:locations, locations)
 
     {:ok, socket}
   end
@@ -178,13 +126,11 @@ defmodule PinventoryWeb.LocationsLive do
     |> case do
       {:ok, location} ->
         location = %{location | item_count: 0}
-        form = to_location_form(location)
 
         socket =
           socket
-          |> update(:locations_by_id, &Map.put(&1, location.id, location))
           |> assign(:new_form, empty_new_form())
-          |> stream_insert(:locations, form, at: 0)
+          |> stream_insert(:locations, location, at: 0)
           |> put_flash(:info, "Location created")
           |> sync_dirty()
 
@@ -195,78 +141,6 @@ defmodule PinventoryWeb.LocationsLive do
          socket
          |> assign(:new_form, to_new_form(changeset, action: :validate))
          |> sync_dirty()}
-    end
-  end
-
-  def handle_event("validate", %{"id" => id, "location" => params}, socket) do
-    case Map.get(socket.assigns.locations_by_id, id) do
-      nil ->
-        {:noreply, socket}
-
-      location ->
-        form =
-          location
-          |> Locations.change_location(params)
-          |> Map.put(:action, :validate)
-          |> to_location_form()
-
-        {:noreply,
-         socket
-         |> stream_insert(:locations, form, update_only: true)
-         |> track_row_dirty(id, form)
-         |> sync_dirty()}
-    end
-  end
-
-  def handle_event("save", %{"id" => id, "location" => params}, socket) do
-    case Map.get(socket.assigns.locations_by_id, id) do
-      nil ->
-        {:noreply, socket}
-
-      location ->
-        save_location_row(socket, id, location, params)
-    end
-  end
-
-  defp save_location_row(socket, id, location, params) do
-    changeset = Locations.change_location(location, params)
-
-    if row_dirty?(changeset) do
-      case Locations.update(socket.assigns.current_scope, changeset) do
-        {:ok, updated} ->
-          updated = %{updated | item_count: location.item_count}
-          form = to_location_form(updated)
-
-          socket =
-            socket
-            |> update(:locations_by_id, &Map.put(&1, id, updated))
-            |> stream_insert(:locations, form, update_only: true)
-            |> track_row_dirty(id, form)
-            |> put_flash(:info, "Location saved")
-            |> sync_dirty()
-
-          {:noreply, socket}
-
-        {:error, changeset} ->
-          form =
-            changeset
-            |> Map.update!(:data, &%{&1 | item_count: location.item_count})
-            |> to_location_form(action: :validate)
-
-          {:noreply,
-           socket
-           |> stream_insert(:locations, form, update_only: true)
-           |> track_row_dirty(id, form)
-           |> sync_dirty()}
-      end
-    else
-      form = to_location_form(location)
-
-      {:noreply,
-       socket
-       |> stream_insert(:locations, form, update_only: true)
-       |> track_row_dirty(id, form)
-       |> sync_dirty()}
     end
   end
 
@@ -282,39 +156,8 @@ defmodule PinventoryWeb.LocationsLive do
     to_form(changeset, Keyword.merge([as: :location, id: "location-new"], opts))
   end
 
-  defp to_location_form(changeset_or_location, opts \\ [])
-
-  defp to_location_form(%Location{} = location, opts) do
-    location
-    |> Locations.change_location()
-    |> to_location_form(opts)
-  end
-
-  defp to_location_form(%Ecto.Changeset{} = changeset, opts) do
-    id = changeset.data.id
-
-    to_form(
-      changeset,
-      Keyword.merge([as: :location, id: "location-form-#{id}"], opts)
-    )
-  end
-
-  defp track_row_dirty(socket, id, form_or_changeset) do
-    dirty_ids =
-      if row_dirty?(form_or_changeset) do
-        MapSet.put(socket.assigns.dirty_ids, id)
-      else
-        MapSet.delete(socket.assigns.dirty_ids, id)
-      end
-
-    assign(socket, :dirty_ids, dirty_ids)
-  end
-
   defp sync_dirty(socket) do
-    dirty? =
-      MapSet.size(socket.assigns.dirty_ids) > 0 or row_dirty?(socket.assigns.new_form)
-
-    assign_dirty(socket, dirty?)
+    assign_dirty(socket, row_dirty?(socket.assigns.new_form))
   end
 
   defp assign_dirty(socket, dirty?) do
@@ -328,12 +171,8 @@ defmodule PinventoryWeb.LocationsLive do
   end
 
   defp row_dirty?(%Phoenix.HTML.Form{source: source}), do: row_dirty?(source)
-
   defp row_dirty?(%Ecto.Changeset{changes: changes}) when map_size(changes) > 0, do: true
   defp row_dirty?(_), do: false
-
-  defp location_dom_id(%Phoenix.HTML.Form{data: %Location{id: id}}), do: "location-#{id}"
-  defp location_dom_id(%Location{id: id}), do: "location-#{id}"
 
   defp item_count_label(1), do: "1 item"
   defp item_count_label(count), do: "#{count} items"

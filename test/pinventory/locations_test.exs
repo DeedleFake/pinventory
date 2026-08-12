@@ -20,6 +20,23 @@ defmodule Pinventory.LocationsTest do
     end
   end
 
+  describe "get!/1" do
+    test "returns the location", %{scope: scope} do
+      {:ok, location} = Locations.create(scope, %{name: "Garage"})
+
+      loaded = Locations.get!(location.id)
+
+      assert loaded.id == location.id
+      assert loaded.name == "Garage"
+    end
+
+    test "raises when the location does not exist" do
+      assert_raise Ecto.NoResultsError, fn ->
+        Locations.get!(Ecto.UUID.generate())
+      end
+    end
+  end
+
   describe "list_with_item_counts/0" do
     test "returns item_count as distinct item types per location", %{scope: scope} do
       {:ok, garage} = Locations.create(scope, %{name: "Garage"})

@@ -109,8 +109,8 @@ defmodule PinventoryWeb.AuditHelpers do
   @doc """
   Navigation target for an activity edit group.
 
-  Prefers the item page when the edit touches an item; otherwise the locations
-  page anchor for a location-only edit. Returns `{:item, id}`, `{:location, id}`,
+  Prefers the item page when the edit touches an item; otherwise the location
+  page for a location-only edit. Returns `{:item, id}`, `{:location, id}`,
   or `nil`.
   """
   def activity_link_target(edit) do

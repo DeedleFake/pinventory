@@ -93,7 +93,7 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
              )
     end
 
-    test "activity tab links location-only edits to the locations page", %{conn: conn} do
+    test "activity tab links location-only edits to the location page", %{conn: conn} do
       alias Pinventory.Accounts.Scope
       alias Pinventory.Locations
 
@@ -118,7 +118,7 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
 
       assert has_element?(
                view,
-               ~s|a#activity-edit-#{garage_edit.edit_id}[href="/locations#location-#{garage.id}"]|
+               ~s|a#activity-edit-#{garage_edit.edit_id}[href="/location/#{garage.id}"]|
              )
     end
 

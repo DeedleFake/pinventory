@@ -425,7 +425,7 @@ defmodule PinventoryWeb.UserLive.Settings do
   defp activity_navigate_path({:item, item_id}), do: ~p"/item/#{item_id}"
 
   defp activity_navigate_path({:location, location_id}),
-    do: ~p"/locations#location-#{location_id}"
+    do: ~p"/location/#{location_id}"
 
   attr :edit, :map, required: true
 

@@ -90,6 +90,26 @@ defmodule Pinventory.Items do
     |> Repo.all()
   end
 
+  @doc """
+  Lists items stored at one location, ordered by name.
+
+  Each item includes virtual `quantity` for **this location only**.
+  Unlike `list_items/1` with `:location_id`, this does not sum stock
+  across other locations.
+  """
+  def list_items_at_location(location_id)
+      when is_binary(location_id) and location_id != "" do
+    Item
+    |> from(as: :item)
+    |> join(:inner, [item: item], il in assoc(item, :item_locations), as: :item_location)
+    |> where([item_location: il], il.location_id == ^location_id)
+    |> order_by([item: item], asc: item.name)
+    |> select_merge([item_location: il], %{quantity: il.quantity})
+    |> Repo.all()
+  end
+
+  def list_items_at_location(_), do: []
+
   defp suggest_items_query(query, limit) do
     escaped = escape_like(query)
     pattern = "%#{escaped}%"

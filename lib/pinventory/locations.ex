@@ -99,6 +99,13 @@ defmodule Pinventory.Locations do
   end
 
   @doc """
+  Gets a single location.
+
+  Raises `Ecto.NoResultsError` if the location does not exist.
+  """
+  def get!(id), do: Repo.get!(Location, id)
+
+  @doc """
   Returns locations ordered by name, each with `item_count` set to the number
   of distinct item types stored at that location.
   """
