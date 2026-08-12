@@ -431,7 +431,21 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert created
     assert stock
     assert has_element?(view, "#item-event-#{created.id}", "Created item")
+    refute has_element?(view, ~s|a#item-event-#{created.id}|)
     assert has_element?(view, "#item-event-#{stock.id}", "Stock at")
+
+    garage_stock = Enum.find(create_edit.events, &(&1.location_id == garage.id))
+    shelf_stock = Enum.find(create_edit.events, &(&1.location_id == shelf.id))
+
+    assert has_element?(
+             view,
+             ~s|a#item-event-#{garage_stock.id}[href="/location/#{garage.id}"]|
+           )
+
+    assert has_element?(
+             view,
+             ~s|a#item-event-#{shelf_stock.id}[href="/location/#{shelf.id}"]|
+           )
   end
 
   test "shows empty locations state with a link", %{conn: conn} do

@@ -483,12 +483,19 @@ defmodule PinventoryWeb.LocationLiveTest do
 
     assert has_element?(view, "#location-edit-#{create_edit.edit_id}", user.email)
     assert has_element?(view, "#location-edit-#{create_edit.edit_id}", "location created")
-    assert has_element?(view, "#location-event-#{hd(create_edit.events).id}", "Created location")
+    created = hd(create_edit.events)
+    assert has_element?(view, "#location-event-#{created.id}", "Created location")
+    refute has_element?(view, ~s|a#location-event-#{created.id}|)
 
     [stock_event] = stock_edit.events
     assert stock_event.item_id == item.id
     assert has_element?(view, "#location-event-#{stock_event.id}", "Stock at")
     refute has_element?(view, "#location-event-#{stock_event.id}", "Shelf")
+
+    assert has_element?(
+             view,
+             ~s|a#location-event-#{stock_event.id}[href="/item/#{item.id}"]|
+           )
   end
 
   test "adds a rename to location activity after save", %{conn: conn, scope: scope} do

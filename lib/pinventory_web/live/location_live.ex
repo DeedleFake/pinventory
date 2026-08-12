@@ -5,7 +5,8 @@ defmodule PinventoryWeb.LocationLive do
   alias Pinventory.Items
   alias Pinventory.Locations
 
-  import PinventoryWeb.AuditHelpers, only: [edit_heading: 1, event_line: 1, format_event_time: 1]
+  import PinventoryWeb.AuditHelpers,
+    only: [activity_event_line: 1, edit_heading: 1, format_event_time: 1, linkable_item_id: 1]
 
   @impl true
   def render(assigns) do
@@ -185,13 +186,12 @@ defmodule PinventoryWeb.LocationLive do
                 </time>
               </div>
               <ul class="space-y-1 border-t border-base-300/80 pt-2">
-                <li
+                <.activity_event_line
                   :for={event <- edit.events}
                   id={"location-event-#{event.id}"}
-                  class="text-sm opacity-80"
-                >
-                  {event_line(event)}
-                </li>
+                  event={event}
+                  href={location_activity_event_href(event)}
+                />
               </ul>
             </article>
           </div>
@@ -506,6 +506,13 @@ defmodule PinventoryWeb.LocationLive do
 
   defp total_quantity(items) do
     Enum.reduce(items, 0, fn item, acc -> acc + (item.quantity || 0) end)
+  end
+
+  defp location_activity_event_href(event) do
+    case linkable_item_id(event) do
+      nil -> nil
+      item_id -> ~p"/item/#{item_id}"
+    end
   end
 
   defp field_errors(field) do

@@ -3,6 +3,8 @@ defmodule PinventoryWeb.AuditHelpers do
   Shared display helpers for audit events in LiveViews.
   """
 
+  use Phoenix.Component
+
   @doc """
   Human-readable actor label from a preloaded user or nil.
   """
@@ -153,6 +155,21 @@ defmodule PinventoryWeb.AuditHelpers do
   """
   def last_stock_label(event) do
     "#{actor_label(event.user)} · #{format_event_time(event.inserted_at)}"
+  end
+
+  attr :id, :string, required: true
+  attr :event, :map, required: true
+  attr :href, :string, default: nil
+
+  def activity_event_line(assigns) do
+    ~H"""
+    <li class="text-sm opacity-80">
+      <.link :if={@href} id={@id} navigate={@href} class="link link-hover">
+        {event_line(@event)}
+      </.link>
+      <span :if={!@href} id={@id}>{event_line(@event)}</span>
+    </li>
+    """
   end
 
   defp edit_subject(events) do

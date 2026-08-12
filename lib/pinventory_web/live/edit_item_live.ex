@@ -7,7 +7,13 @@ defmodule PinventoryWeb.EditItemLive do
   alias Pinventory.Items.Item
   alias Pinventory.Locations
 
-  import PinventoryWeb.AuditHelpers, only: [edit_heading: 1, event_line: 1, format_event_time: 1]
+  import PinventoryWeb.AuditHelpers,
+    only: [
+      activity_event_line: 1,
+      edit_heading: 1,
+      format_event_time: 1,
+      linkable_location_id: 1
+    ]
 
   @impl true
   def render(assigns) do
@@ -174,13 +180,12 @@ defmodule PinventoryWeb.EditItemLive do
                 </time>
               </div>
               <ul class="space-y-1 border-t border-base-300/80 pt-2">
-                <li
+                <.activity_event_line
                   :for={event <- edit.events}
                   id={"item-event-#{event.id}"}
-                  class="text-sm opacity-80"
-                >
-                  {event_line(event)}
-                </li>
+                  event={event}
+                  href={item_activity_event_href(event)}
+                />
               </ul>
             </article>
           </div>
@@ -759,6 +764,13 @@ defmodule PinventoryWeb.EditItemLive do
   @impl true
   def handle_info(:hide_name_suggestions, socket) do
     {:noreply, clear_suggestions(socket)}
+  end
+
+  defp item_activity_event_href(event) do
+    case linkable_location_id(event) do
+      nil -> nil
+      location_id -> ~p"/location/#{location_id}"
+    end
   end
 
   defp page_heading(:new), do: "New item"
