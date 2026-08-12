@@ -485,7 +485,8 @@ defmodule PinventoryWeb.LocationLiveTest do
     assert has_element?(view, "#location-edit-#{create_edit.edit_id}", "location created")
     created = hd(create_edit.events)
     assert has_element?(view, "#location-event-#{created.id}", "Created location")
-    refute has_element?(view, ~s|a#location-event-#{created.id}|)
+    refute has_element?(view, ~s|a#location-edit-#{create_edit.edit_id}|)
+    assert has_element?(view, "article#location-edit-#{create_edit.edit_id}")
 
     [stock_event] = stock_edit.events
     assert stock_event.item_id == item.id
@@ -494,7 +495,7 @@ defmodule PinventoryWeb.LocationLiveTest do
 
     assert has_element?(
              view,
-             ~s|a#location-event-#{stock_event.id}[href="/item/#{item.id}"]|
+             ~s|a#location-edit-#{stock_edit.edit_id}[href="/item/#{item.id}"]|
            )
   end
 

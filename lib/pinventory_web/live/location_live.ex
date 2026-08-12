@@ -6,7 +6,12 @@ defmodule PinventoryWeb.LocationLive do
   alias Pinventory.Locations
 
   import PinventoryWeb.AuditHelpers,
-    only: [activity_event_line: 1, edit_heading: 1, format_event_time: 1, linkable_item_id: 1]
+    only: [
+      activity_event_line: 1,
+      edit_heading: 1,
+      format_event_time: 1,
+      linkable_item_id_for_edit: 1
+    ]
 
   @impl true
   def render(assigns) do
@@ -171,29 +176,29 @@ defmodule PinventoryWeb.LocationLive do
             id="location-activity-list"
             class="flex flex-col gap-1"
           >
-            <article
-              :for={edit <- @location_edits}
-              id={"location-edit-#{edit.edit_id}"}
-              class="rounded-xl border border-base-300 bg-base-100 p-4 space-y-2"
-            >
-              <div class="flex flex-wrap items-baseline justify-between gap-2">
-                <p class="text-sm font-medium">{edit_heading(edit)}</p>
-                <time
-                  class="text-xs tabular-nums opacity-60"
-                  datetime={DateTime.to_iso8601(edit.inserted_at)}
-                >
-                  {format_event_time(edit.inserted_at)}
-                </time>
-              </div>
-              <ul class="space-y-1 border-t border-base-300/80 pt-2">
-                <.activity_event_line
-                  :for={event <- edit.events}
-                  id={"location-event-#{event.id}"}
-                  event={event}
-                  href={location_activity_event_href(event)}
-                />
-              </ul>
-            </article>
+            <%= for edit <- @location_edits do %>
+              <% href = location_activity_href(edit) %>
+              <.link
+                :if={href}
+                id={"location-edit-#{edit.edit_id}"}
+                navigate={href}
+                class={[
+                  "flex items-start gap-3 rounded-xl border border-base-300 bg-base-100 p-4",
+                  "transition-all hover:border-base-content/20 hover:bg-base-200/40"
+                ]}
+              >
+                <.location_activity_edit_body edit={edit} />
+                <.icon name="hero-chevron-right" class="mt-0.5 size-4 shrink-0 opacity-40" />
+              </.link>
+
+              <article
+                :if={!href}
+                id={"location-edit-#{edit.edit_id}"}
+                class="rounded-xl border border-base-300 bg-base-100 p-4 space-y-2"
+              >
+                <.location_activity_edit_body edit={edit} />
+              </article>
+            <% end %>
           </div>
         </section>
 
@@ -205,6 +210,31 @@ defmodule PinventoryWeb.LocationLive do
         />
       </div>
     </Layouts.app>
+    """
+  end
+
+  attr :edit, :map, required: true
+
+  defp location_activity_edit_body(assigns) do
+    ~H"""
+    <div class="min-w-0 flex-1 space-y-2">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <p class="text-sm font-medium">{edit_heading(@edit)}</p>
+        <time
+          class="text-xs tabular-nums opacity-60"
+          datetime={DateTime.to_iso8601(@edit.inserted_at)}
+        >
+          {format_event_time(@edit.inserted_at)}
+        </time>
+      </div>
+      <ul class="space-y-1 border-t border-base-300/80 pt-2">
+        <.activity_event_line
+          :for={event <- @edit.events}
+          id={"location-event-#{event.id}"}
+          event={event}
+        />
+      </ul>
+    </div>
     """
   end
 
@@ -508,8 +538,8 @@ defmodule PinventoryWeb.LocationLive do
     Enum.reduce(items, 0, fn item, acc -> acc + (item.quantity || 0) end)
   end
 
-  defp location_activity_event_href(event) do
-    case linkable_item_id(event) do
+  defp location_activity_href(edit) do
+    case linkable_item_id_for_edit(edit) do
       nil -> nil
       item_id -> ~p"/item/#{item_id}"
     end

@@ -5,6 +5,8 @@ defmodule PinventoryWeb.AuditHelpers do
 
   use Phoenix.Component
 
+  import PinventoryWeb.CoreComponents, only: [icon: 1]
+
   @doc """
   Human-readable actor label from a preloaded user or nil.
   """
@@ -163,11 +165,24 @@ defmodule PinventoryWeb.AuditHelpers do
 
   def activity_event_line(assigns) do
     ~H"""
-    <li class="text-sm opacity-80">
-      <.link :if={@href} id={@id} navigate={@href} class="link link-hover">
-        {event_line(@event)}
+    <li class="text-sm">
+      <.link
+        :if={@href}
+        id={@id}
+        navigate={@href}
+        class={[
+          "flex items-center gap-2 rounded-lg px-2 py-1.5 -mx-2",
+          "font-medium text-primary",
+          "transition-colors hover:bg-primary/10"
+        ]}
+      >
+        <.icon name="hero-map-pin" class="size-3.5 shrink-0 opacity-70" />
+        <span class="min-w-0 flex-1 underline decoration-primary/30 underline-offset-2">
+          {event_line(@event)}
+        </span>
+        <.icon name="hero-chevron-right" class="size-4 shrink-0 opacity-50" />
       </.link>
-      <span :if={!@href} id={@id}>{event_line(@event)}</span>
+      <span :if={!@href} id={@id} class="opacity-80">{event_line(@event)}</span>
     </li>
     """
   end
