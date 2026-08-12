@@ -94,6 +94,30 @@ defmodule Pinventory.Audit do
   end
 
   @doc """
+  Lists edits that touch a location, grouped by `edit_id` (newest edit first).
+
+  Only events with `location_id` equal to the given id are included in each
+  group. Preloads `:user`.
+
+  Options:
+
+    * `:limit` - max edit groups (default 50)
+  """
+  def list_edits_for_location(location_id, opts \\ []) when is_binary(location_id) do
+    opts = Keyword.validate!(opts, limit: 50)
+
+    edit_query =
+      from(e in Event,
+        where: e.location_id == ^location_id,
+        group_by: e.edit_id,
+        order_by: [desc: max(e.inserted_at)],
+        select: %{edit_id: e.edit_id, inserted_at: max(e.inserted_at)}
+      )
+
+    load_edit_groups(edit_query, opts[:limit], location_id: location_id)
+  end
+
+  @doc """
   Lists events for an item (item and stock events), newest first.
   With `:limit`, returns the N most recent events. Preloads `:user`.
 
@@ -125,6 +149,7 @@ defmodule Pinventory.Audit do
 
   defp load_edit_groups(edit_query, limit, opts \\ []) do
     item_id = Keyword.get(opts, :item_id)
+    location_id = Keyword.get(opts, :location_id)
 
     edit_rows =
       edit_query
@@ -145,10 +170,15 @@ defmodule Pinventory.Audit do
           )
 
         events_query =
-          if item_id do
-            where(events_query, [e], e.item_id == ^item_id)
-          else
-            events_query
+          cond do
+            item_id ->
+              where(events_query, [e], e.item_id == ^item_id)
+
+            location_id ->
+              where(events_query, [e], e.location_id == ^location_id)
+
+            true ->
+              events_query
           end
 
         events_query

@@ -1,8 +1,11 @@
 defmodule PinventoryWeb.LocationLive do
   use PinventoryWeb, :live_view
 
+  alias Pinventory.Audit
   alias Pinventory.Items
   alias Pinventory.Locations
+
+  import PinventoryWeb.AuditHelpers, only: [edit_heading: 1, event_line: 1, format_event_time: 1]
 
   @impl true
   def render(assigns) do
@@ -144,6 +147,56 @@ defmodule PinventoryWeb.LocationLive do
           </div>
         </div>
 
+        <section
+          id="location-activity"
+          class="space-y-3 border-t border-base-300 pt-6"
+          aria-labelledby="location-activity-heading"
+        >
+          <div>
+            <h2 id="location-activity-heading" class="text-sm font-medium opacity-80">Activity</h2>
+            <p class="mt-0.5 text-xs opacity-60">History for this location</p>
+          </div>
+
+          <div
+            :if={@location_edits == []}
+            id="location-activity-empty"
+            class="rounded-xl border border-base-300 px-3 py-6 text-center text-sm opacity-60"
+          >
+            No activity yet.
+          </div>
+
+          <div
+            :if={@location_edits != []}
+            id="location-activity-list"
+            class="flex flex-col gap-1"
+          >
+            <article
+              :for={edit <- @location_edits}
+              id={"location-edit-#{edit.edit_id}"}
+              class="rounded-xl border border-base-300 bg-base-100 p-4 space-y-2"
+            >
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <p class="text-sm font-medium">{edit_heading(edit)}</p>
+                <time
+                  class="text-xs tabular-nums opacity-60"
+                  datetime={DateTime.to_iso8601(edit.inserted_at)}
+                >
+                  {format_event_time(edit.inserted_at)}
+                </time>
+              </div>
+              <ul class="space-y-1 border-t border-base-300/80 pt-2">
+                <li
+                  :for={event <- edit.events}
+                  id={"location-event-#{event.id}"}
+                  class="text-sm opacity-80"
+                >
+                  {event_line(event)}
+                </li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
         <.location_delete_modal
           :if={@delete_modal?}
           form={@delete_form}
@@ -238,6 +291,7 @@ defmodule PinventoryWeb.LocationLive do
      |> assign(:delete_form, delete_form(""))
      |> assign(:delete_confirm_ready?, false)
      |> assign(:delete_blocked_reason, nil)
+     |> assign(:location_edits, [])
      |> stream_configure(:items, dom_id: &"location-item-#{&1.id}")}
   end
 
@@ -261,6 +315,7 @@ defmodule PinventoryWeb.LocationLive do
          |> assign(:form, to_location_form(Locations.change_location(location)))
          |> assign(:total_quantity, total_quantity(items))
          |> assign(:has_items?, items != [])
+         |> assign(:location_edits, Audit.list_edits_for_location(location.id))
          |> stream(:items, items, reset: true)
          |> close_delete_modal()
          |> sync_dirty()}
@@ -292,6 +347,7 @@ defmodule PinventoryWeb.LocationLive do
          |> assign(:baseline_name, location.name)
          |> assign(:page_title, location.name)
          |> assign(:form, to_location_form(Locations.change_location(location)))
+         |> assign(:location_edits, Audit.list_edits_for_location(location.id))
          |> put_flash(:info, "Location saved")
          |> sync_dirty()}
 

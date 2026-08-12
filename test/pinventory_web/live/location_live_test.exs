@@ -446,4 +446,69 @@ defmodule PinventoryWeb.LocationLiveTest do
     assert has_element?(view, ~s(#location-page[data-dirty="false"]))
     assert has_element?(view, "#location-save:disabled")
   end
+
+  test "shows location activity grouped by edit with actor and events", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
+
+    {:ok, item} =
+      Items.create_item(scope, %{name: "Level"}, %{garage.id => 1, shelf.id => 2})
+
+    {:ok, view, _html} = live(conn, ~p"/location/#{garage.id}")
+
+    assert has_element?(view, "#location-activity")
+    assert has_element?(view, "#location-activity-list")
+    refute has_element?(view, "#location-activity-empty")
+
+    edits = Pinventory.Audit.list_edits_for_location(garage.id)
+    assert length(edits) == 2
+
+    create_edit =
+      Enum.find(edits, fn edit ->
+        Enum.any?(edit.events, &(&1.action == "location.created"))
+      end)
+
+    stock_edit =
+      Enum.find(edits, fn edit ->
+        Enum.any?(edit.events, &(&1.action == "stock.changed"))
+      end)
+
+    assert create_edit
+    assert stock_edit
+    assert length(stock_edit.events) == 1
+
+    assert has_element?(view, "#location-edit-#{create_edit.edit_id}", user.email)
+    assert has_element?(view, "#location-edit-#{create_edit.edit_id}", "location created")
+    assert has_element?(view, "#location-event-#{hd(create_edit.events).id}", "Created location")
+
+    [stock_event] = stock_edit.events
+    assert stock_event.item_id == item.id
+    assert has_element?(view, "#location-event-#{stock_event.id}", "Stock at")
+    refute has_element?(view, "#location-event-#{stock_event.id}", "Shelf")
+  end
+
+  test "adds a rename to location activity after save", %{conn: conn, scope: scope} do
+    {:ok, location} = Locations.create(scope, %{name: "Old Name"})
+
+    {:ok, view, _html} = live(conn, ~p"/location/#{location.id}")
+
+    view
+    |> form("#location-form", location: %{name: "New Name"})
+    |> render_submit()
+
+    edits = Pinventory.Audit.list_edits_for_location(location.id)
+
+    rename_edit =
+      Enum.find(edits, fn edit ->
+        Enum.any?(edit.events, &(&1.action == "location.updated"))
+      end)
+
+    assert rename_edit
+    assert has_element?(view, "#location-edit-#{rename_edit.edit_id}", "location renamed")
+    assert has_element?(view, "#location-event-#{hd(rename_edit.events).id}", "Renamed location")
+  end
 end

@@ -257,6 +257,54 @@ defmodule Pinventory.AuditTest do
       assert length(rename_edit.events) == 1
     end
 
+    test "list_edits_for_location groups by edit_id for one location", %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
+
+      {:ok, item} =
+        Items.create_item(scope, %{name: "Level"}, %{garage.id => 1, shelf.id => 2})
+
+      edits = Audit.list_edits_for_location(garage.id)
+      assert length(edits) == 2
+
+      create_edit =
+        Enum.find(edits, fn edit ->
+          Enum.any?(edit.events, &(&1.action == "location.created"))
+        end)
+
+      stock_edit =
+        Enum.find(edits, fn edit ->
+          Enum.any?(edit.events, &(&1.action == "stock.changed"))
+        end)
+
+      assert create_edit
+      assert length(create_edit.events) == 1
+      assert create_edit.user.id == scope.user.id
+
+      assert stock_edit
+      assert length(stock_edit.events) == 1
+      assert hd(stock_edit.events).item_id == item.id
+      assert Enum.all?(stock_edit.events, &(&1.location_id == garage.id))
+      assert Enum.all?(stock_edit.events, &Ecto.assoc_loaded?(&1.user))
+
+      refute Enum.any?(edits, fn edit ->
+               Enum.any?(edit.events, &(&1.location_id == shelf.id))
+             end)
+
+      {:ok, _} = Locations.update(scope, garage, %{name: "Workshop"})
+
+      edits = Audit.list_edits_for_location(garage.id)
+      assert length(edits) == 3
+
+      rename_edit =
+        Enum.find(edits, fn edit ->
+          Enum.any?(edit.events, &(&1.action == "location.updated"))
+        end)
+
+      assert rename_edit
+      assert length(rename_edit.events) == 1
+    end
+
     test "list_recent_edits groups by edit_id", %{scope: scope} do
       {:ok, _} = Locations.create(scope, %{name: "A"})
       {:ok, garage} = Locations.create(scope, %{name: "B"})
