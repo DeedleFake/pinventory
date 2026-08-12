@@ -212,6 +212,13 @@ defmodule Pinventory.Items do
     "\"" <> String.replace(value, "\"", "\"\"") <> "\""
   end
 
+  def get_item(id) do
+    case Repo.get(Item, id) do
+      nil -> nil
+      item -> Repo.preload(item, :item_locations)
+    end
+  end
+
   def get_item!(id) do
     Item
     |> Repo.get!(id)

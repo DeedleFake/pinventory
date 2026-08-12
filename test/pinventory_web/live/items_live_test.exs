@@ -26,6 +26,7 @@ defmodule PinventoryWeb.ItemsLiveTest do
     {:ok, view, _html} = live(conn, ~p"/")
 
     assert has_element?(view, "#items-actions #new-item[href='/item']", "New Item")
+    refute has_element?(view, "#item-delete")
     refute has_element?(view, "#edit-locations")
     assert has_element?(view, ~s|#nav-items[href="/"][aria-current="page"]|, "Items")
     assert has_element?(view, ~s|#nav-locations[href="/locations"]|, "Locations")

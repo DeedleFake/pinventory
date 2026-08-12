@@ -37,6 +37,12 @@ defmodule Pinventory.LocationsTest do
     end
   end
 
+  describe "get/1" do
+    test "returns nil when the location does not exist" do
+      assert Locations.get(Ecto.UUID.generate()) == nil
+    end
+  end
+
   describe "list_with_item_counts/0" do
     test "returns item_count as distinct item types per location", %{scope: scope} do
       {:ok, garage} = Locations.create(scope, %{name: "Garage"})
@@ -84,6 +90,17 @@ defmodule Pinventory.LocationsTest do
       assert {:error, changeset} = Locations.create(scope, %{name: "Garage"})
       assert %{name: [_ | _]} = errors_on(changeset)
     end
+
+    test "trims name padding on create", %{scope: scope} do
+      assert {:ok, %Location{name: "Workshop"}} =
+               Locations.create(scope, %{name: "  Workshop  "})
+    end
+
+    test "rejects a duplicate name after trim", %{scope: scope} do
+      assert {:ok, _} = Locations.create(scope, %{name: "Garage"})
+      assert {:error, changeset} = Locations.create(scope, %{name: "  Garage  "})
+      assert %{name: [_ | _]} = errors_on(changeset)
+    end
   end
 
   describe "update/2" do
@@ -99,6 +116,28 @@ defmodule Pinventory.LocationsTest do
 
       assert {:error, changeset} = Locations.update(scope, location, %{name: "Taken"})
       assert %{name: [_ | _]} = errors_on(changeset)
+    end
+  end
+
+  describe "delete/2" do
+    test "deletes an empty location", %{scope: scope} do
+      {:ok, location} = Locations.create(scope, %{name: "Empty"})
+
+      assert {:ok, %Location{id: id}} = Locations.delete(scope, location)
+      assert id == location.id
+
+      assert_raise Ecto.NoResultsError, fn ->
+        Locations.get!(location.id)
+      end
+    end
+
+    test "refuses to delete a location that has items", %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, _} = Items.create_item(scope, %{name: "Hammer"}, %{garage.id => 1})
+
+      assert {:error, :location_has_items} = Locations.delete(scope, garage)
+      assert Locations.get!(garage.id).name == "Garage"
+      assert [%{name: "Hammer"}] = Items.list_items_at_location(garage.id)
     end
   end
 end

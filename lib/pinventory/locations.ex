@@ -17,6 +17,7 @@ defmodule Pinventory.Locations do
   alias Ecto.Multi
   alias Pinventory.Accounts.Scope
   alias Pinventory.Audit
+  alias Pinventory.Items.ItemLocation
   alias Pinventory.Repo
 
   alias Pinventory.Locations.Location
@@ -90,6 +91,42 @@ defmodule Pinventory.Locations do
     update(scope, change_location(location, attrs))
   end
 
+  @doc """
+  Deletes a location that has no stock and records `location.deleted`.
+
+  Returns `{:error, :location_has_items}` when the location still has items.
+  Does not move or discard stock.
+  """
+  def delete(%Scope{} = scope, %Location{} = location) do
+    user_id = Audit.actor_id(scope)
+    edit_id = Audit.new_edit_id()
+
+    Multi.new()
+    |> Multi.run(:empty?, fn repo, _ ->
+      if location_has_items?(repo, location.id) do
+        {:error, :location_has_items}
+      else
+        {:ok, true}
+      end
+    end)
+    |> Multi.run(:audit_events, fn repo, _ ->
+      Audit.insert_events(repo, [
+        Audit.location_event_attrs(
+          action: "location.deleted",
+          edit_id: edit_id,
+          user_id: user_id,
+          location: location,
+          changes: %{"name" => %{"from" => location.name, "to" => nil}},
+          edit_seq: 0
+        )
+      ])
+    end)
+    |> Multi.delete(:location, location)
+    |> Multi.run(:result, fn _repo, %{location: deleted} -> {:ok, deleted} end)
+    |> Repo.transaction()
+    |> unwrap_location_transaction()
+  end
+
   def list do
     query =
       from location in Location,
@@ -97,6 +134,13 @@ defmodule Pinventory.Locations do
 
     Repo.all(query)
   end
+
+  @doc """
+  Gets a single location.
+
+  Returns `nil` if the location does not exist.
+  """
+  def get(id), do: Repo.get(Location, id)
 
   @doc """
   Gets a single location.
@@ -118,6 +162,10 @@ defmodule Pinventory.Locations do
         select_merge: %{item_count: count(item_location.id)}
 
     Repo.all(query)
+  end
+
+  defp location_has_items?(repo, location_id) do
+    repo.exists?(from il in ItemLocation, where: il.location_id == ^location_id)
   end
 
   defp name_change_diff(%Ecto.Changeset{} = changeset) do

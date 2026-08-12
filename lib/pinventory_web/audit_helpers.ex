@@ -51,6 +51,10 @@ defmodule PinventoryWeb.AuditHelpers do
     end
   end
 
+  def event_line(%{action: "location.deleted", metadata: meta}) do
+    "Deleted location “#{meta["location_name"] || "location"}”"
+  end
+
   def event_line(%{action: "stock.changed", changes: changes, metadata: meta}) do
     location = meta["location_name"] || "location"
 
@@ -89,8 +93,11 @@ defmodule PinventoryWeb.AuditHelpers do
   @doc """
   Returns a location id that can be opened in the UI, or `nil`.
 
-  There is no location delete action today; all location-bearing events are eligible.
+  Skips `location.deleted` (the location row is gone) and events with no
+  `location_id`.
   """
+  def linkable_location_id(%{action: "location.deleted"}), do: nil
+
   def linkable_location_id(%{location_id: location_id})
       when is_binary(location_id) and location_id != "",
       do: location_id
@@ -186,5 +193,6 @@ defmodule PinventoryWeb.AuditHelpers do
   defp summary_part(%{action: "item.deleted"}), do: "deleted"
   defp summary_part(%{action: "location.created"}), do: "location created"
   defp summary_part(%{action: "location.updated"}), do: "location renamed"
+  defp summary_part(%{action: "location.deleted"}), do: "location deleted"
   defp summary_part(_), do: nil
 end

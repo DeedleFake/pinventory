@@ -152,6 +152,36 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       refute has_element?(view, ~s|a#activity-edit-#{deleted.edit_id}|)
       assert has_element?(view, "article#activity-edit-#{deleted.edit_id}")
     end
+
+    test "activity tab does not link deleted location entries", %{conn: conn} do
+      alias Pinventory.Accounts.Scope
+      alias Pinventory.Locations
+
+      user = user_fixture()
+      scope = Scope.for_user(user)
+      conn = log_in_user(conn, user)
+
+      {:ok, location} = Locations.create(scope, %{name: "Gone Bin"})
+      location_id = location.id
+      assert {:ok, _} = Locations.delete(scope, location)
+
+      assert {:ok, view, _html} = live(conn, ~p"/user/settings/activity")
+
+      deleted =
+        Pinventory.Audit.list_recent_edits(limit: 20)
+        |> Enum.find(fn edit ->
+          Enum.any?(
+            edit.events,
+            &(&1.action == "location.deleted" and &1.location_id == location_id)
+          )
+        end)
+
+      assert deleted
+      [event] = deleted.events
+      assert has_element?(view, "#activity-event-#{event.id}", "Deleted location")
+      refute has_element?(view, ~s|a#activity-edit-#{deleted.edit_id}|)
+      assert has_element?(view, "article#activity-edit-#{deleted.edit_id}")
+    end
   end
 
   describe "update email form" do

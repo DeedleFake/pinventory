@@ -89,7 +89,8 @@ defmodule Pinventory.AuditTest do
     end
 
     test "delete records item.deleted with actor", %{scope: scope, user: user} do
-      {:ok, item} = Items.create_item(scope, %{name: "Disposable"})
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, item} = Items.create_item(scope, %{name: "Disposable"}, %{garage.id => 2})
 
       assert {:ok, _} = Items.delete_item(scope, item)
 
@@ -101,6 +102,11 @@ defmodule Pinventory.AuditTest do
       assert deleted.user_id == user.id
       assert deleted.metadata["item_name"] == "Disposable"
       assert deleted.item_id == item.id
+
+      refute Repo.exists?(
+               from e in Event,
+                 where: e.edit_id == ^deleted.edit_id and e.action == "stock.changed"
+             )
     end
 
     test "no-op update writes no audit events", %{scope: scope} do
@@ -169,6 +175,31 @@ defmodule Pinventory.AuditTest do
       count_before = Repo.aggregate(Event, :count)
 
       assert {:ok, _} = Locations.update(scope, location, %{name: "Bin"})
+      assert Repo.aggregate(Event, :count) == count_before
+    end
+
+    test "delete records location.deleted with actor", %{scope: scope, user: user} do
+      {:ok, location} = Locations.create(scope, %{name: "Spare Bin"})
+
+      assert {:ok, _} = Locations.delete(scope, location)
+
+      deleted =
+        Event
+        |> where([e], e.action == "location.deleted" and e.entity_id == ^location.id)
+        |> Repo.one!()
+
+      assert deleted.user_id == user.id
+      assert deleted.metadata["location_name"] == "Spare Bin"
+      assert deleted.location_id == location.id
+      assert deleted.changes == %{"name" => %{"from" => "Spare Bin", "to" => nil}}
+    end
+
+    test "refused location delete writes no events", %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, _} = Items.create_item(scope, %{name: "Hammer"}, %{garage.id => 1})
+      count_before = Repo.aggregate(Event, :count)
+
+      assert {:error, :location_has_items} = Locations.delete(scope, garage)
       assert Repo.aggregate(Event, :count) == count_before
     end
   end

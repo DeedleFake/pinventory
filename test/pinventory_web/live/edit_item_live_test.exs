@@ -17,6 +17,8 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert html =~ "New item"
     assert has_element?(view, ~s|#nav-items[aria-current="page"]|)
     assert has_element?(view, "#item-form")
+    refute has_element?(view, "#item-delete")
+    refute has_element?(view, "#item-delete-modal")
     assert has_element?(view, ~s(#item-total[data-stock-dirty="false"]))
     assert has_element?(view, "#item-total-value", "0")
     assert html =~ ~r/Alpha[\s\S]*Zebra/
@@ -437,6 +439,239 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
     assert has_element?(view, "#item-locations-empty")
     assert has_element?(view, "a[href='/locations']", "Add locations")
+  end
+
+  test "redirects when the item does not exist", %{conn: conn} do
+    assert {:error, {:live_redirect, %{to: path, flash: flash}}} =
+             live(conn, ~p"/item/#{Ecto.UUID.generate()}")
+
+    assert path == "/"
+    assert flash["error"] == "Item not found."
+  end
+
+  test "shows delete on edit and disables it when the name is unsaved", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, item} = Items.create_item(scope, %{name: "Level"})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    assert has_element?(view, "#item-delete")
+    refute has_element?(view, "#item-delete:disabled")
+    refute has_element?(view, "#item-delete-reason")
+    refute has_element?(view, "#item-delete-modal")
+
+    view
+    |> form("#item-form", item: %{name: "Spirit Level"})
+    |> render_change()
+
+    assert has_element?(view, "#item-delete:disabled")
+    assert has_element?(view, "#item-delete-reason", "Save or revert the name first.")
+    refute has_element?(view, "#item-delete-modal")
+    assert Items.get_item!(item.id).name == "Level"
+  end
+
+  test "allows delete when only stock is unsaved", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, item} = Items.create_item(scope, %{name: "Tape"}, %{garage.id => 1})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    set_quantity(view, garage.id, 4)
+
+    refute has_element?(view, "#item-delete:disabled")
+    refute has_element?(view, "#item-delete-reason")
+  end
+
+  test "opens a name-confirm modal and deletes the item", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
+
+    {:ok, item} =
+      Items.create_item(scope, %{name: "Gone"}, %{garage.id => 5, shelf.id => 3})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    view
+    |> element("#item-delete")
+    |> render_click()
+
+    assert has_element?(view, "#item-delete-modal")
+    assert has_element?(view, "#item-delete-form")
+    assert has_element?(view, "#item-delete-impact", "Gone")
+    assert has_element?(view, "#item-delete-impact-total", "8")
+    assert has_element?(view, "#item-delete-impact-locations", "2")
+    assert has_element?(view, ~s(#item-delete-confirm[autocomplete="off"]))
+    assert has_element?(view, ~s(#item-delete-confirm[spellcheck="false"]))
+    assert has_element?(view, "#item-delete-confirm-submit:disabled")
+
+    view
+    |> form("#item-delete-form", delete: %{name: "Gon"})
+    |> render_change()
+
+    assert has_element?(view, "#item-delete-confirm-submit:disabled")
+
+    view
+    |> form("#item-delete-form", delete: %{name: "Gone"})
+    |> render_change()
+
+    refute has_element?(view, "#item-delete-confirm-submit:disabled")
+
+    view
+    |> form("#item-delete-form", delete: %{name: "Gone"})
+    |> render_submit()
+
+    {path, flash} = assert_redirect(view)
+    assert path == "/"
+    assert flash["info"] == "Item deleted"
+
+    assert_raise Ecto.NoResultsError, fn -> Items.get_item!(item.id) end
+    assert Pinventory.Repo.get_by(Pinventory.Items.ItemLocation, item_id: item.id) == nil
+
+    deleted =
+      Pinventory.Audit.list_recent_edits(limit: 20)
+      |> Enum.find(fn edit ->
+        Enum.any?(edit.events, &(&1.action == "item.deleted" and &1.item_id == item.id))
+      end)
+
+    assert deleted
+  end
+
+  test "does not delete when the confirm name does not match", %{conn: conn, scope: scope} do
+    {:ok, item} = Items.create_item(scope, %{name: "Keep Me"})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    view
+    |> element("#item-delete")
+    |> render_click()
+
+    view
+    |> form("#item-delete-form", delete: %{name: "keep me"})
+    |> render_submit()
+
+    assert has_element?(view, "#item-delete-modal")
+    assert Items.get_item!(item.id).name == "Keep Me"
+  end
+
+  test "server refuses delete when the name is unsaved", %{conn: conn, scope: scope} do
+    {:ok, item} = Items.create_item(scope, %{name: "Keep"})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    view
+    |> element("#item-delete")
+    |> render_click()
+
+    view
+    |> form("#item-form", item: %{name: "Changed"})
+    |> render_change()
+
+    html =
+      view
+      |> form("#item-delete-form", delete: %{name: "Keep"})
+      |> render_submit()
+
+    assert html =~ "Save or revert the name first."
+    assert Items.get_item!(item.id).name == "Keep"
+  end
+
+  test "trims confirm name spaces and deletes the item", %{conn: conn, scope: scope} do
+    {:ok, item} = Items.create_item(scope, %{name: "Spare"})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    view
+    |> element("#item-delete")
+    |> render_click()
+
+    view
+    |> form("#item-delete-form", delete: %{name: "  Spare  "})
+    |> render_submit()
+
+    {path, flash} = assert_redirect(view)
+    assert path == "/"
+    assert flash["info"] == "Item deleted"
+    assert_raise Ecto.NoResultsError, fn -> Items.get_item!(item.id) end
+  end
+
+  test "clears unsaved-changes before navigating away on delete", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, item} = Items.create_item(scope, %{name: "Tape"}, %{garage.id => 1})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    set_quantity(view, garage.id, 4)
+    assert_push_event(view, "unsaved-changes", %{dirty: true})
+
+    view
+    |> element("#item-delete")
+    |> render_click()
+
+    view
+    |> form("#item-delete-form", delete: %{name: "Tape"})
+    |> render_submit()
+
+    assert_push_event(view, "unsaved-changes", %{dirty: false})
+    {path, flash} = assert_redirect(view)
+    assert path == "/"
+    assert flash["info"] == "Item deleted"
+  end
+
+  test "deletes an item when the saved name has padding", %{conn: conn, scope: scope} do
+    {:ok, item} = Items.create_item(scope, %{name: "Keep"})
+
+    item
+    |> Ecto.Changeset.change(%{name: "Keep "})
+    |> Pinventory.Repo.update!()
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    view
+    |> element("#item-delete")
+    |> render_click()
+
+    view
+    |> form("#item-delete-form", delete: %{name: "Keep"})
+    |> render_change()
+
+    refute has_element?(view, "#item-delete-confirm-submit:disabled")
+
+    view
+    |> form("#item-delete-form", delete: %{name: "Keep"})
+    |> render_submit()
+
+    {path, flash} = assert_redirect(view)
+    assert path == "/"
+    assert flash["info"] == "Item deleted"
+  end
+
+  test "clears the confirm name when the delete modal closes", %{conn: conn, scope: scope} do
+    {:ok, item} = Items.create_item(scope, %{name: "Level"})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    view
+    |> element("#item-delete")
+    |> render_click()
+
+    view
+    |> form("#item-delete-form", delete: %{name: "Lev"})
+    |> render_change()
+
+    view
+    |> element("#item-delete-cancel")
+    |> render_click()
+
+    refute has_element?(view, "#item-delete-modal")
+
+    view
+    |> element("#item-delete")
+    |> render_click()
+
+    refute has_element?(view, ~s(#item-delete-confirm[value="Lev"]))
+    assert has_element?(view, "#item-delete-confirm-submit:disabled")
   end
 
   defp assert_quantity(view, location_id, quantity) do

@@ -39,6 +39,7 @@ defmodule PinventoryWeb.LocationsLiveTest do
 
     refute has_element?(view, "form#location-#{garage.id}")
     refute has_element?(view, "#location-#{garage.id}-save")
+    refute has_element?(view, "#location-delete")
   end
 
   test "opens the location page from the list", %{conn: conn, scope: scope} do

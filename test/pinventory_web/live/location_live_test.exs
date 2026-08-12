@@ -192,6 +192,241 @@ defmodule PinventoryWeb.LocationLiveTest do
     assert has_element?(view, "#location-save:disabled")
   end
 
+  test "redirects when the location does not exist", %{conn: conn} do
+    assert {:error, {:live_redirect, %{to: path, flash: flash}}} =
+             live(conn, ~p"/location/#{Ecto.UUID.generate()}")
+
+    assert path == "/locations"
+    assert flash["error"] == "Location not found."
+  end
+
+  test "disables delete when the location has items", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, _} = Items.create_item(scope, %{name: "Drill"}, %{garage.id => 2})
+
+    {:ok, view, _html} = live(conn, ~p"/location/#{garage.id}")
+
+    assert has_element?(view, "#location-delete:disabled")
+    assert has_element?(view, "#location-delete-reason", "Remove items from this location first.")
+    refute has_element?(view, "#location-delete-modal")
+    assert Locations.get!(garage.id).name == "Garage"
+  end
+
+  test "enables delete when the location is empty", %{conn: conn, scope: scope} do
+    {:ok, empty} = Locations.create(scope, %{name: "Empty"})
+
+    {:ok, view, _html} = live(conn, ~p"/location/#{empty.id}")
+
+    assert has_element?(view, "#location-delete")
+    refute has_element?(view, "#location-delete:disabled")
+    refute has_element?(view, "#location-delete-reason")
+  end
+
+  test "disables delete when the name is unsaved, even if the location has items", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, _} = Items.create_item(scope, %{name: "Drill"}, %{garage.id => 1})
+
+    {:ok, view, _html} = live(conn, ~p"/location/#{garage.id}")
+
+    view
+    |> form("#location-form", location: %{name: "Shop"})
+    |> render_change()
+
+    assert has_element?(view, "#location-delete:disabled")
+    assert has_element?(view, "#location-delete-reason", "Save or revert the name first.")
+    refute has_element?(view, "#location-delete-reason", "Remove items from this location first.")
+  end
+
+  test "disables delete when an empty location name is unsaved", %{conn: conn, scope: scope} do
+    {:ok, empty} = Locations.create(scope, %{name: "Bin"})
+
+    {:ok, view, _html} = live(conn, ~p"/location/#{empty.id}")
+
+    view
+    |> form("#location-form", location: %{name: "Bin 2"})
+    |> render_change()
+
+    assert has_element?(view, "#location-delete:disabled")
+    assert has_element?(view, "#location-delete-reason", "Save or revert the name first.")
+    refute has_element?(view, "#location-delete-modal")
+  end
+
+  test "opens a name-confirm modal and deletes an empty location", %{conn: conn, scope: scope} do
+    {:ok, empty} = Locations.create(scope, %{name: "Spare Room"})
+
+    {:ok, view, _html} = live(conn, ~p"/location/#{empty.id}")
+
+    view
+    |> element("#location-delete")
+    |> render_click()
+
+    assert has_element?(view, "#location-delete-modal")
+    assert has_element?(view, "#location-delete-form")
+    assert has_element?(view, "#location-delete-impact", "Spare Room")
+    assert has_element?(view, ~s(#location-delete-confirm[autocomplete="off"]))
+    assert has_element?(view, ~s(#location-delete-confirm[spellcheck="false"]))
+    assert has_element?(view, "#location-delete-confirm-submit:disabled")
+
+    view
+    |> form("#location-delete-form", delete: %{name: "Spare"})
+    |> render_change()
+
+    assert has_element?(view, "#location-delete-confirm-submit:disabled")
+
+    view
+    |> form("#location-delete-form", delete: %{name: "Spare Room"})
+    |> render_change()
+
+    refute has_element?(view, "#location-delete-confirm-submit:disabled")
+
+    view
+    |> form("#location-delete-form", delete: %{name: "Spare Room"})
+    |> render_submit()
+
+    {path, flash} = assert_redirect(view)
+    assert path == "/locations"
+    assert flash["info"] == "Location deleted"
+
+    assert_raise Ecto.NoResultsError, fn -> Locations.get!(empty.id) end
+
+    deleted =
+      Pinventory.Audit.list_recent_edits(limit: 20)
+      |> Enum.find(fn edit ->
+        Enum.any?(
+          edit.events,
+          &(&1.action == "location.deleted" and &1.location_id == empty.id)
+        )
+      end)
+
+    assert deleted
+  end
+
+  test "does not delete when the confirm name does not match", %{conn: conn, scope: scope} do
+    {:ok, empty} = Locations.create(scope, %{name: "Keep Bin"})
+
+    {:ok, view, _html} = live(conn, ~p"/location/#{empty.id}")
+
+    view
+    |> element("#location-delete")
+    |> render_click()
+
+    view
+    |> form("#location-delete-form", delete: %{name: "keep bin"})
+    |> render_submit()
+
+    assert has_element?(view, "#location-delete-modal")
+    assert Locations.get!(empty.id).name == "Keep Bin"
+  end
+
+  test "trims confirm name spaces and deletes the location", %{conn: conn, scope: scope} do
+    {:ok, empty} = Locations.create(scope, %{name: "Spare"})
+
+    {:ok, view, _html} = live(conn, ~p"/location/#{empty.id}")
+
+    view
+    |> element("#location-delete")
+    |> render_click()
+
+    view
+    |> form("#location-delete-form", delete: %{name: "  Spare  "})
+    |> render_submit()
+
+    {path, flash} = assert_redirect(view)
+    assert path == "/locations"
+    assert flash["info"] == "Location deleted"
+    assert_raise Ecto.NoResultsError, fn -> Locations.get!(empty.id) end
+  end
+
+  test "clears the confirm name when the delete modal closes", %{conn: conn, scope: scope} do
+    {:ok, empty} = Locations.create(scope, %{name: "Bin"})
+
+    {:ok, view, _html} = live(conn, ~p"/location/#{empty.id}")
+
+    view
+    |> element("#location-delete")
+    |> render_click()
+
+    view
+    |> form("#location-delete-form", delete: %{name: "Bi"})
+    |> render_change()
+
+    view
+    |> element("#location-delete-cancel")
+    |> render_click()
+
+    refute has_element?(view, "#location-delete-modal")
+
+    view
+    |> element("#location-delete")
+    |> render_click()
+
+    refute has_element?(view, ~s(#location-delete-confirm[value="Bi"]))
+    assert has_element?(view, "#location-delete-confirm-submit:disabled")
+  end
+
+  test "server refuses delete when the name is unsaved", %{conn: conn, scope: scope} do
+    {:ok, empty} = Locations.create(scope, %{name: "Keep"})
+
+    {:ok, view, _html} = live(conn, ~p"/location/#{empty.id}")
+
+    view
+    |> element("#location-delete")
+    |> render_click()
+
+    view
+    |> form("#location-form", location: %{name: "Changed"})
+    |> render_change()
+
+    html =
+      view
+      |> form("#location-delete-form", delete: %{name: "Keep"})
+      |> render_submit()
+
+    assert html =~ "Save or revert the name first."
+    assert Locations.get!(empty.id).name == "Keep"
+  end
+
+  test "deletes a location when the saved name has padding", %{conn: conn, scope: scope} do
+    {:ok, empty} = Locations.create(scope, %{name: "Keep"})
+
+    empty
+    |> Ecto.Changeset.change(%{name: "Keep "})
+    |> Pinventory.Repo.update!()
+
+    {:ok, view, _html} = live(conn, ~p"/location/#{empty.id}")
+
+    view
+    |> element("#location-delete")
+    |> render_click()
+
+    view
+    |> form("#location-delete-form", delete: %{name: "Keep"})
+    |> render_submit()
+
+    {path, flash} = assert_redirect(view)
+    assert path == "/locations"
+    assert flash["info"] == "Location deleted"
+  end
+
+  test "server refuses delete when the location still has items", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, _} = Items.create_item(scope, %{name: "Drill"}, %{garage.id => 1})
+
+    {:ok, view, _html} = live(conn, ~p"/location/#{garage.id}")
+
+    html =
+      view
+      |> element("#location-page")
+      |> render_hook("confirm_delete", %{"delete" => %{"name" => "Garage"}})
+
+    assert html =~ "Remove items from this location first."
+    assert Locations.get!(garage.id).name == "Garage"
+    assert Items.list_items_at_location(garage.id) != []
+  end
+
   test "clears unsaved-changes after a successful save", %{conn: conn, scope: scope} do
     {:ok, location} = Locations.create(scope, %{name: "Attic"})
 

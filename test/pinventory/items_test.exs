@@ -62,6 +62,16 @@ defmodule Pinventory.ItemsTest do
       assert {:error, changeset} = Items.create_item(scope, %{name: "Drill"})
       assert %{name: [_ | _]} = errors_on(changeset)
     end
+
+    test "trims name padding on create", %{scope: scope} do
+      assert {:ok, %Item{name: "Hammer"}} = Items.create_item(scope, %{name: "  Hammer  "})
+    end
+
+    test "rejects a duplicate name after trim", %{scope: scope} do
+      assert {:ok, _} = Items.create_item(scope, %{name: "Drill"})
+      assert {:error, changeset} = Items.create_item(scope, %{name: "  Drill  "})
+      assert %{name: [_ | _]} = errors_on(changeset)
+    end
   end
 
   describe "update_item/4" do
@@ -108,6 +118,12 @@ defmodule Pinventory.ItemsTest do
       assert errors_on(changeset) == %{location_id: ["does not exist"]}
       assert Items.get_item!(item.id).name == "Kept"
       assert Items.stock_map(Items.get_item!(item.id)) == %{}
+    end
+  end
+
+  describe "get_item/1" do
+    test "returns nil when the item does not exist" do
+      assert Items.get_item(Ecto.UUID.generate()) == nil
     end
   end
 
@@ -231,6 +247,17 @@ defmodule Pinventory.ItemsTest do
       assert {:ok, _} = Items.delete_item(scope, item)
 
       assert Items.suggest_items("disposable") == []
+    end
+  end
+
+  describe "delete_item/2" do
+    test "deletes the item and cascaded stock", %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, item} = Items.create_item(scope, %{name: "Disposable"}, %{garage.id => 4})
+
+      assert {:ok, _} = Items.delete_item(scope, item)
+      assert_raise Ecto.NoResultsError, fn -> Items.get_item!(item.id) end
+      assert Repo.get_by(ItemLocation, item_id: item.id) == nil
     end
   end
 
