@@ -77,16 +77,16 @@ defmodule PinventoryWeb.LocationLive do
         <div
           id="location-total"
           class={[
-            "flex min-h-20 items-center justify-between gap-4 rounded-2xl border px-4 py-3",
+            "flex items-center justify-between gap-4 rounded-xl border px-4 py-2.5",
             "border-base-300 bg-base-100"
           ]}
         >
-          <p class="text-xs font-semibold tracking-wide uppercase opacity-60">
+          <p class="text-xs font-semibold tracking-wide uppercase opacity-50">
             Total quantity
           </p>
           <span
             id="location-total-value"
-            class="text-3xl font-semibold tracking-tight tabular-nums sm:text-4xl"
+            class="text-2xl font-semibold tracking-tight tabular-nums opacity-80"
           >
             {@total_quantity}
           </span>
@@ -112,14 +112,12 @@ defmodule PinventoryWeb.LocationLive do
                 "transition-all hover:border-base-content/20 hover:bg-base-200/40"
               ]}
             >
-              <div class="min-w-0 flex-1">
-                <div class="truncate font-medium">{item.name}</div>
-                <div
-                  id={"#{id}-quantity"}
-                  class="truncate text-sm tabular-nums opacity-60"
-                >
-                  {quantity_label(item.quantity)}
-                </div>
+              <div class="min-w-0 flex-1 truncate font-medium">{item.name}</div>
+              <div
+                id={"#{id}-quantity"}
+                class="shrink-0 min-w-8 text-right text-xl font-semibold tabular-nums"
+              >
+                {item.quantity}
               </div>
               <.icon name="hero-chevron-right" class="size-4 shrink-0 opacity-40" />
             </.link>
@@ -228,9 +226,6 @@ defmodule PinventoryWeb.LocationLive do
   defp total_quantity(items) do
     Enum.reduce(items, 0, fn item, acc -> acc + (item.quantity || 0) end)
   end
-
-  defp quantity_label(1), do: "1 here"
-  defp quantity_label(quantity), do: "#{quantity} here"
 
   defp field_errors(field) do
     if Phoenix.Component.used_input?(field) do

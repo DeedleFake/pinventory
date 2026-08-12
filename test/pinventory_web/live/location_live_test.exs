@@ -33,10 +33,10 @@ defmodule PinventoryWeb.LocationLiveTest do
     assert has_element?(view, ~s(#location_name[value="Garage"]))
     assert has_element?(view, "#location-total-value", "13")
     assert has_element?(view, "#location-item-#{drill.id}", "Drill")
-    assert has_element?(view, "#location-item-#{drill.id}-quantity", "3 here")
+    assert has_element?(view, "#location-item-#{drill.id}-quantity", "3")
     assert has_element?(view, "#location-item-#{nails.id}", "Nails")
-    assert has_element?(view, "#location-item-#{nails.id}-quantity", "10 here")
-    refute has_element?(view, "#location-item-#{drill.id}-quantity", "10 here")
+    assert has_element?(view, "#location-item-#{nails.id}-quantity", "10")
+    refute has_element?(view, "#location-item-#{drill.id}-quantity", "10")
     refute has_element?(view, "#quantity-#{garage.id}")
     refute has_element?(view, "#back-to-locations")
   end
@@ -51,8 +51,8 @@ defmodule PinventoryWeb.LocationLiveTest do
     {:ok, view, _html} = live(conn, ~p"/location/#{garage.id}")
 
     assert has_element?(view, "#location-total-value", "2")
-    assert has_element?(view, "#location-item-#{item.id}-quantity", "2 here")
-    refute render(view) =~ "7 here"
+    assert has_element?(view, "#location-item-#{item.id}-quantity", "2")
+    refute has_element?(view, "#location-item-#{item.id}-quantity", "7")
   end
 
   test "shows empty state when the location has no items", %{conn: conn, scope: scope} do
