@@ -29,6 +29,7 @@ defmodule PinventoryWeb.LocationLiveTest do
 
     assert html =~ "Edit location"
     assert has_element?(view, "#location-form")
+    assert has_element?(view, "#location-name-section #location-save")
     assert has_element?(view, ~s(#location_name[value="Garage"]))
     assert has_element?(view, "#location-total-value", "13")
     assert has_element?(view, "#location-item-#{drill.id}", "Drill")
@@ -37,7 +38,7 @@ defmodule PinventoryWeb.LocationLiveTest do
     assert has_element?(view, "#location-item-#{nails.id}-quantity", "10 here")
     refute has_element?(view, "#location-item-#{drill.id}-quantity", "10 here")
     refute has_element?(view, "#quantity-#{garage.id}")
-    assert has_element?(view, "#back-to-locations[href='/locations']")
+    refute has_element?(view, "#back-to-locations")
   end
 
   test "shows per-location quantity, not stock in all locations", %{conn: conn, scope: scope} do

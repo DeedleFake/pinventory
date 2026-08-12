@@ -14,16 +14,7 @@ defmodule PinventoryWeb.LocationLive do
         phx-hook="UnsavedChanges"
         data-dirty={to_string(@dirty?)}
       >
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h1 class="text-xl font-semibold tracking-tight">Edit location</h1>
-          <.link
-            navigate={~p"/locations"}
-            id="back-to-locations"
-            class="btn btn-ghost btn-soft"
-          >
-            <.icon name="hero-map-pin" class="size-4" /> Locations
-          </.link>
-        </div>
+        <h1 class="text-xl font-semibold tracking-tight">Edit location</h1>
 
         <.form
           for={@form}
@@ -36,21 +27,43 @@ defmodule PinventoryWeb.LocationLive do
             id="location-name-section"
             data-name-dirty={to_string(@name_dirty?)}
             class={[
-              "relative space-y-1 rounded-xl border px-3 py-2 transition-colors duration-200",
+              "relative space-y-1.5 rounded-xl border px-3 py-2 transition-colors duration-200",
               @name_dirty? && "border-primary ring-1 ring-primary/30 bg-primary/5",
               not @name_dirty? && "border-base-300 bg-base-100"
             ]}
           >
-            <.input
-              type="text"
-              field={@form[:name]}
-              label="Name"
-              placeholder="Location name..."
-              autocomplete="off"
-              phx-debounce="300"
-              wrapperclass="mb-0"
-            />
-
+            <label class="label mb-1" for={@form[:name].id}>Name</label>
+            <div class="join w-full">
+              <input
+                type="text"
+                id={@form[:name].id}
+                name={@form[:name].name}
+                value={Phoenix.HTML.Form.normalize_value("text", @form[:name].value)}
+                placeholder="Location name..."
+                autocomplete="off"
+                phx-debounce="300"
+                class={[
+                  "input join-item min-w-0 grow",
+                  @form[:name].errors != [] &&
+                    Phoenix.Component.used_input?(@form[:name]) && "input-error"
+                ]}
+              />
+              <button
+                type="submit"
+                id="location-save"
+                class="btn btn-primary join-item shrink-0"
+                disabled={not @dirty?}
+              >
+                Save
+              </button>
+            </div>
+            <p
+              :for={msg <- field_errors(@form[:name])}
+              class="flex items-center gap-2 text-sm text-error"
+            >
+              <.icon name="hero-exclamation-circle" class="size-5" />
+              {msg}
+            </p>
             <p
               :if={@name_dirty?}
               id="location-name-hint"
@@ -58,17 +71,6 @@ defmodule PinventoryWeb.LocationLive do
             >
               Unsaved name change · was {@baseline_name}
             </p>
-          </div>
-
-          <div class="flex justify-end gap-2 pt-2">
-            <.button
-              type="submit"
-              id="location-save"
-              variant="primary"
-              disabled={not @dirty?}
-            >
-              Save
-            </.button>
           </div>
         </.form>
 
@@ -229,4 +231,12 @@ defmodule PinventoryWeb.LocationLive do
 
   defp quantity_label(1), do: "1 here"
   defp quantity_label(quantity), do: "#{quantity} here"
+
+  defp field_errors(field) do
+    if Phoenix.Component.used_input?(field) do
+      Enum.map(field.errors, &translate_error/1)
+    else
+      []
+    end
+  end
 end
