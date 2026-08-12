@@ -19,6 +19,9 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       assert has_element?(lv, "#settings-tab-users")
       assert has_element?(lv, "#settings-tab-activity")
       assert has_element?(lv, "#settings-account")
+      assert has_element?(lv, ~s|#nav-items[href="/"]|, "Items")
+      assert has_element?(lv, ~s|#nav-locations[href="/locations"]|, "Locations")
+      assert has_element?(lv, ~s|#nav-settings[aria-current="page"]|)
     end
 
     test "redirects if user is not logged in", %{conn: conn} do

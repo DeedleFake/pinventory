@@ -10,7 +10,7 @@ defmodule PinventoryWeb.ItemsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} nav={:items}>
       <div id="items-page" class="space-y-6">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 class="text-xl font-semibold tracking-tight">Items</h1>
@@ -18,13 +18,6 @@ defmodule PinventoryWeb.ItemsLive do
             id="items-actions"
             class="flex flex-wrap items-center justify-end gap-2"
           >
-            <.link
-              navigate={~p"/locations"}
-              id="edit-locations"
-              class="btn btn-ghost btn-soft"
-            >
-              <.icon name="hero-map-pin" class="size-4" /> Edit Locations
-            </.link>
             <.link navigate={~p"/item"} id="new-item" class="btn btn-primary">
               <.icon name="hero-plus" class="size-4" /> New Item
             </.link>

@@ -31,6 +31,11 @@ defmodule PinventoryWeb.Layouts do
     default: nil,
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
 
+  attr :nav, :atom,
+    default: nil,
+    values: [nil, :items, :locations, :settings],
+    doc: "which primary section is current"
+
   slot :inner_block, required: true
 
   def app(assigns) do
@@ -59,6 +64,20 @@ defmodule PinventoryWeb.Layouts do
         </a>
       </div>
 
+      <nav
+        :if={@current_scope && @current_scope.user}
+        id="app-nav"
+        class="flex min-w-0 items-center gap-0.5 sm:gap-1"
+        aria-label="Main"
+      >
+        <.app_nav_link id="nav-items" href={~p"/"} active={@nav == :items}>
+          Items
+        </.app_nav_link>
+        <.app_nav_link id="nav-locations" href={~p"/locations"} active={@nav == :locations}>
+          Locations
+        </.app_nav_link>
+      </nav>
+
       <div class="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
         <div
           :if={@current_scope && @current_scope.user}
@@ -75,15 +94,19 @@ defmodule PinventoryWeb.Layouts do
             {@current_scope.user.email}
           </span>
           <.link
+            id="nav-settings"
             href={~p"/user/settings"}
+            aria-label="Settings"
+            aria-current={@nav == :settings && "page"}
             class={[
               "inline-flex items-center justify-center gap-1.5 rounded-lg",
               "p-2 sm:px-2.5 sm:py-1.5 font-medium",
-              "text-base-content/90 hover:bg-base-200 hover:text-base-content",
               "transition-colors duration-150",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+              @nav == :settings && "bg-base-200 text-base-content",
+              @nav != :settings &&
+                "text-base-content/90 hover:bg-base-200 hover:text-base-content"
             ]}
-            aria-label="Settings"
           >
             <.icon name="hero-cog-6-tooth" class="size-5 sm:hidden" />
             <span class="hidden sm:inline">Settings</span>
@@ -115,6 +138,30 @@ defmodule PinventoryWeb.Layouts do
     </main>
 
     <.flash_group flash={@flash} />
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :href, :string, required: true
+  attr :active, :boolean, default: false
+  slot :inner_block, required: true
+
+  defp app_nav_link(assigns) do
+    ~H"""
+    <.link
+      id={@id}
+      navigate={@href}
+      aria-current={@active && "page"}
+      class={[
+        "inline-flex items-center rounded-lg px-2 py-1.5 text-sm font-medium sm:px-2.5",
+        "transition-colors duration-150",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+        @active && "bg-base-200 text-base-content",
+        not @active && "text-base-content/70 hover:bg-base-200 hover:text-base-content"
+      ]}
+    >
+      {render_slot(@inner_block)}
+    </.link>
     """
   end
 

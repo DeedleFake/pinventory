@@ -23,6 +23,7 @@ defmodule PinventoryWeb.UserLive.LoginTest do
       assert has_element?(lv, ~s|#user_email[phx-mounted]|)
       refute has_element?(lv, ~s|#user_password[phx-mounted]|)
       assert has_element?(lv, "#login_form_password button", "Log in")
+      refute has_element?(lv, "#app-nav")
     end
 
     test "redirects to bootstrap registration when no users exist", %{conn: conn} do

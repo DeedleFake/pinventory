@@ -7,7 +7,7 @@ defmodule PinventoryWeb.LocationLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} nav={:locations}>
       <div
         id="location-page"
         class="space-y-4"

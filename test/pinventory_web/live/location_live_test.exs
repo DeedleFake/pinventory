@@ -39,6 +39,7 @@ defmodule PinventoryWeb.LocationLiveTest do
     refute has_element?(view, "#location-item-#{drill.id}-quantity", "10")
     refute has_element?(view, "#quantity-#{garage.id}")
     refute has_element?(view, "#back-to-locations")
+    assert has_element?(view, ~s|#nav-locations[aria-current="page"]|)
   end
 
   test "shows per-location quantity, not stock in all locations", %{conn: conn, scope: scope} do

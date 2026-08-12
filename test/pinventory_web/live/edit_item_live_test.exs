@@ -15,6 +15,7 @@ defmodule PinventoryWeb.EditItemLiveTest do
     {:ok, view, html} = live(conn, ~p"/item")
 
     assert html =~ "New item"
+    assert has_element?(view, ~s|#nav-items[aria-current="page"]|)
     assert has_element?(view, "#item-form")
     assert has_element?(view, ~s(#item-total[data-stock-dirty="false"]))
     assert has_element?(view, "#item-total-value", "0")

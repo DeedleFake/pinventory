@@ -10,7 +10,7 @@ defmodule PinventoryWeb.UserLive.Settings do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} nav={:settings}>
       <div id="settings-page" class="space-y-6">
         <h1 class="text-xl font-semibold tracking-tight">Settings</h1>
 
