@@ -1,7 +1,7 @@
 /**
  * SVG floor-plan canvas: draw/erase walls and draw/extend location polygons.
  *
- * data-mode: "wall" | "erase" | "place"
+ * data-mode: "wall" | "erase" | "place" | "browse"
  * data-location-id: when mode is "place", the location for the polygon
  * data-place-mode: "new" | "extend"
  * data-existing-points: JSON [{x,y}, ...] when extending an existing polygon
@@ -202,6 +202,9 @@ const FloorPlanCanvas = {
       return
     }
 
+    // Browse mode only needs Space pan (handled above); never undo/redo here.
+    if (this.mode === "browse") return
+
     const meta = event.ctrlKey || event.metaKey
     if (!meta) {
       if (event.key === "Escape") {
@@ -254,7 +257,9 @@ const FloorPlanCanvas = {
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable) {
       return false
     }
-    return document.getElementById("floor-plan-page") != null
+    if (document.getElementById("floor-plan-page") != null) return true
+    // Locations browse canvas: Space-pan / wheel zoom without editor undo keys.
+    return this.mode === "browse"
   },
 
   handleKeyUp(event) {
@@ -330,6 +335,9 @@ const FloorPlanCanvas = {
     }
 
     if (event.button !== 0) return
+
+    // Browse: zoom/pan only — placement clicks are LiveView phx-click / links.
+    if (this.mode === "browse") return
 
     if (this.mode === "erase") {
       const wallEl = event.target.closest("[data-wall-index]")
