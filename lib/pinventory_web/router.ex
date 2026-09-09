@@ -50,6 +50,7 @@ defmodule PinventoryWeb.Router do
 
       live "/locations", LocationsLive, :index
       live "/locations/floor-plan", FloorPlanLive, :edit
+      live "/locations/floor-plan/:floor_id", FloorPlanLive, :edit
       live "/location/:location_id", LocationLive, :edit
 
       live "/user/settings", UserLive.Settings, :edit

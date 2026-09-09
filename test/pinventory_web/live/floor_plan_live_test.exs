@@ -21,6 +21,67 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
              live(conn, ~p"/locations/floor-plan")
   end
 
+  test "bare floor-plan path patches to the first floor", %{conn: conn} do
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor = hd(plan.floors)
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+
+    assert_patch(view, ~p"/locations/floor-plan/#{floor.id}")
+    assert has_element?(view, "#floor-svg-#{floor.id}")
+  end
+
+  test "mount with floor_id in the URL selects that floor", %{conn: conn} do
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor1 = hd(plan.floors)
+    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan/#{floor2.id}")
+
+    assert has_element?(view, "#floor-svg-#{floor2.id}")
+    refute has_element?(view, "#floor-svg-#{floor1.id}")
+  end
+
+  test "select_floor patches the URL to the chosen floor", %{conn: conn} do
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor1 = hd(plan.floors)
+    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+    assert_patch(view, ~p"/locations/floor-plan/#{floor1.id}")
+
+    view |> element("#floor-tab-#{floor2.id}") |> render_click()
+
+    assert_patch(view, ~p"/locations/floor-plan/#{floor2.id}")
+    assert has_element?(view, "#floor-svg-#{floor2.id}")
+  end
+
+  test "reload-equivalent mount keeps the floor from the URL", %{conn: conn} do
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor1 = hd(plan.floors)
+    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan/#{floor2.id}")
+    assert has_element?(view, "#floor-svg-#{floor2.id}")
+
+    # Simulate a full reload by mounting again on the floored URL.
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan/#{floor2.id}")
+
+    assert has_element?(view, "#floor-svg-#{floor2.id}")
+    refute has_element?(view, "#floor-svg-#{floor1.id}")
+  end
+
+  test "invalid floor_id falls back to the first floor and patches", %{conn: conn} do
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor = hd(plan.floors)
+
+    {:ok, view, _html} =
+      live(conn, ~p"/locations/floor-plan/00000000-0000-0000-0000-000000000000")
+
+    assert_patch(view, ~p"/locations/floor-plan/#{floor.id}")
+    assert has_element?(view, "#floor-svg-#{floor.id}")
+  end
+
   test "renders the editor when a plan exists", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
     {:ok, plan} = FloorPlans.create_floor_plan()
@@ -136,6 +197,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
 
     view |> element("#place-location-#{garage.id}") |> render_click()
 
+    assert_patch(view, ~p"/locations/floor-plan/#{floor1.id}")
     assert has_element?(view, "#floor-svg-#{floor1.id}")
     refute has_element?(view, "#floor-svg-#{floor2.id}")
     assert has_element?(view, "#unplace-location-#{garage.id}")
@@ -341,6 +403,8 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert render(view) =~ ~r/id="floor-add"[\s\S]*id="floor-rail-list"/
 
     view |> element("#floor-add") |> render_click()
+    floor2 = Enum.find(FloorPlans.get_floor_plan().floors, &(&1.name == "Floor 2"))
+    assert_patch(view, ~p"/locations/floor-plan/#{floor2.id}")
     assert render(view) =~ "Floor 2"
 
     view

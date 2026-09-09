@@ -517,14 +517,29 @@ defmodule PinventoryWeb.FloorPlanLive do
   end
 
   @impl true
-  def handle_event("select_floor", %{"id" => id}, socket) do
-    floor = Enum.find(socket.assigns.floors, &(&1.id == id)) || socket.assigns.selected_floor
+  def handle_params(%{"floor_id" => floor_id}, _uri, socket) do
+    case Enum.find(socket.assigns.floors, &(&1.id == floor_id)) do
+      nil ->
+        first = List.first(socket.assigns.floors)
+        {:noreply, fallback_to_floor(socket, first.id)}
 
-    {:noreply,
-     socket
-     |> assign(:selected_floor, FloorPlans.get_floor!(floor.id))
-     |> assign(:selected_placement_id, nil)
-     |> assign(:removing_floor_id, nil)}
+      floor ->
+        {:noreply, apply_selected_floor(socket, floor)}
+    end
+  end
+
+  def handle_params(_params, _uri, socket) do
+    floor = socket.assigns.selected_floor || List.first(socket.assigns.floors)
+    {:noreply, fallback_to_floor(socket, floor.id)}
+  end
+
+  @impl true
+  def handle_event("select_floor", %{"id" => id}, socket) do
+    if Enum.any?(socket.assigns.floors, &(&1.id == id)) do
+      {:noreply, push_patch(socket, to: floor_plan_path(id))}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("add_floor", _params, socket) do
@@ -538,9 +553,9 @@ defmodule PinventoryWeb.FloorPlanLive do
          socket
          |> assign(:floor_plan, plan)
          |> assign(:floors, plan.floors)
-         |> assign(:selected_floor, floor)
          |> assign(:selected_placement_id, nil)
-         |> assign(:removing_floor_id, nil)}
+         |> assign(:removing_floor_id, nil)
+         |> push_patch(to: floor_plan_path(floor.id))}
 
       {:error, _} ->
         {:noreply, pop_failed_undo(socket)}
@@ -621,10 +636,10 @@ defmodule PinventoryWeb.FloorPlanLive do
              socket
              |> assign(:floor_plan, plan)
              |> assign(:floors, plan.floors)
-             |> assign(:selected_floor, FloorPlans.get_floor!(selected.id))
              |> assign(:selected_placement_id, nil)
              |> assign(:removing_floor_id, nil)
-             |> assign_location_lists()}
+             |> assign_location_lists()
+             |> push_patch(to: floor_plan_path(selected.id))}
 
           {:error, :last_floor} ->
             {:noreply, pop_failed_undo(socket) |> assign(:removing_floor_id, nil)}
@@ -845,7 +860,43 @@ defmodule PinventoryWeb.FloorPlanLive do
     |> assign(:selected_floor, FloorPlans.get_floor!(selected.id))
     |> assign(:selected_placement_id, nil)
     |> assign(:removing_floor_id, nil)
+    |> push_patch(to: floor_plan_path(selected.id))
   end
+
+  defp fallback_to_floor(socket, floor_id) do
+    floor =
+      Enum.find(socket.assigns.floors, &(&1.id == floor_id)) || List.first(socket.assigns.floors)
+
+    socket = apply_selected_floor(socket, floor)
+
+    # Defer the patch so mount-time handle_params does not live_redirect.
+    if connected?(socket) do
+      send(self(), {:patch_floor_url, floor.id})
+    end
+
+    socket
+  end
+
+  @impl true
+  def handle_info({:patch_floor_url, floor_id}, socket) do
+    {:noreply, push_patch(socket, to: floor_plan_path(floor_id))}
+  end
+
+  defp apply_selected_floor(socket, floor) do
+    changed? = socket.assigns.selected_floor.id != floor.id
+
+    socket = assign(socket, :selected_floor, FloorPlans.get_floor!(floor.id))
+
+    if changed? do
+      socket
+      |> assign(:selected_placement_id, nil)
+      |> assign(:removing_floor_id, nil)
+    else
+      socket
+    end
+  end
+
+  defp floor_plan_path(floor_id), do: ~p"/locations/floor-plan/#{floor_id}"
 
   defp pop_failed_undo(socket) do
     case socket.assigns.undo_stack do
