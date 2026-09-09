@@ -63,7 +63,7 @@ defmodule PinventoryWeb.LocationsLive do
         >
           <aside
             id="locations-list-pane"
-            class="flex w-full min-w-0 flex-1 flex-col gap-3 rounded-2xl border border-base-300 bg-base-100 p-3 lg:min-w-[18rem]"
+            class="flex w-full shrink-0 flex-col gap-3 rounded-2xl border border-base-300 bg-base-100 p-3 lg:w-80 xl:w-96"
           >
             <.form
               for={@new_form}
@@ -124,10 +124,9 @@ defmodule PinventoryWeb.LocationsLive do
             data-existing-points="[]"
             tabindex="0"
             class={[
-              "relative min-w-0 shrink-0 overflow-hidden rounded-2xl border border-base-300 bg-base-200/40",
+              "relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-base-300 bg-base-200/40",
               "h-[calc(100vh-12rem)] min-h-[22rem] w-full touch-none select-none outline-none",
               "focus-visible:ring-2 focus-visible:ring-primary/40",
-              "lg:w-[28rem] xl:w-[32rem]",
               "cursor-grab"
             ]}
           >
