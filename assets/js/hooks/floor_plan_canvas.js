@@ -3,7 +3,7 @@
  *
  * data-mode: "wall" | "erase" | "place"
  * data-location-id: when mode is "place", the location for the polygon
- * data-place-mode: "new" | "extend" | "redraw"
+ * data-place-mode: "new" | "extend"
  * data-existing-points: JSON [{x,y}, ...] when extending an existing polygon
  *
  * Pushes LiveView events:

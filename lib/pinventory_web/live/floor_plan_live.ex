@@ -194,7 +194,7 @@ defmodule PinventoryWeb.FloorPlanLive do
               <div class="space-y-1">
                 <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Locations</h2>
                 <p class="text-xs opacity-60">
-                  Click a location to draw its area. Placed locations extend by default; use Redraw to replace.
+                  Click a location to draw its area. Placed locations extend by default.
                 </p>
               </div>
 
@@ -235,25 +235,6 @@ defmodule PinventoryWeb.FloorPlanLive do
                     >
                       Open
                     </span>
-                  </button>
-                  <button
-                    :if={location_placed_on_floor?(location.id, @selected_floor)}
-                    type="button"
-                    id={"redraw-location-#{location.id}"}
-                    class={[
-                      "btn btn-square btn-sm btn-ghost",
-                      @mode == "place" && @placing_location_id == location.id &&
-                        @place_mode == "redraw" &&
-                        "btn-primary",
-                      not (@mode == "place" && @placing_location_id == location.id &&
-                             @place_mode == "redraw") &&
-                        "opacity-70 hover:opacity-100"
-                    ]}
-                    phx-click="redraw_location"
-                    phx-value-id={location.id}
-                    title="Redraw area from scratch"
-                  >
-                    <.icon name="hero-arrow-path" class="size-4" />
                   </button>
                   <button
                     :if={location_placed_on_floor?(location.id, @selected_floor)}
@@ -532,16 +513,6 @@ defmodule PinventoryWeb.FloorPlanLive do
      |> assign(:placing_location_id, id)
      |> assign(:place_mode, place_mode)
      |> assign(:existing_points_json, points_json)
-     |> assign(:selected_placement_id, id)}
-  end
-
-  def handle_event("redraw_location", %{"id" => id}, socket) do
-    {:noreply,
-     socket
-     |> assign(:mode, "place")
-     |> assign(:placing_location_id, id)
-     |> assign(:place_mode, "redraw")
-     |> assign(:existing_points_json, "[]")
      |> assign(:selected_placement_id, id)}
   end
 

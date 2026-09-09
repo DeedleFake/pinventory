@@ -63,7 +63,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert html =~ ~s|data-location-id=""|
   end
 
-  test "selecting a placed location defaults to extend; redraw is explicit", %{
+  test "selecting a placed location defaults to extend", %{
     conn: conn,
     scope: scope
   } do
@@ -75,7 +75,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     {:ok, view, html} = live(conn, ~p"/locations/floor-plan")
     assert html =~ "data-snap-vertex"
     assert html =~ "data-snap-edge"
-    assert has_element?(view, "#redraw-location-#{garage.id}")
+    refute has_element?(view, "#redraw-location-#{garage.id}")
 
     view |> element("#place-location-#{garage.id}") |> render_click()
 
@@ -84,12 +84,6 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     canvas = view |> element("#floor-plan-canvas") |> render()
     assert canvas =~ "0.1"
     assert canvas =~ "data-existing-points"
-
-    view |> element("#redraw-location-#{garage.id}") |> render_click()
-
-    assert has_element?(view, ~s|#floor-plan-canvas[data-place-mode="redraw"]|)
-    redraw_html = view |> element("#floor-plan-canvas") |> render()
-    assert redraw_html =~ ~s|data-existing-points="[]"|
   end
 
   test "polygon_placed replaces points when extending via merged client list", %{

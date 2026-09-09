@@ -13,7 +13,6 @@ Optional multi-floor editor for drawing walls and marking location **areas** as 
 - `floor-plan-floors` adds, renames, and removes floors via `#floor-tabs` / `#floor-rename-row`.
 - `floor-plan-place` selects a location row in `#placeable-locations` as the drawing tool (`mode=place` for that id; no `#tool-place`). Click vertices; finish by closing near the first point, **double-click**, or `#polygon-finish` Done. Escape cancels the draft. Uses the same bidirectional snap helpers as walls.
 - `floor-plan-extend` is the default when the selected location already has a polygon on this floor (`data-place-mode=extend`). Click near an existing vertex to attach, add points, then close by clicking any existing vertex of that polygon (or Done to close back to the attach). The client merges the chain and sends the full `points` list via `polygon_placed`.
-- `floor-plan-redraw` replaces an area from scratch via `#redraw-location-<id>` on a placed row (`data-place-mode=redraw`).
 - `floor-plan-unplace` removes a placement from the location row (`#unplace-location-<id>`).
 - `floor-plan-undo-redo` uses `#history-undo` / `#history-redo` in the top bar and Ctrl/Meta+Z, Ctrl/Meta+Shift+Z, Ctrl/Meta+Y.
 - `floor-plan-list-badges` shows floor name or `Not on plan` on location rows when a plan exists.
@@ -39,7 +38,7 @@ Preconditions:
 - **Erase wall.** Click `#tool-erase`, then click a wall segment.
 - **Add floor.** Click `#floor-add`. A second tab appears.
 - **Place area.** Create a location first if needed. Click `#place-location-<id>` (that selects place mode). Click three or more points on the canvas, then close near the first point, double-click, or click `#polygon-finish`. A filled labeled polygon appears. Snap matches wall drawing (walls ↔ location vertices/edges).
-- **Extend area.** Select a placed location again. Click near a corner to attach, add points, then click a **different** corner to close (or Done to close on an adjacent edge). Merged outline must stay a simple polygon (no hourglass). Use `#redraw-location-<id>` to replace from scratch instead.
+- **Extend area.** Select a placed location again. Click near a corner to attach, add points, then click a **different** corner to close (or Done to close on an adjacent edge). Merged outline must stay a simple polygon (no hourglass).
 - **Unplace.** Click `#unplace-location-<id>` on a placed row.
 - **Undo/redo.** Click `#history-undo` / `#history-redo`, or use Ctrl+Z / Ctrl+Shift+Z while not typing in an input.
 - **List badges + highlight.** Run `verify-pinventory browser goto /locations`. Preview uses list width (`#floor-plan-preview`). Placed rows show a floor chip (`#location-<id>-floor`). Unplaced rows show `#location-<id>-not-on-plan` with `Not on plan`. Hover a placed row; `#preview-placement-<id>` strengthens on the preview.
