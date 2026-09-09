@@ -405,7 +405,7 @@ defmodule PinventoryWeb.FloorPlanLive do
                 <% @mode == "erase" -> %>
                   Click a wall segment to erase it.
                 <% @mode == "place" && @placing_location_id && @place_mode == "extend" -> %>
-                  Click a corner to attach, add points, then click a corner or Done to merge. Escape cancels.
+                  Click a corner to attach, add points, then click a different corner to close, or Done to close on an adjacent edge. Escape cancels.
                 <% @mode == "place" && @placing_location_id -> %>
                   Click points to draw an area. Close near the first point, double-click, or Done. Escape cancels.
                 <% true -> %>

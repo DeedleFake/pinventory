@@ -39,7 +39,7 @@ Preconditions:
 - **Erase wall.** Click `#tool-erase`, then click a wall segment.
 - **Add floor.** Click `#floor-add`. A second tab appears.
 - **Place area.** Create a location first if needed. Click `#place-location-<id>` (that selects place mode). Click three or more points on the canvas, then close near the first point, double-click, or click `#polygon-finish`. A filled labeled polygon appears. Snap matches wall drawing (walls ↔ location vertices/edges).
-- **Extend area.** Select a placed location again. Click near a corner to attach, add points, then click a corner (or Done) to merge. Use `#redraw-location-<id>` to replace from scratch instead.
+- **Extend area.** Select a placed location again. Click near a corner to attach, add points, then click a **different** corner to close (or Done to close on an adjacent edge). Merged outline must stay a simple polygon (no hourglass). Use `#redraw-location-<id>` to replace from scratch instead.
 - **Unplace.** Click `#unplace-location-<id>` on a placed row.
 - **Undo/redo.** Click `#history-undo` / `#history-redo`, or use Ctrl+Z / Ctrl+Shift+Z while not typing in an input.
 - **List badges + highlight.** Run `verify-pinventory browser goto /locations`. Preview uses list width (`#floor-plan-preview`). Placed rows show a floor chip (`#location-<id>-floor`). Unplaced rows show `#location-<id>-not-on-plan` with `Not on plan`. Hover a placed row; `#preview-placement-<id>` strengthens on the preview.

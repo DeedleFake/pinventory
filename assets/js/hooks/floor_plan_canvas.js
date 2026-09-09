@@ -14,8 +14,13 @@
  *
  * Walls: first click sets start (snap), second click commits; Escape cancels.
  * Snap: wall endpoints/segments + placement vertices/edges (data-snap-*).
- * Polygon finish: close near first/attach, double-click, or Done; Escape cancels.
+ * Polygon finish: close on a different vertex, double-click, or Done (adjacent auto); Escape cancels.
  */
+import {
+  mergeExtension as mergeExtensionGeometry,
+  provisionalCloseIndex,
+} from "./floor_plan_geometry.js"
+
 const MIN_WALL_LENGTH = 0.02
 const SNAP_DISTANCE = 0.03
 const CLOSE_DISTANCE = 0.025
@@ -275,20 +280,12 @@ const FloorPlanCanvas = {
     const draft = this.draftPolygon
     const existingHit = this.nearestExistingVertex(point)
 
-    // After the attach vertex, closing on any existing vertex (including attach) merges.
+    // Explicit click-close requires a different existing vertex than the attach.
     if (draft.points.length >= 2 && existingHit) {
+      if (existingHit.index === draft.attachIndex) {
+        return
+      }
       draft.closeIndex = existingHit.index
-      this.finishPolygon()
-      return
-    }
-
-    // Also allow closing near the first point of the new chain (attach).
-    const first = draft.points[0]
-    if (
-      draft.points.length >= 2 &&
-      Math.hypot(point.x - first.x, point.y - first.y) <= CLOSE_DISTANCE
-    ) {
-      draft.closeIndex = draft.attachIndex
       this.finishPolygon()
       return
     }
@@ -367,40 +364,11 @@ const FloorPlanCanvas = {
   },
 
   /**
-   * Merge extension chain into existing ring.
-   * draft.points[0] is the attach vertex; points[1..] are new vertices.
-   * closeIndex defaults to attachIndex (Done / close-to-start).
+   * Merge extension chain into existing ring (arc replace; see floor_plan_geometry.js).
+   * Done / unset closeIndex auto-picks an adjacent edge; click-close uses closeIndex ≠ attach.
    */
   mergeExtension(draft) {
-    const existing = draft.existing
-    const attachIdx = draft.attachIndex
-    const closeIdx =
-      typeof draft.closeIndex === "number" ? draft.closeIndex : draft.attachIndex
-    const newPoints = draft.points.slice(1)
-
-    if (newPoints.length < 1) return null
-
-    if (closeIdx === attachIdx) {
-      return existing
-        .slice(0, attachIdx + 1)
-        .concat(newPoints)
-        .concat(existing.slice(attachIdx + 1))
-        .map((p) => ({x: p.x, y: p.y}))
-    }
-
-    if (closeIdx > attachIdx) {
-      return existing
-        .slice(0, attachIdx + 1)
-        .concat(newPoints)
-        .concat(existing.slice(closeIdx))
-        .map((p) => ({x: p.x, y: p.y}))
-    }
-
-    // Wrap-around: keep close..attach, then splice new points after attach.
-    return existing
-      .slice(closeIdx, attachIdx + 1)
-      .concat(newPoints)
-      .map((p) => ({x: p.x, y: p.y}))
+    return mergeExtensionGeometry(draft)
   },
 
   updateFinishButton() {
@@ -574,19 +542,27 @@ const FloorPlanCanvas = {
     }
 
     if (mode === "extend" && existing && existing.length >= 3) {
-      // Preview merged outline when we have enough of a chain; otherwise show open polyline via polygon of chain only.
-      const preview =
-        points.length >= 2
-          ? this.mergeExtension({
-              existing,
-              attachIndex,
-              points,
-              closeIndex: attachIndex,
-            })
-          : null
+      // Preview using the same merge as commit; provisional close = nearby vertex or adjacent auto.
+      let preview = null
+      if (points.length >= 2) {
+        const chain = current ? points.concat([current]) : points
+        if (chain.length >= 2) {
+          const closeIndex = provisionalCloseIndex(
+            existing,
+            attachIndex,
+            current,
+            CLOSE_DISTANCE,
+          )
+          preview = this.mergeExtension({
+            existing,
+            attachIndex,
+            points: chain,
+            closeIndex,
+          })
+        }
+      }
       if (preview && preview.length >= 3) {
-        const withCursor = current ? preview.concat([current]) : preview
-        poly.setAttribute("points", withCursor.map((p) => `${p.x},${p.y}`).join(" "))
+        poly.setAttribute("points", preview.map((p) => `${p.x},${p.y}`).join(" "))
       } else {
         poly.setAttribute("points", all.map((p) => `${p.x},${p.y}`).join(" "))
       }
