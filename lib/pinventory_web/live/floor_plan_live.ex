@@ -146,20 +146,23 @@ defmodule PinventoryWeb.FloorPlanLive do
                 >
                   No locations yet. Add some on the Locations page.
                 </li>
-                <li :for={location <- @locations} class="flex items-stretch gap-1">
+                <li
+                  :for={location <- @locations}
+                  class={[
+                    "flex items-stretch overflow-hidden rounded-lg border",
+                    @mode == "place" && @placing_location_id == location.id &&
+                      "border-primary bg-primary/10 ring-1 ring-primary/30",
+                    not (@mode == "place" && @placing_location_id == location.id) &&
+                      "border-transparent hover:border-base-300 hover:bg-base-200/40"
+                  ]}
+                >
                   <button
                     :if={not Map.has_key?(@placement_by_location, location.id)}
                     type="button"
                     id={"place-location-#{location.id}"}
                     phx-click="select_location"
                     phx-value-id={location.id}
-                    class={[
-                      "flex min-w-0 flex-1 items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-sm transition-colors",
-                      @mode == "place" && @placing_location_id == location.id &&
-                        "border-primary bg-primary/10 ring-1 ring-primary/30",
-                      not (@mode == "place" && @placing_location_id == location.id) &&
-                        "border-transparent hover:border-base-300 hover:bg-base-200/60"
-                    ]}
+                    class="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left text-sm transition-colors"
                   >
                     <span class="min-w-0 flex-1 truncate font-medium">{location.name}</span>
                     <span class="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-warning">
@@ -179,7 +182,7 @@ defmodule PinventoryWeb.FloorPlanLive do
                     phx-click="select_floor"
                     phx-value-id={@placement_by_location[location.id].floor_id}
                     title={"Go to #{@placement_by_location[location.id].floor_name}"}
-                    class="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-transparent px-2.5 py-2 text-left text-sm transition-colors hover:border-base-300 hover:bg-base-200/60"
+                    class="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left text-sm transition-colors"
                   >
                     <span class="min-w-0 flex-1 truncate font-medium">{location.name}</span>
                     <span class="shrink-0 rounded-full bg-base-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">
@@ -190,7 +193,7 @@ defmodule PinventoryWeb.FloorPlanLive do
                     :if={location_placed_on_floor?(location.id, @selected_floor)}
                     id={"place-location-#{location.id}"}
                     aria-disabled="true"
-                    class="flex min-w-0 flex-1 cursor-not-allowed items-center gap-2 rounded-lg border border-transparent px-2.5 py-2 text-left text-sm opacity-60"
+                    class="flex min-w-0 flex-1 cursor-not-allowed items-center gap-2 px-2.5 py-2 text-left text-sm opacity-60"
                   >
                     <span class="min-w-0 flex-1 truncate font-medium">{location.name}</span>
                     <span class="shrink-0 rounded-full bg-base-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">
@@ -201,7 +204,7 @@ defmodule PinventoryWeb.FloorPlanLive do
                     :if={location_placed_on_floor?(location.id, @selected_floor)}
                     type="button"
                     id={"unplace-location-#{location.id}"}
-                    class="btn btn-square btn-sm btn-ghost text-error hover:bg-error/10"
+                    class="inline-flex w-10 shrink-0 items-center justify-center self-stretch border-l border-base-300 text-error transition-colors hover:bg-error/10"
                     phx-click="unplace_location"
                     phx-value-id={location.id}
                     title="Remove from this floor"
@@ -211,105 +214,6 @@ defmodule PinventoryWeb.FloorPlanLive do
                 </li>
               </ul>
             </section>
-          </aside>
-
-          <aside
-            id="floor-rail"
-            class="flex w-full shrink-0 flex-col gap-2 rounded-2xl border border-base-300 bg-base-100 p-2 sm:w-36 lg:w-40"
-          >
-            <div class="space-y-1 px-0.5">
-              <h2 class="text-[10px] font-semibold uppercase tracking-wide opacity-50">Floors</h2>
-              <form id="floor-rename-form" phx-submit="rename_floor" class="flex flex-col gap-1">
-                <label class="sr-only" for="floor-name">Floor name</label>
-                <input
-                  type="text"
-                  id="floor-name"
-                  name="name"
-                  value={@selected_floor.name}
-                  autocomplete="off"
-                  class="input input-xs w-full min-w-0"
-                />
-                <button
-                  type="submit"
-                  id="floor-rename-save"
-                  class="btn btn-xs btn-ghost border border-base-300"
-                >
-                  Rename
-                </button>
-              </form>
-            </div>
-
-            <ul id="floor-rail-list" class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
-              <li
-                :for={floor <- floors_top_first(@floors)}
-                id={"floor-rail-item-#{floor.id}"}
-                class={[
-                  "flex items-stretch gap-0.5 rounded-lg border px-0.5 py-0.5",
-                  floor.id == @selected_floor.id && "border-primary bg-primary/10",
-                  floor.id != @selected_floor.id && "border-transparent hover:border-base-300"
-                ]}
-              >
-                <div class="flex flex-col justify-center gap-0">
-                  <button
-                    type="button"
-                    id={"floor-move-up-#{floor.id}"}
-                    class="btn btn-ghost btn-xs h-5 min-h-0 w-5 p-0 opacity-70 hover:opacity-100"
-                    phx-click="move_floor"
-                    phx-value-id={floor.id}
-                    phx-value-dir="up"
-                    disabled={floor_at_top?(floor, @floors)}
-                    title="Move higher"
-                  >
-                    <.icon name="hero-chevron-up" class="size-3" />
-                  </button>
-                  <button
-                    type="button"
-                    id={"floor-move-down-#{floor.id}"}
-                    class="btn btn-ghost btn-xs h-5 min-h-0 w-5 p-0 opacity-70 hover:opacity-100"
-                    phx-click="move_floor"
-                    phx-value-id={floor.id}
-                    phx-value-dir="down"
-                    disabled={floor_at_bottom?(floor, @floors)}
-                    title="Move lower"
-                  >
-                    <.icon name="hero-chevron-down" class="size-3" />
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  id={"floor-tab-#{floor.id}"}
-                  phx-click="select_floor"
-                  phx-value-id={floor.id}
-                  class={[
-                    "min-w-0 flex-1 truncate rounded-md px-1.5 py-1.5 text-left text-xs font-medium",
-                    floor.id == @selected_floor.id && "text-primary",
-                    floor.id != @selected_floor.id && "opacity-80 hover:opacity-100"
-                  ]}
-                >
-                  {floor.name}
-                </button>
-              </li>
-            </ul>
-
-            <div class="flex flex-col gap-1 border-t border-base-300 pt-2">
-              <button
-                type="button"
-                id="floor-add"
-                class="btn btn-xs btn-ghost justify-start border border-dashed border-base-300"
-                phx-click="add_floor"
-              >
-                <.icon name="hero-plus" class="size-3.5" /> Floor
-              </button>
-              <button
-                type="button"
-                id="floor-remove"
-                class="btn btn-xs btn-ghost justify-start text-error hover:bg-error/10"
-                phx-click="remove_floor"
-                disabled={length(@floors) <= 1}
-              >
-                <.icon name="hero-minus-circle" class="size-3.5" /> Remove
-              </button>
-            </div>
           </aside>
 
           <div
@@ -454,6 +358,138 @@ defmodule PinventoryWeb.FloorPlanLive do
               <% end %>
             </p>
           </div>
+
+          <aside
+            id="floor-rail"
+            class="flex w-full shrink-0 flex-col gap-2 rounded-2xl border border-base-300 bg-base-100 p-3 lg:w-56"
+          >
+            <div class="flex items-center justify-between gap-2 px-0.5">
+              <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Floors</h2>
+              <button
+                type="button"
+                id="floor-add"
+                class="btn btn-xs btn-ghost border border-dashed border-base-300"
+                phx-click="add_floor"
+                title="Add floor"
+              >
+                <.icon name="hero-plus" class="size-3.5" /> Floor
+              </button>
+            </div>
+
+            <form id="floor-rename-form" phx-submit="rename_floor" class="flex flex-col gap-1.5">
+              <label class="sr-only" for="floor-name">Floor name</label>
+              <input
+                type="text"
+                id="floor-name"
+                name="name"
+                value={@selected_floor.name}
+                autocomplete="off"
+                class="input input-sm w-full min-w-0"
+              />
+              <button
+                type="submit"
+                id="floor-rename-save"
+                class="btn btn-sm btn-ghost border border-base-300"
+              >
+                Rename
+              </button>
+            </form>
+
+            <ul
+              id="floor-rail-list"
+              phx-hook="FloorRailSort"
+              class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
+            >
+              <li
+                :for={floor <- floors_top_first(@floors)}
+                id={"floor-rail-item-#{floor.id}"}
+                data-floor-id={floor.id}
+                class={[
+                  "rounded-lg border",
+                  floor.id == @selected_floor.id && "border-primary bg-primary/10",
+                  floor.id != @selected_floor.id && "border-transparent hover:border-base-300"
+                ]}
+              >
+                <div
+                  :if={@removing_floor_id == floor.id}
+                  id={"floor-remove-confirm-#{floor.id}"}
+                  class="space-y-2 p-2"
+                >
+                  <p class="text-xs leading-snug">
+                    Delete <span class="font-semibold">{floor.name}</span>? Walls and placements on this floor are removed.
+                  </p>
+                  <div class="flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      id={"floor-remove-confirm-button-#{floor.id}"}
+                      class="btn btn-xs btn-error"
+                      phx-click="remove_floor"
+                      phx-value-id={floor.id}
+                    >
+                      Delete
+                    </button>
+                    <button
+                      type="button"
+                      id={"floor-remove-cancel-#{floor.id}"}
+                      class="btn btn-xs btn-ghost"
+                      phx-click="cancel_remove_floor"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+                <div
+                  :if={@removing_floor_id != floor.id}
+                  class="flex items-stretch gap-0.5 px-0.5 py-0.5"
+                >
+                  <button
+                    type="button"
+                    id={"floor-drag-#{floor.id}"}
+                    data-floor-handle
+                    draggable="true"
+                    class="inline-flex w-7 shrink-0 cursor-grab items-center justify-center rounded-md opacity-50 hover:bg-base-200 hover:opacity-100 active:cursor-grabbing"
+                    title="Drag to reorder"
+                    aria-label={"Reorder #{floor.name}"}
+                  >
+                    <.icon name="hero-bars-2" class="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    id={"floor-tab-#{floor.id}"}
+                    phx-click="select_floor"
+                    phx-value-id={floor.id}
+                    class={[
+                      "min-w-0 flex-1 truncate rounded-md px-1.5 py-2 text-left text-sm font-medium",
+                      floor.id == @selected_floor.id && "text-primary",
+                      floor.id != @selected_floor.id && "opacity-80 hover:opacity-100"
+                    ]}
+                  >
+                    {floor.name}
+                  </button>
+                  <button
+                    type="button"
+                    id={"floor-remove-#{floor.id}"}
+                    class={[
+                      "inline-flex w-8 shrink-0 items-center justify-center self-stretch rounded-md text-error transition-colors",
+                      length(@floors) <= 1 && "cursor-not-allowed opacity-30",
+                      length(@floors) > 1 && "hover:bg-error/10"
+                    ]}
+                    phx-click="prompt_remove_floor"
+                    phx-value-id={floor.id}
+                    disabled={length(@floors) <= 1}
+                    title={
+                      if(length(@floors) <= 1,
+                        do: "Can't remove the last floor",
+                        else: "Remove floor"
+                      )
+                    }
+                  >
+                    <.icon name="hero-x-mark" class="size-4" />
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </aside>
         </div>
       </div>
     </Layouts.app>
@@ -482,6 +518,7 @@ defmodule PinventoryWeb.FloorPlanLive do
          |> assign(:existing_points_json, "[]")
          |> assign(:selected_placement_id, nil)
          |> assign(:delete_plan?, false)
+         |> assign(:removing_floor_id, nil)
          |> assign(:undo_stack, [])
          |> assign(:redo_stack, [])
          |> assign_location_lists()}
@@ -495,10 +532,13 @@ defmodule PinventoryWeb.FloorPlanLive do
     {:noreply,
      socket
      |> assign(:selected_floor, FloorPlans.get_floor!(floor.id))
-     |> assign(:selected_placement_id, nil)}
+     |> assign(:selected_placement_id, nil)
+     |> assign(:removing_floor_id, nil)}
   end
 
   def handle_event("add_floor", _params, socket) do
+    socket = push_undo_snapshot(socket)
+
     case FloorPlans.add_floor(socket.assigns.floor_plan) do
       {:ok, floor} ->
         plan = FloorPlans.get_floor_plan()
@@ -509,10 +549,10 @@ defmodule PinventoryWeb.FloorPlanLive do
          |> assign(:floors, plan.floors)
          |> assign(:selected_floor, floor)
          |> assign(:selected_placement_id, nil)
-         |> clear_history()}
+         |> assign(:removing_floor_id, nil)}
 
       {:error, _} ->
-        {:noreply, socket}
+        {:noreply, pop_failed_undo(socket)}
     end
   end
 
@@ -532,19 +572,12 @@ defmodule PinventoryWeb.FloorPlanLive do
     end
   end
 
-  def handle_event("move_floor", %{"id" => id, "dir" => dir}, socket)
-      when dir in ["up", "down"] do
-    floor = Enum.find(socket.assigns.floors, &(&1.id == id))
+  def handle_event("reorder_floors", %{"floor_ids" => floor_ids}, socket)
+      when is_list(floor_ids) do
+    socket = push_undo_snapshot(socket)
 
-    direction =
-      case dir do
-        "up" -> :higher
-        "down" -> :lower
-      end
-
-    case floor && FloorPlans.move_floor(floor, direction) do
-      {:ok, _} ->
-        plan = FloorPlans.get_floor_plan()
+    case FloorPlans.reorder_floors(socket.assigns.floor_plan, floor_ids) do
+      {:ok, plan} ->
         selected_id = socket.assigns.selected_floor.id
         selected = Enum.find(plan.floors, &(&1.id == selected_id)) || List.first(plan.floors)
 
@@ -552,33 +585,62 @@ defmodule PinventoryWeb.FloorPlanLive do
          socket
          |> assign(:floor_plan, plan)
          |> assign(:floors, plan.floors)
-         |> assign(:selected_floor, FloorPlans.get_floor!(selected.id))}
+         |> assign(:selected_floor, FloorPlans.get_floor!(selected.id))
+         |> assign(:removing_floor_id, nil)}
 
-      _ ->
-        {:noreply, socket}
+      {:error, _} ->
+        {:noreply, pop_failed_undo(socket)}
     end
   end
 
-  def handle_event("remove_floor", _params, socket) do
-    case FloorPlans.delete_floor(socket.assigns.selected_floor) do
-      {:ok, _} ->
-        plan = FloorPlans.get_floor_plan()
-        selected = List.first(plan.floors)
+  def handle_event("prompt_remove_floor", %{"id" => id}, socket) do
+    if length(socket.assigns.floors) <= 1 do
+      {:noreply, socket}
+    else
+      {:noreply, assign(socket, :removing_floor_id, id)}
+    end
+  end
 
-        {:noreply,
-         socket
-         |> assign(:floor_plan, plan)
-         |> assign(:floors, plan.floors)
-         |> assign(:selected_floor, selected)
-         |> assign(:selected_placement_id, nil)
-         |> assign_location_lists()
-         |> clear_history()}
+  def handle_event("cancel_remove_floor", _params, socket) do
+    {:noreply, assign(socket, :removing_floor_id, nil)}
+  end
 
-      {:error, :last_floor} ->
-        {:noreply, socket}
+  def handle_event("remove_floor", %{"id" => id}, socket) do
+    floor = Enum.find(socket.assigns.floors, &(&1.id == id))
 
-      {:error, _} ->
-        {:noreply, socket}
+    cond do
+      is_nil(floor) ->
+        {:noreply, assign(socket, :removing_floor_id, nil)}
+
+      length(socket.assigns.floors) <= 1 ->
+        {:noreply, assign(socket, :removing_floor_id, nil)}
+
+      true ->
+        socket = push_undo_snapshot(socket)
+
+        case FloorPlans.delete_floor(floor) do
+          {:ok, _} ->
+            plan = FloorPlans.get_floor_plan()
+
+            selected =
+              Enum.find(plan.floors, &(&1.id == socket.assigns.selected_floor.id)) ||
+                List.first(plan.floors)
+
+            {:noreply,
+             socket
+             |> assign(:floor_plan, plan)
+             |> assign(:floors, plan.floors)
+             |> assign(:selected_floor, FloorPlans.get_floor!(selected.id))
+             |> assign(:selected_placement_id, nil)
+             |> assign(:removing_floor_id, nil)
+             |> assign_location_lists()}
+
+          {:error, :last_floor} ->
+            {:noreply, pop_failed_undo(socket) |> assign(:removing_floor_id, nil)}
+
+          {:error, _} ->
+            {:noreply, pop_failed_undo(socket) |> assign(:removing_floor_id, nil)}
+        end
     end
   end
 
@@ -791,6 +853,7 @@ defmodule PinventoryWeb.FloorPlanLive do
     socket
     |> assign(:selected_floor, FloorPlans.get_floor!(selected.id))
     |> assign(:selected_placement_id, nil)
+    |> assign(:removing_floor_id, nil)
   end
 
   defp pop_failed_undo(socket) do
@@ -798,12 +861,6 @@ defmodule PinventoryWeb.FloorPlanLive do
       [_ | rest] -> assign(socket, :undo_stack, rest)
       [] -> socket
     end
-  end
-
-  defp clear_history(socket) do
-    socket
-    |> assign(:undo_stack, [])
-    |> assign(:redo_stack, [])
   end
 
   defp trim_stack(stack) do
@@ -906,14 +963,6 @@ defmodule PinventoryWeb.FloorPlanLive do
 
   defp floors_top_first(floors) when is_list(floors) do
     Enum.sort_by(floors, & &1.position, :desc)
-  end
-
-  defp floor_at_top?(%Floor{} = floor, floors) when is_list(floors) do
-    Enum.all?(floors, &(&1.position <= floor.position))
-  end
-
-  defp floor_at_bottom?(%Floor{} = floor, floors) when is_list(floors) do
-    Enum.all?(floors, &(&1.position >= floor.position))
   end
 
   defp to_float(value) when is_float(value), do: value

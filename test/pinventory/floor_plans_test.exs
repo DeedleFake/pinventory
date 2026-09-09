@@ -216,6 +216,32 @@ defmodule Pinventory.FloorPlansTest do
       assert restored_floor.location_placements == []
       assert FloorPlans.placement_index() == %{}
     end
+
+    test "restore_plan_geometry recreates a deleted floor", %{floor: floor} do
+      plan = FloorPlans.get_floor_plan()
+      {:ok, extra} = FloorPlans.add_floor(plan)
+
+      assert {:ok, _} =
+               FloorPlans.add_wall(FloorPlans.get_floor!(extra.id), %{
+                 "x1" => 0.2,
+                 "y1" => 0.2,
+                 "x2" => 0.8,
+                 "y2" => 0.2
+               })
+
+      before = FloorPlans.plan_geometry_snapshot(FloorPlans.get_floor_plan())
+      assert length(before) == 2
+      assert Enum.any?(before, &(&1.id == extra.id and &1.name == "Floor 2"))
+
+      assert {:ok, _} = FloorPlans.delete_floor(FloorPlans.get_floor!(extra.id))
+      assert Enum.map(FloorPlans.get_floor_plan().floors, & &1.id) == [floor.id]
+
+      assert {:ok, restored} = FloorPlans.restore_plan_geometry(before)
+      ids = Enum.map(restored.floors, & &1.id)
+      assert floor.id in ids
+      assert extra.id in ids
+      assert length(FloorPlans.get_floor!(extra.id).walls) == 1
+    end
   end
 
   describe "list_with_item_counts_and_placements/0" do

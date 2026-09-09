@@ -361,12 +361,15 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
-  Snapshot of plan geometry for undo/redo: walls + placements per floor.
+  Snapshot of plan geometry for undo/redo: floors (id/name/position), walls, and
+  placements. Used to rewind wall/placement edits and floor add/remove.
   """
   def plan_geometry_snapshot(%FloorPlan{} = plan) do
     Enum.map(plan.floors, fn floor ->
       %{
         id: floor.id,
+        name: floor.name,
+        position: floor.position,
         walls: Enum.map(floor.walls, &normalize_wall/1),
         placements:
           Enum.map(floor.location_placements, fn placement ->
@@ -377,55 +380,101 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
-  Restores walls and placements from a `plan_geometry_snapshot/1` value.
+  Restores floors, walls, and placements from a `plan_geometry_snapshot/1` value.
+
+  Floors missing from the snapshot are deleted; floors present only in the
+  snapshot are re-inserted with their original ids so undo can revive a removed
+  floor (and its walls/placements).
   """
   def restore_plan_geometry(snapshot) when is_list(snapshot) do
-    Repo.transaction(fn ->
-      for %{id: floor_id, walls: walls} <- snapshot do
-        floor = Repo.get!(Floor, floor_id)
+    case get_floor_plan() do
+      nil ->
+        {:error, :not_found}
 
-        floor
-        |> Floor.walls_changeset(Enum.map(walls, &normalize_wall/1))
-        |> Repo.update!()
-      end
+      plan ->
+        Repo.transaction(fn ->
+          snapshot_ids =
+            snapshot
+            |> Enum.map(&snapshot_get(&1, :id))
+            |> MapSet.new()
 
-      desired =
-        Enum.flat_map(snapshot, fn %{id: floor_id, placements: placements} ->
-          Enum.map(placements, fn placement ->
-            %{
-              location_id: placement_get(placement, :location_id),
-              floor_id: floor_id,
-              points: normalize_points(placement_get(placement, :points))
-            }
-          end)
+          existing =
+            from(f in Floor, where: f.floor_plan_id == ^plan.id)
+            |> Repo.all()
+
+          for floor <- existing, not MapSet.member?(snapshot_ids, floor.id) do
+            Repo.delete!(floor)
+          end
+
+          for floor_snap <- snapshot do
+            floor_id = snapshot_get(floor_snap, :id)
+            walls = Enum.map(snapshot_get(floor_snap, :walls) || [], &normalize_wall/1)
+            name = snapshot_get(floor_snap, :name) || "Floor"
+            position = snapshot_get(floor_snap, :position) || 0
+
+            case Repo.get(Floor, floor_id) do
+              nil ->
+                %Floor{id: floor_id}
+                |> Floor.changeset(%{
+                  name: name,
+                  position: position,
+                  walls: walls,
+                  floor_plan_id: plan.id
+                })
+                |> Repo.insert!()
+
+              floor ->
+                floor
+                |> Floor.changeset(%{name: name, position: position, walls: walls})
+                |> Repo.update!()
+            end
+          end
+
+          desired =
+            Enum.flat_map(snapshot, fn floor_snap ->
+              floor_id = snapshot_get(floor_snap, :id)
+              placements = snapshot_get(floor_snap, :placements) || []
+
+              Enum.map(placements, fn placement ->
+                %{
+                  location_id: placement_get(placement, :location_id),
+                  floor_id: floor_id,
+                  points: normalize_points(placement_get(placement, :points))
+                }
+              end)
+            end)
+
+          desired_by_loc = Map.new(desired, &{&1.location_id, &1})
+          desired_ids = Map.keys(desired_by_loc)
+
+          from(p in LocationPlacement, where: p.location_id not in ^desired_ids)
+          |> Repo.delete_all()
+
+          for {location_id, attrs} <- desired_by_loc do
+            case Repo.get_by(LocationPlacement, location_id: location_id) do
+              nil ->
+                %LocationPlacement{}
+                |> LocationPlacement.changeset(attrs)
+                |> Repo.insert!()
+
+              placement ->
+                placement
+                |> LocationPlacement.changeset(attrs)
+                |> Repo.update!()
+            end
+          end
+
+          :ok
         end)
-
-      desired_by_loc = Map.new(desired, &{&1.location_id, &1})
-      desired_ids = Map.keys(desired_by_loc)
-
-      from(p in LocationPlacement, where: p.location_id not in ^desired_ids)
-      |> Repo.delete_all()
-
-      for {location_id, attrs} <- desired_by_loc do
-        case Repo.get_by(LocationPlacement, location_id: location_id) do
-          nil ->
-            %LocationPlacement{}
-            |> LocationPlacement.changeset(attrs)
-            |> Repo.insert!()
-
-          placement ->
-            placement
-            |> LocationPlacement.changeset(attrs)
-            |> Repo.update!()
+        |> case do
+          {:ok, :ok} -> {:ok, get_floor_plan()}
+          {:error, reason} -> {:error, reason}
         end
-      end
-
-      :ok
-    end)
-    |> case do
-      {:ok, :ok} -> {:ok, get_floor_plan()}
-      {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp snapshot_get(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
 
   @doc """

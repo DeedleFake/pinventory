@@ -43,11 +43,23 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, "#history-redo")
     assert has_element?(view, "#polygon-finish")
     assert has_element?(view, "#floor-rail")
+    assert has_element?(view, "#floor-rail-list[phx-hook=FloorRailSort]")
     assert has_element?(view, "#floor-rail-item-#{floor.id}")
     assert has_element?(view, "#floor-tab-#{floor.id}", "Floor 1")
+    assert has_element?(view, "#floor-add")
+    assert has_element?(view, "#floor-remove-#{floor.id}")
+    refute has_element?(view, "#floor-remove")
+    refute has_element?(view, "#floor-move-up-#{floor.id}")
+    refute has_element?(view, "#floor-move-down-#{floor.id}")
     refute has_element?(view, "#floor-tabs")
     refute has_element?(view, "#floor-rename-row")
     assert has_element?(view, "#place-location-#{garage.id}")
+
+    # Layout is tools | plan | floors (rail after canvas).
+    html = render(view)
+    assert html =~ ~r/id="floor-plan-sidebar"[\s\S]*id="floor-plan-canvas"[\s\S]*id="floor-rail"/
+    # + Floor sits above the rail list.
+    assert html =~ ~r/id="floor-add"[\s\S]*id="floor-rail-list"/
   end
 
   test "clicking a location selects place mode for that location", %{conn: conn, scope: scope} do
@@ -317,6 +329,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, "#floor-rail")
     refute has_element?(view, "#floor-tabs")
     refute has_element?(view, "#floor-rename-row")
+    assert render(view) =~ ~r/id="floor-add"[\s\S]*id="floor-rail-list"/
 
     view |> element("#floor-add") |> render_click()
     assert render(view) =~ "Floor 2"
@@ -329,7 +342,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert render(view) =~ "Basement"
   end
 
-  test "reorders floors with up and down controls", %{conn: conn} do
+  test "reorders floors via drag-and-drop hook event", %{conn: conn} do
     {:ok, plan} = FloorPlans.create_floor_plan()
     floor1 = hd(plan.floors)
     {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
@@ -339,19 +352,67 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     # Highest floor (Floor 2) is listed first in the rail.
     html = render(view)
     assert html =~ ~r/floor-rail-item-#{floor2.id}[\s\S]*floor-rail-item-#{floor1.id}/
+    assert has_element?(view, "#floor-drag-#{floor1.id}[data-floor-handle][draggable]")
+    refute has_element?(view, "#floor-move-up-#{floor1.id}")
 
-    view |> element("#floor-move-down-#{floor2.id}") |> render_click()
+    # Highest-first order with Floor 1 on top (position becomes higher).
+    view
+    |> element("#floor-rail-list")
+    |> render_hook("reorder_floors", %{"floor_ids" => [floor1.id, floor2.id]})
 
     plan = FloorPlans.get_floor_plan()
-    assert Enum.map(plan.floors, & &1.name) == ["Floor 2", "Floor 1"]
-    assert Enum.map(plan.floors, & &1.position) == [0, 1]
+    assert Enum.map(plan.floors, &{&1.name, &1.position}) == [{"Floor 2", 0}, {"Floor 1", 1}]
 
     html = render(view)
     assert html =~ ~r/floor-rail-item-#{floor1.id}[\s\S]*floor-rail-item-#{floor2.id}/
 
-    view |> element("#floor-move-up-#{floor2.id}") |> render_click()
+    view
+    |> element("#floor-rail-list")
+    |> render_hook("reorder_floors", %{"floor_ids" => [floor2.id, floor1.id]})
+
     plan = FloorPlans.get_floor_plan()
     assert Enum.map(plan.floors, &{&1.name, &1.position}) == [{"Floor 1", 0}, {"Floor 2", 1}]
+  end
+
+  test "removes a floor with confirm and undo restores it", %{conn: conn} do
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor1 = hd(plan.floors)
+    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+
+    assert {:ok, _} =
+             FloorPlans.add_wall(FloorPlans.get_floor!(floor2.id), %{
+               "x1" => 0.1,
+               "y1" => 0.1,
+               "x2" => 0.9,
+               "y2" => 0.1
+             })
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+
+    refute has_element?(view, "#floor-remove-#{floor1.id}[disabled]")
+    refute has_element?(view, "#floor-remove")
+
+    view |> element("#floor-remove-#{floor2.id}") |> render_click()
+    assert has_element?(view, "#floor-remove-confirm-#{floor2.id}")
+    assert has_element?(view, "#floor-remove-confirm-button-#{floor2.id}")
+
+    view |> element("#floor-remove-cancel-#{floor2.id}") |> render_click()
+    refute has_element?(view, "#floor-remove-confirm-#{floor2.id}")
+    assert has_element?(view, "#floor-rail-item-#{floor2.id}")
+
+    view |> element("#floor-remove-#{floor2.id}") |> render_click()
+    view |> element("#floor-remove-confirm-button-#{floor2.id}") |> render_click()
+
+    refute has_element?(view, "#floor-rail-item-#{floor2.id}")
+    assert Enum.map(FloorPlans.get_floor_plan().floors, & &1.id) == [floor1.id]
+    assert has_element?(view, "#floor-remove-#{floor1.id}[disabled]")
+
+    view |> element("#history-undo") |> render_click()
+
+    assert has_element?(view, "#floor-rail-item-#{floor2.id}")
+    restored = FloorPlans.get_floor!(floor2.id)
+    assert restored.name == "Floor 2"
+    assert length(restored.walls) == 1
   end
 
   test "accepts wall_drawn after switching floors", %{conn: conn} do
