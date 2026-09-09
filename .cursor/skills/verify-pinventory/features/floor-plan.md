@@ -9,7 +9,8 @@ Optional multi-floor editor for drawing walls and marking location **areas** as 
 - `floor-plan-edit` opens `/locations/floor-plan` (`#floor-plan-page`) in a wide `Layouts.app` content column.
 - `floor-plan-layout` is a drafting workspace: thin top bar → floor rename bar → flex row with `#floor-plan-sidebar` (~17rem) + `#floor-plan-canvas` (`flex-1`, `h-[calc(100vh-12rem)]`).
 - `floor-plan-walls` draws segments from the sidebar Walls tools (`#tool-wall`). **Click once** for the start (snap), **click again** for the end to commit; a draft line follows the cursor between clicks. Escape cancels the pending start. Endpoints snap to wall vertices/segments **and** location polygon vertices/edges; a snap dot shows while snapping.
-- `floor-plan-erase` deletes a wall segment with `#tool-erase` (click the segment hit target). Draw wall / Erase clear any selected location drawing tool.
+- `floor-plan-erase` deletes a wall segment with `#tool-erase` (click the segment hit target). Draw wall / Erase / Move clear any selected location drawing tool.
+- `floor-plan-move` translates geometry with `#tool-move` (palette tool, not location-row click). Drag a wall segment to move both endpoints; drag near an endpoint to move just that end. Drag a location polygon to translate all vertices (label follows). Snap uses the shared wall/placement helpers on release (and while dragging). Escape cancels an in-progress drag. Commits push the same undo history as other edits (`wall_moved` / `polygon_moved`).
 - `floor-plan-floors` adds, renames, and removes floors via `#floor-tabs` / `#floor-rename-row`.
 - `floor-plan-place` selects a location row in `#placeable-locations` as the drawing tool (`mode=place` for that id; no `#tool-place`). Click vertices; finish by closing near the first point, **double-click**, or `#polygon-finish` Done. Escape cancels the draft. Uses the same bidirectional snap helpers as walls.
 - `floor-plan-extend` is the default when the selected location already has a polygon on this floor (`data-place-mode=extend`). Click near an existing vertex to attach, add points, then close by clicking any existing vertex of that polygon (or Done to close back to the attach). The client merges the chain and sends the full `points` list via `polygon_placed`.
@@ -36,6 +37,7 @@ Preconditions:
 - **Add plan.** Run `verify-pinventory browser goto /locations`. Wait for `#locations-page`. Click `#floor-plan-add`. Wait for `#floor-plan-page`.
 - **Draw wall.** Click `#tool-wall` in the sidebar. Click once on `#floor-plan-canvas`, move, click again to commit. Watch for the snap dot near walls and location corners. Escape cancels a pending start.
 - **Erase wall.** Click `#tool-erase`, then click a wall segment.
+- **Move.** Click `#tool-move`, then drag a wall segment or location polygon. Escape cancels a drag. Undo reverts the move.
 - **Add floor.** Click `#floor-add`. A second tab appears.
 - **Place area.** Create a location first if needed. Click `#place-location-<id>` (that selects place mode). Click three or more points on the canvas, then close near the first point, double-click, or click `#polygon-finish`. A filled labeled polygon appears. Snap matches wall drawing (walls ↔ location vertices/edges).
 - **Extend area.** Select a placed location again. Click near a corner to attach, add points, then click a **different** corner to close (or Done to close on an adjacent edge). Merged outline must stay a simple polygon (no hourglass).
@@ -53,4 +55,5 @@ Preconditions:
 - Keep at least one floor; `#floor-remove` is disabled for the last floor.
 - Editor canvas should be wide and tall (`flex-1` beside the sidebar, `h-[calc(100vh-12rem)]`). List preview stays tall within the locations column.
 - There is no separate Place area palette button; location rows are the place tool.
+- Move is a Walls-section palette tool (`#tool-move`), not location-row click; rows stay place/extend.
 - SVG exposes `data-snap-vertex` / `data-snap-edge` on placement geometry so the hook can snap walls and polygons both ways.
