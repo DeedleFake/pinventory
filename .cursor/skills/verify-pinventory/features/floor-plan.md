@@ -5,13 +5,15 @@ Optional multi-floor editor for drawing walls and marking location **areas** as 
 ## Sub-features
 
 - `floor-plan-add` creates the plan from `#floor-plan-add` on `/locations`.
-- `floor-plan-preview` shows `#floor-plan-preview` (large viewport) at the top of the locations list when a plan exists. Hover/focus a placed location row to highlight its polygon and switch the preview to that floor.
-- `floor-plan-edit` opens `/locations/floor-plan` (`#floor-plan-page`).
-- `floor-plan-walls` draws segments on `#floor-plan-canvas` in Draw wall mode (`#tool-wall`).
-- `floor-plan-erase` deletes a wall segment with `#tool-erase` (click the segment hit target).
-- `floor-plan-floors` adds, renames, and removes floors via `#floor-tabs`.
-- `floor-plan-place` draws a location polygon from `#placeable-locations` (click vertices; double-click / Enter / close to first point to finish). Replaces an existing placement for that location.
-- `floor-plan-undo-redo` uses `#history-undo` / `#history-redo` and Ctrl/Meta+Z, Ctrl/Meta+Shift+Z, Ctrl/Meta+Y.
+- `floor-plan-preview` shows `#floor-plan-preview` (uses available list width, tall viewport) at the top of the locations list when a plan exists. Hover/focus a placed location row to highlight its polygon and switch the preview to that floor.
+- `floor-plan-edit` opens `/locations/floor-plan` (`#floor-plan-page`) in a wide `Layouts.app` content column.
+- `floor-plan-layout` is a drafting workspace: thin top bar → floor rename bar → flex row with `#floor-plan-sidebar` (~17rem) + `#floor-plan-canvas` (`flex-1`, `h-[calc(100vh-12rem)]`).
+- `floor-plan-walls` draws segments from the sidebar Walls tools (`#tool-wall`). Endpoints snap to nearby wall vertices **and** points along wall segments; a snap dot shows while snapping.
+- `floor-plan-erase` deletes a wall segment with `#tool-erase` (click the segment hit target). Draw wall / Erase clear any selected location drawing tool.
+- `floor-plan-floors` adds, renames, and removes floors via `#floor-tabs` / `#floor-rename-row`.
+- `floor-plan-place` selects a location row in `#placeable-locations` as the drawing tool (`mode=place` for that id; no `#tool-place`). Click vertices; finish by closing near the first point, **double-click**, or `#polygon-finish` Done. Escape cancels the draft. Replaces an existing placement for that location. Uses the same snap helpers as walls.
+- `floor-plan-unplace` removes a placement from the location row (`#unplace-location-<id>`).
+- `floor-plan-undo-redo` uses `#history-undo` / `#history-redo` in the top bar and Ctrl/Meta+Z, Ctrl/Meta+Shift+Z, Ctrl/Meta+Y.
 - `floor-plan-list-badges` shows floor name or `Not on plan` on location rows when a plan exists.
 - `floor-plan-delete` removes the whole plan via `#floor-plan-delete`; locations remain.
 
@@ -30,12 +32,13 @@ Preconditions:
 - Inventory may already have locations from the Locations recipe.
 
 - **Add plan.** Run `verify-pinventory browser goto /locations`. Wait for `#locations-page`. Click `#floor-plan-add`. Wait for `#floor-plan-page`.
-- **Draw wall.** Click `#tool-wall`. Drag on `#floor-plan-canvas`.
+- **Draw wall.** Click `#tool-wall` in the sidebar. Drag on `#floor-plan-canvas`. Watch for the snap dot near existing walls.
 - **Erase wall.** Click `#tool-erase`, then click a wall segment.
 - **Add floor.** Click `#floor-add`. A second tab appears.
-- **Place area.** Create a location first if needed. Click `#place-location-<id>`, click three or more points on the canvas, then double-click or press Enter. A filled labeled polygon appears. Endpoints snap to nearby wall vertices.
+- **Place area.** Create a location first if needed. Click `#place-location-<id>` (that selects place mode). Click three or more points on the canvas, then close near the first point, double-click, or click `#polygon-finish`. A filled labeled polygon appears. Snap matches wall drawing.
+- **Unplace.** Click `#unplace-location-<id>` on a placed row.
 - **Undo/redo.** Click `#history-undo` / `#history-redo`, or use Ctrl+Z / Ctrl+Shift+Z while not typing in an input.
-- **List badges + highlight.** Run `verify-pinventory browser goto /locations`. Preview is tall (`#floor-plan-preview`). Placed rows show a floor chip (`#location-<id>-floor`). Unplaced rows show `#location-<id>-not-on-plan` with `Not on plan`. Hover a placed row; `#preview-placement-<id>` strengthens on the preview.
+- **List badges + highlight.** Run `verify-pinventory browser goto /locations`. Preview uses list width (`#floor-plan-preview`). Placed rows show a floor chip (`#location-<id>-floor`). Unplaced rows show `#location-<id>-not-on-plan` with `Not on plan`. Hover a placed row; `#preview-placement-<id>` strengthens on the preview.
 - **Delete plan.** Open the editor. Click `#floor-plan-delete`, then `#floor-plan-delete-confirm-button`. Wait for `#locations-page` and `#floor-plan-add`. Locations still list.
 - **Proof.** Screenshot `floor-plan/editor.png` and `floor-plan/list.png`. Run `verify-pinventory sqlite "select name from floors;"`.
 
@@ -45,4 +48,5 @@ Preconditions:
 - Placement is one floor per location. Drawing again on another floor moves the polygon.
 - Coordinates are normalized 0.0–1.0. Placements store `points` JSON (≥3 `{x,y}`), not pin x/y.
 - Keep at least one floor; `#floor-remove` is disabled for the last floor.
-- Canvas should be large (`min-h` ~65vh editor, ~45–50vh list preview).
+- Editor canvas should be wide and tall (`flex-1` beside the sidebar, `h-[calc(100vh-12rem)]`). List preview stays tall within the locations column.
+- There is no separate Place area palette button; location rows are the place tool.

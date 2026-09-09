@@ -36,6 +36,10 @@ defmodule PinventoryWeb.Layouts do
     values: [nil, :items, :locations, :settings],
     doc: "which primary section is current"
 
+  attr :wide, :boolean,
+    default: false,
+    doc: "use a wide content column for drafting / canvas pages"
+
   slot :inner_block, required: true
 
   def app(assigns) do
@@ -131,8 +135,12 @@ defmodule PinventoryWeb.Layouts do
       </div>
     </header>
 
-    <main class="px-4 py-10 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-2xl space-y-4">
+    <main class={["px-4 sm:px-6 lg:px-8", @wide && "py-4", not @wide && "py-10"]}>
+      <div class={[
+        "mx-auto space-y-4",
+        @wide && "max-w-[90rem]",
+        not @wide && "max-w-2xl"
+      ]}>
         {render_slot(@inner_block)}
       </div>
     </main>

@@ -31,11 +31,35 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert html =~ "Floor plan"
     assert has_element?(view, "#floor-plan-page")
     assert has_element?(view, "#floor-plan-canvas")
+    assert has_element?(view, "#floor-plan-sidebar")
+    assert has_element?(view, "#floor-plan-wall-tools")
+    assert has_element?(view, "#tool-wall")
     assert has_element?(view, "#tool-erase")
+    refute has_element?(view, "#tool-place")
     assert has_element?(view, "#history-undo")
     assert has_element?(view, "#history-redo")
+    assert has_element?(view, "#polygon-finish")
     assert has_element?(view, "#floor-tab-#{floor.id}", "Floor 1")
     assert has_element?(view, "#place-location-#{garage.id}")
+  end
+
+  test "clicking a location selects place mode for that location", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, _} = FloorPlans.create_floor_plan()
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+
+    assert has_element?(view, "#floor-plan-canvas[data-mode=wall]")
+
+    view |> element("#place-location-#{garage.id}") |> render_click()
+
+    assert has_element?(view, "#floor-plan-canvas[data-mode=place]")
+    assert has_element?(view, ~s|#floor-plan-canvas[data-location-id="#{garage.id}"]|)
+
+    view |> element("#tool-wall") |> render_click()
+
+    assert has_element?(view, "#floor-plan-canvas[data-mode=wall]")
+    html = render(view)
+    assert html =~ ~s|data-location-id=""|
   end
 
   test "draws a wall from the canvas hook event", %{conn: conn} do
@@ -130,7 +154,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
 
     view |> element("#place-location-#{garage.id}") |> render_click()
-    view |> element("#placement-unplace") |> render_click()
+    view |> element("#unplace-location-#{garage.id}") |> render_click()
     assert FloorPlans.placement_index() == %{}
 
     view |> element("#history-undo") |> render_click()

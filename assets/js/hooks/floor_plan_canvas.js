@@ -9,6 +9,9 @@
  *   wall_erased     — {index}
  *   polygon_placed  — {location_id, points: [{x,y}, ...]}
  *   undo / redo     — keyboard shortcuts
+ *
+ * Snap: shared helpers snap to wall endpoints and points along wall segments.
+ * Polygon finish: close near first vertex, double-click, or Done; Escape cancels.
  */
 const MIN_WALL_LENGTH = 0.02
 const SNAP_DISTANCE = 0.03
@@ -17,8 +20,10 @@ const CLOSE_DISTANCE = 0.025
 const FloorPlanCanvas = {
   mounted() {
     this.svg = this.el.querySelector("[data-floor-plan-svg]")
+    this.finishBtn = this.el.querySelector("[data-polygon-finish]")
     this.draftWall = null
     this.draftPolygon = null
+    this.snapPoint = null
     this.syncFromEl()
 
     this.onPointerDown = (event) => this.handlePointerDown(event)
@@ -26,23 +31,39 @@ const FloorPlanCanvas = {
     this.onPointerUp = (event) => this.handlePointerUp(event)
     this.onDblClick = (event) => this.handleDblClick(event)
     this.onKeyDown = (event) => this.handleKeyDown(event)
+    this.onFinishClick = (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      this.finishPolygon()
+    }
 
     this.svg.addEventListener("pointerdown", this.onPointerDown)
     this.svg.addEventListener("dblclick", this.onDblClick)
     window.addEventListener("pointermove", this.onPointerMove)
     window.addEventListener("pointerup", this.onPointerUp)
     window.addEventListener("keydown", this.onKeyDown)
+    if (this.finishBtn) this.finishBtn.addEventListener("click", this.onFinishClick)
 
     if (!this.el.hasAttribute("tabindex")) {
       this.el.setAttribute("tabindex", "0")
     }
+
+    this.updateFinishButton()
   },
 
   updated() {
+    this.svg = this.el.querySelector("[data-floor-plan-svg]")
+    const nextFinish = this.el.querySelector("[data-polygon-finish]")
+    if (nextFinish !== this.finishBtn) {
+      if (this.finishBtn) this.finishBtn.removeEventListener("click", this.onFinishClick)
+      this.finishBtn = nextFinish
+      if (this.finishBtn) this.finishBtn.addEventListener("click", this.onFinishClick)
+    }
     this.syncFromEl()
-    // LiveView re-rendered SVG; clear ephemeral draft overlays that may be gone.
     if (this.draftPolygon) this.drawPolygonDraft()
     if (this.draftWall) this.drawWallDraft()
+    this.drawSnapIndicator()
+    this.updateFinishButton()
   },
 
   destroyed() {
@@ -51,8 +72,10 @@ const FloorPlanCanvas = {
     window.removeEventListener("pointermove", this.onPointerMove)
     window.removeEventListener("pointerup", this.onPointerUp)
     window.removeEventListener("keydown", this.onKeyDown)
+    if (this.finishBtn) this.finishBtn.removeEventListener("click", this.onFinishClick)
     this.clearWallDraft()
     this.clearPolygonDraft()
+    this.clearSnapIndicator()
   },
 
   syncFromEl() {
@@ -60,6 +83,7 @@ const FloorPlanCanvas = {
     if (nextMode !== this.mode) {
       this.clearWallDraft()
       this.clearPolygonDraft()
+      this.clearSnapIndicator()
     }
     this.mode = nextMode
     this.locationId = this.el.dataset.locationId || ""
@@ -71,6 +95,7 @@ const FloorPlanCanvas = {
     const meta = event.ctrlKey || event.metaKey
     if (!meta) {
       if (this.mode === "place" && this.draftPolygon) {
+        // Enter remains an obscure shortcut; primary finish is close / double-click / Done.
         if (event.key === "Enter") {
           event.preventDefault()
           this.finishPolygon()
@@ -79,6 +104,8 @@ const FloorPlanCanvas = {
         if (event.key === "Escape") {
           event.preventDefault()
           this.clearPolygonDraft()
+          this.clearSnapIndicator()
+          this.updateFinishButton()
           return
         }
       }
@@ -109,12 +136,12 @@ const FloorPlanCanvas = {
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable) {
       return false
     }
-    // Capture while the floor-plan page is mounted (this hook).
     return document.getElementById("floor-plan-page") != null
   },
 
   handlePointerDown(event) {
     if (event.button !== 0) return
+    if (event.target.closest("[data-polygon-finish]")) return
 
     if (this.mode === "erase") {
       const wallEl = event.target.closest("[data-wall-index]")
@@ -125,7 +152,11 @@ const FloorPlanCanvas = {
       return
     }
 
-    const point = this.snap(this.eventToUnit(event))
+    const raw = this.eventToUnit(event)
+    const snapped = this.snap(raw)
+    const point = snapped.point
+    this.snapPoint = snapped.snapped ? snapped.point : null
+    this.drawSnapIndicator()
     if (!point) return
 
     if (this.mode === "wall") {
@@ -142,6 +173,7 @@ const FloorPlanCanvas = {
       if (!this.draftPolygon) {
         this.draftPolygon = {points: [point], current: point}
         this.drawPolygonDraft()
+        this.updateFinishButton()
         return
       }
 
@@ -157,30 +189,41 @@ const FloorPlanCanvas = {
       this.draftPolygon.points.push(point)
       this.draftPolygon.current = point
       this.drawPolygonDraft()
+      this.updateFinishButton()
     }
   },
 
   handlePointerMove(event) {
-    if (this.draftWall) {
-      const point = this.snap(this.eventToUnit(event))
-      if (!point) return
-      this.draftWall.current = point
-      this.drawWallDraft()
+    const raw = this.eventToUnit(event)
+    if (!raw) return
+
+    if (this.mode === "wall" || (this.mode === "place" && this.locationId)) {
+      const snapped = this.snap(raw)
+      this.snapPoint = snapped.snapped ? snapped.point : null
+      this.drawSnapIndicator()
+
+      if (this.draftWall) {
+        this.draftWall.current = snapped.point
+        this.drawWallDraft()
+        return
+      }
+
+      if (this.draftPolygon) {
+        this.draftPolygon.current = snapped.point
+        this.drawPolygonDraft()
+      }
       return
     }
 
-    if (this.draftPolygon) {
-      const point = this.snap(this.eventToUnit(event))
-      if (!point) return
-      this.draftPolygon.current = point
-      this.drawPolygonDraft()
-    }
+    this.clearSnapIndicator()
   },
 
   handlePointerUp(event) {
     if (!this.draftWall) return
 
-    const point = this.snap(this.eventToUnit(event)) || this.draftWall.current
+    const raw = this.eventToUnit(event)
+    const snapped = raw ? this.snap(raw) : {point: this.draftWall.current}
+    const point = snapped.point || this.draftWall.current
     const {start} = this.draftWall
     this.clearWallDraft()
     const dx = point.x - start.x
@@ -205,11 +248,19 @@ const FloorPlanCanvas = {
     if (!this.draftPolygon || !this.locationId) return
     const points = this.draftPolygon.points
     this.clearPolygonDraft()
+    this.clearSnapIndicator()
+    this.updateFinishButton()
     if (points.length < 3) return
     this.pushEvent("polygon_placed", {
       location_id: this.locationId,
       points: points.map((p) => ({x: p.x, y: p.y})),
     })
+  },
+
+  updateFinishButton() {
+    if (!this.finishBtn) return
+    const show = !!(this.draftPolygon && this.draftPolygon.points.length >= 3)
+    this.finishBtn.classList.toggle("hidden", !show)
   },
 
   eventToUnit(event) {
@@ -221,34 +272,74 @@ const FloorPlanCanvas = {
     return {x: clamp01(x), y: clamp01(y)}
   },
 
+  /**
+   * Shared snap for walls and location polygons: nearest wall endpoint or
+   * nearest point along a wall segment within SNAP_DISTANCE.
+   * Returns {point, snapped}. Prefer vertices, then segment points.
+   */
   snap(point) {
-    if (!point) return null
-    const endpoints = this.wallEndpoints()
+    if (!point) return {point: null, snapped: false}
+
+    const segs = []
+    this.svg.querySelectorAll("[data-wall-seg]").forEach((line) => {
+      segs.push([
+        {x: Number(line.getAttribute("x1")), y: Number(line.getAttribute("y1"))},
+        {x: Number(line.getAttribute("x2")), y: Number(line.getAttribute("y2"))},
+      ])
+    })
+
+    // Prefer wall endpoints so corners join cleanly.
     let best = null
     let bestDist = SNAP_DISTANCE
-    for (const ep of endpoints) {
-      const d = Math.hypot(ep.x - point.x, ep.y - point.y)
-      if (d <= bestDist) {
-        bestDist = d
-        best = ep
+    for (const [a, b] of segs) {
+      for (const ep of [a, b]) {
+        const d = Math.hypot(ep.x - point.x, ep.y - point.y)
+        if (d <= bestDist) {
+          bestDist = d
+          best = ep
+        }
       }
     }
-    return best || point
+    if (best) return {point: {x: best.x, y: best.y}, snapped: true}
+
+    // Otherwise snap to the nearest point along a wall segment.
+    bestDist = SNAP_DISTANCE
+    for (const [a, b] of segs) {
+      const onSeg = closestPointOnSegment(point, a, b)
+      const d = Math.hypot(onSeg.x - point.x, onSeg.y - point.y)
+      if (d <= bestDist) {
+        bestDist = d
+        best = onSeg
+      }
+    }
+
+    if (best) return {point: {x: best.x, y: best.y}, snapped: true}
+    return {point, snapped: false}
   },
 
-  wallEndpoints() {
-    const points = []
-    this.svg.querySelectorAll("[data-wall-seg]").forEach((line) => {
-      points.push({
-        x: Number(line.getAttribute("x1")),
-        y: Number(line.getAttribute("y1")),
-      })
-      points.push({
-        x: Number(line.getAttribute("x2")),
-        y: Number(line.getAttribute("y2")),
-      })
-    })
-    return points
+  drawSnapIndicator() {
+    if (!this.svg) return
+    let dot = this.svg.querySelector("[data-snap-indicator]")
+    if (!this.snapPoint) {
+      if (dot) dot.remove()
+      return
+    }
+    if (!dot) {
+      dot = document.createElementNS("http://www.w3.org/2000/svg", "circle")
+      dot.setAttribute("data-snap-indicator", "true")
+      dot.setAttribute("r", "0.014")
+      dot.setAttribute("class", "fill-primary stroke-base-100")
+      dot.setAttribute("stroke-width", "0.006")
+      this.svg.appendChild(dot)
+    }
+    dot.setAttribute("cx", this.snapPoint.x)
+    dot.setAttribute("cy", this.snapPoint.y)
+  },
+
+  clearSnapIndicator() {
+    this.snapPoint = null
+    const dot = this.svg && this.svg.querySelector("[data-snap-indicator]")
+    if (dot) dot.remove()
   },
 
   drawWallDraft() {
@@ -322,6 +413,16 @@ const FloorPlanCanvas = {
 
 function clamp01(n) {
   return Math.max(0, Math.min(1, n))
+}
+
+function closestPointOnSegment(p, a, b) {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len2 = dx * dx + dy * dy
+  if (len2 === 0) return {x: a.x, y: a.y}
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2
+  t = Math.max(0, Math.min(1, t))
+  return {x: a.x + t * dx, y: a.y + t * dy}
 }
 
 export default FloorPlanCanvas

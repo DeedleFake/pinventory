@@ -7,28 +7,66 @@ defmodule PinventoryWeb.FloorPlanLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope} nav={:locations}>
-      <div id="floor-plan-page" class="space-y-4">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div class="space-y-1">
-            <div class="flex items-center gap-2 text-sm opacity-60">
-              <.link navigate={~p"/locations"} class="hover:opacity-100 hover:underline">
-                Locations
-              </.link>
-              <.icon name="hero-chevron-right" class="size-3.5 opacity-50" />
-              <span>Floor plan</span>
-            </div>
-            <h1 class="text-xl font-semibold tracking-tight">Floor plan</h1>
-            <p class="text-sm opacity-60">
-              Draw walls and mark location areas as polygons on each floor.
-            </p>
+    <Layouts.app flash={@flash} current_scope={@current_scope} nav={:locations} wide>
+      <div id="floor-plan-page" class="flex flex-col gap-3">
+        <div
+          id="floor-plan-topbar"
+          class="flex flex-wrap items-center gap-2 border-b border-base-300 pb-2"
+        >
+          <div class="flex min-w-0 flex-wrap items-center gap-1.5 text-sm">
+            <.link
+              navigate={~p"/locations"}
+              id="floor-plan-back"
+              class="inline-flex items-center gap-1 opacity-60 transition-opacity hover:opacity-100 hover:underline"
+            >
+              <.icon name="hero-chevron-left" class="size-3.5" /> Locations
+            </.link>
+            <.icon name="hero-chevron-right" class="size-3.5 opacity-40" />
+            <span class="font-medium tracking-tight">Floor plan</span>
           </div>
 
-          <div class="flex flex-wrap items-center gap-2">
+          <div id="floor-tabs" class="flex flex-wrap items-center gap-1">
+            <button
+              :for={floor <- @floors}
+              type="button"
+              id={"floor-tab-#{floor.id}"}
+              phx-click="select_floor"
+              phx-value-id={floor.id}
+              class={[
+                "btn btn-xs",
+                floor.id == @selected_floor.id && "btn-primary",
+                floor.id != @selected_floor.id && "btn-ghost border border-base-300"
+              ]}
+            >
+              {floor.name}
+            </button>
+          </div>
+
+          <div class="ml-auto flex flex-wrap items-center gap-1">
+            <button
+              type="button"
+              id="history-undo"
+              class="btn btn-sm btn-ghost"
+              phx-click="undo"
+              disabled={@undo_stack == []}
+              title="Undo (Ctrl+Z)"
+            >
+              <.icon name="hero-arrow-uturn-left" class="size-4" /> Undo
+            </button>
+            <button
+              type="button"
+              id="history-redo"
+              class="btn btn-sm btn-ghost"
+              phx-click="redo"
+              disabled={@redo_stack == []}
+              title="Redo (Ctrl+Shift+Z)"
+            >
+              <.icon name="hero-arrow-uturn-right" class="size-4" /> Redo
+            </button>
             <button
               type="button"
               id="floor-plan-delete"
-              class="btn btn-ghost text-error hover:bg-error/10"
+              class="btn btn-sm btn-ghost text-error hover:bg-error/10"
               phx-click="open_delete_plan"
             >
               <.icon name="hero-trash" class="size-4" /> Delete plan
@@ -64,34 +102,9 @@ defmodule PinventoryWeb.FloorPlanLive do
           </div>
         </div>
 
-        <div id="floor-tabs" class="flex flex-wrap items-center gap-1.5">
-          <button
-            :for={floor <- @floors}
-            type="button"
-            id={"floor-tab-#{floor.id}"}
-            phx-click="select_floor"
-            phx-value-id={floor.id}
-            class={[
-              "btn btn-sm",
-              floor.id == @selected_floor.id && "btn-primary",
-              floor.id != @selected_floor.id && "btn-ghost border border-base-300"
-            ]}
-          >
-            {floor.name}
-          </button>
-          <button
-            type="button"
-            id="floor-add"
-            class="btn btn-sm btn-ghost border border-dashed border-base-300"
-            phx-click="add_floor"
-          >
-            <.icon name="hero-plus" class="size-4" /> Floor
-          </button>
-        </div>
-
         <div
           id="floor-rename-row"
-          class="flex flex-col gap-2 sm:flex-row sm:items-end"
+          class="flex flex-col gap-2 rounded-xl border border-base-300 bg-base-100 px-3 py-2 sm:flex-row sm:items-center"
         >
           <form
             id="floor-rename-form"
@@ -101,7 +114,7 @@ defmodule PinventoryWeb.FloorPlanLive do
             <label class="label py-0 text-xs uppercase tracking-wide opacity-50" for="floor-name">
               Floor name
             </label>
-            <div class="join w-full sm:max-w-sm">
+            <div class="join w-full sm:max-w-md">
               <input
                 type="text"
                 id="floor-name"
@@ -116,260 +129,247 @@ defmodule PinventoryWeb.FloorPlanLive do
             </div>
           </form>
 
-          <button
-            type="button"
-            id="floor-remove"
-            class="btn btn-sm btn-ghost text-error hover:bg-error/10"
-            phx-click="remove_floor"
-            disabled={length(@floors) <= 1}
-          >
-            <.icon name="hero-minus-circle" class="size-4" /> Remove floor
-          </button>
+          <div class="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              id="floor-add"
+              class="btn btn-sm btn-ghost border border-dashed border-base-300"
+              phx-click="add_floor"
+            >
+              <.icon name="hero-plus" class="size-4" /> Floor
+            </button>
+            <button
+              type="button"
+              id="floor-remove"
+              class="btn btn-sm btn-ghost text-error hover:bg-error/10"
+              phx-click="remove_floor"
+              disabled={length(@floors) <= 1}
+            >
+              <.icon name="hero-minus-circle" class="size-4" /> Remove floor
+            </button>
+          </div>
         </div>
 
-        <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
-          <div class="space-y-3 min-w-0">
-            <div
-              id="floor-plan-tools"
-              class="flex flex-wrap items-center gap-2 rounded-xl border border-base-300 bg-base-100 p-2"
-            >
-              <span class="px-1 text-xs font-semibold uppercase tracking-wide opacity-50">
-                Tool
-              </span>
-              <button
-                type="button"
-                id="tool-wall"
-                phx-click="set_mode"
-                phx-value-mode="wall"
-                class={[
-                  "btn btn-sm",
-                  @mode == "wall" && "btn-primary",
-                  @mode != "wall" && "btn-ghost"
-                ]}
-              >
-                <.icon name="hero-pencil" class="size-4" /> Draw wall
-              </button>
-              <button
-                type="button"
-                id="tool-erase"
-                phx-click="set_mode"
-                phx-value-mode="erase"
-                class={[
-                  "btn btn-sm",
-                  @mode == "erase" && "btn-primary",
-                  @mode != "erase" && "btn-ghost"
-                ]}
-              >
-                <.icon name="hero-trash" class="size-4" /> Erase
-              </button>
-              <button
-                type="button"
-                id="tool-place"
-                phx-click="set_mode"
-                phx-value-mode="place"
-                class={[
-                  "btn btn-sm",
-                  @mode == "place" && "btn-primary",
-                  @mode != "place" && "btn-ghost"
-                ]}
-              >
-                <.icon name="hero-squares-2x2" class="size-4" /> Place area
-              </button>
-
-              <div class="ml-auto flex flex-wrap items-center gap-1">
-                <button
-                  type="button"
-                  id="history-undo"
-                  class="btn btn-sm btn-ghost"
-                  phx-click="undo"
-                  disabled={@undo_stack == []}
-                  title="Undo (Ctrl+Z)"
-                >
-                  <.icon name="hero-arrow-uturn-left" class="size-4" /> Undo
-                </button>
-                <button
-                  type="button"
-                  id="history-redo"
-                  class="btn btn-sm btn-ghost"
-                  phx-click="redo"
-                  disabled={@redo_stack == []}
-                  title="Redo (Ctrl+Shift+Z)"
-                >
-                  <.icon name="hero-arrow-uturn-right" class="size-4" /> Redo
-                </button>
-              </div>
-            </div>
-
-            <div
-              id="floor-plan-canvas"
-              phx-hook="FloorPlanCanvas"
-              data-mode={@mode}
-              data-location-id={@placing_location_id || ""}
-              tabindex="0"
-              class={[
-                "relative w-full overflow-hidden rounded-2xl border border-base-300 bg-base-200/40",
-                "min-h-[65vh] h-[70vh] touch-none select-none outline-none",
-                "focus-visible:ring-2 focus-visible:ring-primary/40",
-                @mode == "wall" && "cursor-crosshair",
-                @mode == "erase" && "cursor-pointer",
-                @mode == "place" && @placing_location_id && "cursor-cell",
-                @mode == "place" && !@placing_location_id && "cursor-not-allowed"
-              ]}
-            >
-              <svg
-                data-floor-plan-svg
-                id={"floor-svg-#{@selected_floor.id}"}
-                viewBox="0 0 1 1"
-                preserveAspectRatio="none"
-                class="h-full w-full text-base-content"
-              >
-                <rect
-                  x="0"
-                  y="0"
-                  width="1"
-                  height="1"
-                  class="fill-base-100"
-                  stroke="none"
-                />
-
-                <g :for={placement <- @selected_floor.location_placements}>
-                  <polygon
-                    data-placement-location-id={placement.location_id}
-                    points={FloorPlans.polygon_points_attr(placement.points)}
-                    class={[
-                      "stroke-primary transition-opacity",
-                      @selected_placement_id == placement.location_id &&
-                        "fill-primary/35 opacity-100",
-                      @selected_placement_id != placement.location_id &&
-                        "fill-primary/20 opacity-90"
-                    ]}
-                    stroke-width="0.006"
-                  />
-                  <text
-                    x={placement_label_x(placement.points)}
-                    y={placement_label_y(placement.points)}
-                    text-anchor="middle"
-                    dominant-baseline="middle"
-                    font-size="0.04"
-                    class="fill-base-content pointer-events-none"
-                    style="paint-order: stroke; stroke: var(--color-base-100, #fff); stroke-width: 0.012px;"
-                  >
-                    {placement.location && placement.location.name}
-                  </text>
-                </g>
-
-                <g :for={{wall, index} <- Enum.with_index(@selected_floor.walls)}>
-                  <line
-                    data-wall-seg
-                    x1={wall["x1"]}
-                    y1={wall["y1"]}
-                    x2={wall["x2"]}
-                    y2={wall["y2"]}
-                    stroke="currentColor"
-                    stroke-width="0.014"
-                    stroke-linecap="round"
-                    class="opacity-80 pointer-events-none"
-                  />
-                  <line
-                    data-wall-index={index}
-                    x1={wall["x1"]}
-                    y1={wall["y1"]}
-                    x2={wall["x2"]}
-                    y2={wall["y2"]}
-                    stroke="transparent"
-                    stroke-width="0.045"
-                    stroke-linecap="round"
-                    class={[
-                      @mode == "erase" && "cursor-pointer",
-                      @mode != "erase" && "pointer-events-none"
-                    ]}
-                  />
-                </g>
-              </svg>
-
-              <p
-                :if={@selected_floor.walls == [] and @selected_floor.location_placements == []}
-                class="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm opacity-50"
-              >
-                <%= cond do %>
-                  <% @mode == "wall" -> %>
-                    Drag on the canvas to draw a wall.
-                  <% @mode == "erase" -> %>
-                    Click a wall segment to erase it.
-                  <% true -> %>
-                    Choose a location on the right, then click points to draw an area. Double-click or press Enter to finish.
-                <% end %>
-              </p>
-            </div>
-          </div>
-
+        <div
+          id="floor-plan-workspace"
+          class="flex min-h-0 flex-col gap-3 lg:flex-row lg:items-stretch"
+        >
           <aside
             id="floor-plan-sidebar"
-            class="space-y-3 rounded-2xl border border-base-300 bg-base-100 p-3"
+            class="flex w-full shrink-0 flex-col gap-4 rounded-2xl border border-base-300 bg-base-100 p-3 lg:w-[17rem]"
           >
-            <div class="space-y-1">
-              <h2 class="text-sm font-semibold tracking-tight">Locations</h2>
-              <p class="text-xs opacity-60">
-                <%= if @mode == "place" do %>
-                  Select one, then click points on the plan. Close the shape to place (or replace) the area.
-                <% else %>
-                  Switch to Place area to draw or redraw a location polygon.
-                <% end %>
-              </p>
-            </div>
+            <section id="floor-plan-wall-tools" class="space-y-2">
+              <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Walls</h2>
+              <div class="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  id="tool-wall"
+                  phx-click="set_mode"
+                  phx-value-mode="wall"
+                  class={[
+                    "btn btn-sm justify-start",
+                    @mode == "wall" && "btn-primary",
+                    @mode != "wall" && "btn-ghost border border-base-300"
+                  ]}
+                >
+                  <.icon name="hero-pencil" class="size-4" /> Draw wall
+                </button>
+                <button
+                  type="button"
+                  id="tool-erase"
+                  phx-click="set_mode"
+                  phx-value-mode="erase"
+                  class={[
+                    "btn btn-sm justify-start",
+                    @mode == "erase" && "btn-primary",
+                    @mode != "erase" && "btn-ghost border border-base-300"
+                  ]}
+                >
+                  <.icon name="hero-trash" class="size-4" /> Erase
+                </button>
+              </div>
+            </section>
 
+            <section id="floor-plan-location-tools" class="flex min-h-0 flex-1 flex-col gap-2">
+              <div class="space-y-1">
+                <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Locations</h2>
+                <p class="text-xs opacity-60">
+                  Click a location to draw or redraw its area on the plan.
+                </p>
+              </div>
+
+              <ul
+                id="placeable-locations"
+                class="flex max-h-[min(32rem,55vh)] flex-col gap-1 overflow-y-auto lg:max-h-none lg:flex-1"
+              >
+                <li
+                  :if={@locations == []}
+                  class="rounded-lg px-2 py-6 text-center text-sm opacity-50"
+                >
+                  No locations yet. Add some on the Locations page.
+                </li>
+                <li :for={location <- @locations} class="flex items-stretch gap-1">
+                  <button
+                    type="button"
+                    id={"place-location-#{location.id}"}
+                    phx-click="select_location"
+                    phx-value-id={location.id}
+                    class={[
+                      "flex min-w-0 flex-1 items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-sm transition-colors",
+                      @mode == "place" && @placing_location_id == location.id &&
+                        "border-primary bg-primary/10 ring-1 ring-primary/30",
+                      not (@mode == "place" && @placing_location_id == location.id) &&
+                        "border-transparent hover:border-base-300 hover:bg-base-200/60"
+                    ]}
+                  >
+                    <span class="min-w-0 flex-1 truncate font-medium">{location.name}</span>
+                    <span
+                      :if={Map.has_key?(@placement_by_location, location.id)}
+                      class="shrink-0 rounded-full bg-base-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70"
+                    >
+                      {floor_label(@placement_by_location[location.id], @selected_floor.id)}
+                    </span>
+                    <span
+                      :if={not Map.has_key?(@placement_by_location, location.id)}
+                      class="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-warning"
+                    >
+                      Open
+                    </span>
+                  </button>
+                  <button
+                    :if={location_placed_on_floor?(location.id, @selected_floor)}
+                    type="button"
+                    id={"unplace-location-#{location.id}"}
+                    class="btn btn-square btn-sm btn-ghost text-error hover:bg-error/10"
+                    phx-click="unplace_location"
+                    phx-value-id={location.id}
+                    title="Remove from this floor"
+                  >
+                    <.icon name="hero-x-mark" class="size-4" />
+                  </button>
+                </li>
+              </ul>
+            </section>
+          </aside>
+
+          <div
+            id="floor-plan-canvas"
+            phx-hook="FloorPlanCanvas"
+            data-mode={@mode}
+            data-location-id={@placing_location_id || ""}
+            tabindex="0"
+            class={[
+              "relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-base-300 bg-base-200/40",
+              "h-[calc(100vh-12rem)] min-h-[28rem] w-full touch-none select-none outline-none",
+              "focus-visible:ring-2 focus-visible:ring-primary/40",
+              @mode == "wall" && "cursor-crosshair",
+              @mode == "erase" && "cursor-pointer",
+              @mode == "place" && @placing_location_id && "cursor-cell",
+              @mode == "place" && !@placing_location_id && "cursor-not-allowed"
+            ]}
+          >
             <div
-              :if={@selected_placement_id}
-              id="placement-actions"
-              class="rounded-xl border border-base-300 bg-base-200/50 p-2 space-y-2"
+              id="polygon-finish-bar"
+              class="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-2"
             >
-              <p class="text-xs opacity-70">Selected area</p>
               <button
                 type="button"
-                id="placement-unplace"
-                class="btn btn-sm btn-ghost w-full text-error hover:bg-error/10"
-                phx-click="unplace_selected"
+                id="polygon-finish"
+                data-polygon-finish
+                class="btn btn-sm btn-primary pointer-events-auto shadow-md hidden"
+                title="Finish area"
               >
-                <.icon name="hero-x-mark" class="size-4" /> Remove from plan
+                <.icon name="hero-check" class="size-4" /> Done
               </button>
             </div>
 
-            <ul
-              id="placeable-locations"
-              class="flex max-h-[min(28rem,50vh)] flex-col gap-1 overflow-y-auto"
+            <svg
+              data-floor-plan-svg
+              id={"floor-svg-#{@selected_floor.id}"}
+              viewBox="0 0 1 1"
+              preserveAspectRatio="none"
+              class="h-full w-full text-base-content"
             >
-              <li
-                :if={@locations == []}
-                class="rounded-lg px-2 py-6 text-center text-sm opacity-50"
-              >
-                No locations yet. Add some on the Locations page.
-              </li>
-              <li :for={location <- @locations}>
-                <button
-                  type="button"
-                  id={"place-location-#{location.id}"}
-                  phx-click="select_location"
-                  phx-value-id={location.id}
+              <rect
+                x="0"
+                y="0"
+                width="1"
+                height="1"
+                class="fill-base-100"
+                stroke="none"
+              />
+
+              <g :for={placement <- @selected_floor.location_placements}>
+                <polygon
+                  data-placement-location-id={placement.location_id}
+                  points={FloorPlans.polygon_points_attr(placement.points)}
                   class={[
-                    "flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-sm transition-colors",
-                    @placing_location_id == location.id &&
-                      "border-primary bg-primary/10 ring-1 ring-primary/30",
-                    @placing_location_id != location.id &&
-                      "border-transparent hover:border-base-300 hover:bg-base-200/60",
-                    location_placed_on_floor?(location.id, @selected_floor) && "opacity-70"
+                    "stroke-primary transition-opacity",
+                    @selected_placement_id == placement.location_id &&
+                      "fill-primary/35 opacity-100",
+                    @selected_placement_id != placement.location_id &&
+                      "fill-primary/20 opacity-90"
                   ]}
+                  stroke-width="0.006"
+                />
+                <text
+                  x={placement_label_x(placement.points)}
+                  y={placement_label_y(placement.points)}
+                  text-anchor="middle"
+                  dominant-baseline="middle"
+                  font-size="0.04"
+                  class="fill-base-content pointer-events-none"
+                  style="paint-order: stroke; stroke: var(--color-base-100, #fff); stroke-width: 0.012px;"
                 >
-                  <span class="min-w-0 flex-1 truncate font-medium">{location.name}</span>
-                  <span
-                    :if={Map.has_key?(@placement_by_location, location.id)}
-                    class="shrink-0 rounded-full bg-base-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70"
-                  >
-                    {floor_label(@placement_by_location[location.id], @selected_floor.id)}
-                  </span>
-                </button>
-              </li>
-            </ul>
-          </aside>
+                  {placement.location && placement.location.name}
+                </text>
+              </g>
+
+              <g :for={{wall, index} <- Enum.with_index(@selected_floor.walls)}>
+                <line
+                  data-wall-seg
+                  x1={wall["x1"]}
+                  y1={wall["y1"]}
+                  x2={wall["x2"]}
+                  y2={wall["y2"]}
+                  stroke="currentColor"
+                  stroke-width="0.014"
+                  stroke-linecap="round"
+                  class="opacity-80 pointer-events-none"
+                />
+                <line
+                  data-wall-index={index}
+                  x1={wall["x1"]}
+                  y1={wall["y1"]}
+                  x2={wall["x2"]}
+                  y2={wall["y2"]}
+                  stroke="transparent"
+                  stroke-width="0.045"
+                  stroke-linecap="round"
+                  class={[
+                    @mode == "erase" && "cursor-pointer",
+                    @mode != "erase" && "pointer-events-none"
+                  ]}
+                />
+              </g>
+            </svg>
+
+            <p
+              :if={@selected_floor.walls == [] and @selected_floor.location_placements == []}
+              class="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm opacity-50"
+            >
+              <%= cond do %>
+                <% @mode == "wall" -> %>
+                  Drag on the canvas to draw a wall. Endpoints snap to nearby walls.
+                <% @mode == "erase" -> %>
+                  Click a wall segment to erase it.
+                <% @mode == "place" && @placing_location_id -> %>
+                  Click points to draw an area. Click near the first point or double-click to finish. Press Escape to cancel.
+                <% true -> %>
+                  Choose a location in the sidebar, then click points to draw its area.
+              <% end %>
+            </p>
+          </div>
         </div>
       </div>
     </Layouts.app>
@@ -481,16 +481,11 @@ defmodule PinventoryWeb.FloorPlanLive do
     end
   end
 
-  def handle_event("set_mode", %{"mode" => mode}, socket)
-      when mode in ["wall", "erase", "place"] do
-    socket =
-      socket
-      |> assign(:mode, mode)
-      |> then(fn s ->
-        if mode != "place", do: assign(s, :placing_location_id, nil), else: s
-      end)
-
-    {:noreply, socket}
+  def handle_event("set_mode", %{"mode" => mode}, socket) when mode in ["wall", "erase"] do
+    {:noreply,
+     socket
+     |> assign(:mode, mode)
+     |> assign(:placing_location_id, nil)}
   end
 
   def handle_event("select_location", %{"id" => id}, socket) do
@@ -538,23 +533,22 @@ defmodule PinventoryWeb.FloorPlanLive do
     place_polygon(socket, location_id, points)
   end
 
-  def handle_event("unplace_selected", _params, socket) do
-    case socket.assigns.selected_placement_id do
-      nil ->
-        {:noreply, socket}
+  def handle_event("unplace_location", %{"id" => location_id}, socket) do
+    socket = push_undo_snapshot(socket)
+    _ = FloorPlans.unplace_location(location_id)
+    floor = FloorPlans.get_floor!(socket.assigns.selected_floor.id)
 
-      location_id ->
-        socket = push_undo_snapshot(socket)
-        _ = FloorPlans.unplace_location(location_id)
-        floor = FloorPlans.get_floor!(socket.assigns.selected_floor.id)
+    selected_placement =
+      if socket.assigns.selected_placement_id == location_id,
+        do: nil,
+        else: socket.assigns.selected_placement_id
 
-        {:noreply,
-         socket
-         |> refresh_selected_floor(floor)
-         |> assign(:selected_placement_id, nil)
-         |> assign_location_lists()
-         |> put_flash(:info, "Location removed from plan")}
-    end
+    {:noreply,
+     socket
+     |> refresh_selected_floor(floor)
+     |> assign(:selected_placement_id, selected_placement)
+     |> assign_location_lists()
+     |> put_flash(:info, "Location removed from plan")}
   end
 
   def handle_event("undo", _params, socket) do
