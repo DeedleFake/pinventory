@@ -129,7 +129,13 @@ defmodule PinventoryWeb.LocationsLiveTest do
     {:ok, shed} = Locations.create(scope, %{name: "Shed"})
     {:ok, plan} = FloorPlans.create_floor_plan()
     floor = hd(plan.floors)
-    assert {:ok, _} = FloorPlans.place_location(floor, garage.id, 0.2, 0.3)
+
+    assert {:ok, _} =
+             FloorPlans.place_location(floor, garage.id, [
+               %{"x" => 0.1, "y" => 0.1},
+               %{"x" => 0.3, "y" => 0.1},
+               %{"x" => 0.3, "y" => 0.3}
+             ])
 
     {:ok, view, html} = live(conn, ~p"/locations")
 
@@ -152,5 +158,26 @@ defmodule PinventoryWeb.LocationsLiveTest do
 
     assert has_element?(view, ~s|#nav-items[href="/"]|, "Items")
     refute has_element?(view, ~s|#nav-items[aria-current="page"]|)
+  end
+
+  test "highlights a placed location area on the preview", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor = hd(plan.floors)
+
+    assert {:ok, _} =
+             FloorPlans.place_location(floor, garage.id, [
+               %{"x" => 0.1, "y" => 0.1},
+               %{"x" => 0.3, "y" => 0.1},
+               %{"x" => 0.3, "y" => 0.3}
+             ])
+
+    {:ok, view, _html} = live(conn, ~p"/locations")
+
+    view
+    |> element("#locations-page")
+    |> render_hook("highlight_placement", %{"id" => garage.id})
+
+    assert has_element?(view, "#preview-placement-#{garage.id}")
   end
 end

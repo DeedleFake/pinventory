@@ -20,7 +20,7 @@ defmodule PinventoryWeb.FloorPlanLive do
             </div>
             <h1 class="text-xl font-semibold tracking-tight">Floor plan</h1>
             <p class="text-sm opacity-60">
-              Draw walls, add floors, and place locations on the plan.
+              Draw walls and mark location areas as polygons on each floor.
             </p>
           </div>
 
@@ -127,8 +127,8 @@ defmodule PinventoryWeb.FloorPlanLive do
           </button>
         </div>
 
-        <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
-          <div class="space-y-3">
+        <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+          <div class="space-y-3 min-w-0">
             <div
               id="floor-plan-tools"
               class="flex flex-wrap items-center gap-2 rounded-xl border border-base-300 bg-base-100 p-2"
@@ -151,6 +151,19 @@ defmodule PinventoryWeb.FloorPlanLive do
               </button>
               <button
                 type="button"
+                id="tool-erase"
+                phx-click="set_mode"
+                phx-value-mode="erase"
+                class={[
+                  "btn btn-sm",
+                  @mode == "erase" && "btn-primary",
+                  @mode != "erase" && "btn-ghost"
+                ]}
+              >
+                <.icon name="hero-trash" class="size-4" /> Erase
+              </button>
+              <button
+                type="button"
                 id="tool-place"
                 phx-click="set_mode"
                 phx-value-mode="place"
@@ -160,31 +173,31 @@ defmodule PinventoryWeb.FloorPlanLive do
                   @mode != "place" && "btn-ghost"
                 ]}
               >
-                <.icon name="hero-map-pin" class="size-4" /> Place location
-              </button>
-              <button
-                type="button"
-                id="tool-select"
-                phx-click="set_mode"
-                phx-value-mode="select"
-                class={[
-                  "btn btn-sm",
-                  @mode == "select" && "btn-primary",
-                  @mode != "select" && "btn-ghost"
-                ]}
-              >
-                <.icon name="hero-hand-raised" class="size-4" /> Move pin
+                <.icon name="hero-squares-2x2" class="size-4" /> Place area
               </button>
 
-              <button
-                :if={@mode == "wall" and @selected_floor.walls != []}
-                type="button"
-                id="wall-undo"
-                class="btn btn-sm btn-ghost ml-auto"
-                phx-click="undo_wall"
-              >
-                <.icon name="hero-arrow-uturn-left" class="size-4" /> Undo wall
-              </button>
+              <div class="ml-auto flex flex-wrap items-center gap-1">
+                <button
+                  type="button"
+                  id="history-undo"
+                  class="btn btn-sm btn-ghost"
+                  phx-click="undo"
+                  disabled={@undo_stack == []}
+                  title="Undo (Ctrl+Z)"
+                >
+                  <.icon name="hero-arrow-uturn-left" class="size-4" /> Undo
+                </button>
+                <button
+                  type="button"
+                  id="history-redo"
+                  class="btn btn-sm btn-ghost"
+                  phx-click="redo"
+                  disabled={@redo_stack == []}
+                  title="Redo (Ctrl+Shift+Z)"
+                >
+                  <.icon name="hero-arrow-uturn-right" class="size-4" /> Redo
+                </button>
+              </div>
             </div>
 
             <div
@@ -192,13 +205,15 @@ defmodule PinventoryWeb.FloorPlanLive do
               phx-hook="FloorPlanCanvas"
               data-mode={@mode}
               data-location-id={@placing_location_id || ""}
+              tabindex="0"
               class={[
-                "relative overflow-hidden rounded-2xl border border-base-300 bg-base-200/40",
-                "aspect-[4/3] touch-none select-none",
+                "relative w-full overflow-hidden rounded-2xl border border-base-300 bg-base-200/40",
+                "min-h-[65vh] h-[70vh] touch-none select-none outline-none",
+                "focus-visible:ring-2 focus-visible:ring-primary/40",
                 @mode == "wall" && "cursor-crosshair",
+                @mode == "erase" && "cursor-pointer",
                 @mode == "place" && @placing_location_id && "cursor-cell",
-                @mode == "place" && !@placing_location_id && "cursor-not-allowed",
-                @mode == "select" && "cursor-grab"
+                @mode == "place" && !@placing_location_id && "cursor-not-allowed"
               ]}
             >
               <svg
@@ -216,41 +231,59 @@ defmodule PinventoryWeb.FloorPlanLive do
                   class="fill-base-100"
                   stroke="none"
                 />
-                <line
-                  :for={wall <- @selected_floor.walls}
-                  x1={wall["x1"]}
-                  y1={wall["y1"]}
-                  x2={wall["x2"]}
-                  y2={wall["y2"]}
-                  stroke="currentColor"
-                  stroke-width="0.014"
-                  stroke-linecap="round"
-                  class="opacity-80"
-                />
+
                 <g :for={placement <- @selected_floor.location_placements}>
-                  <circle
-                    data-pin-location-id={placement.location_id}
-                    cx={placement.x}
-                    cy={placement.y}
-                    r="0.028"
+                  <polygon
+                    data-placement-location-id={placement.location_id}
+                    points={FloorPlans.polygon_points_attr(placement.points)}
                     class={[
-                      "fill-primary stroke-base-100",
-                      @selected_pin_id == placement.location_id && "opacity-100",
-                      @selected_pin_id != placement.location_id && "opacity-90"
+                      "stroke-primary transition-opacity",
+                      @selected_placement_id == placement.location_id &&
+                        "fill-primary/35 opacity-100",
+                      @selected_placement_id != placement.location_id &&
+                        "fill-primary/20 opacity-90"
                     ]}
-                    stroke-width="0.008"
+                    stroke-width="0.006"
                   />
                   <text
-                    data-pin-label-id={placement.location_id}
-                    x={placement.x}
-                    y={max(0.04, placement.y - 0.035)}
+                    x={placement_label_x(placement.points)}
+                    y={placement_label_y(placement.points)}
                     text-anchor="middle"
-                    font-size="0.045"
+                    dominant-baseline="middle"
+                    font-size="0.04"
                     class="fill-base-content pointer-events-none"
                     style="paint-order: stroke; stroke: var(--color-base-100, #fff); stroke-width: 0.012px;"
                   >
                     {placement.location && placement.location.name}
                   </text>
+                </g>
+
+                <g :for={{wall, index} <- Enum.with_index(@selected_floor.walls)}>
+                  <line
+                    data-wall-seg
+                    x1={wall["x1"]}
+                    y1={wall["y1"]}
+                    x2={wall["x2"]}
+                    y2={wall["y2"]}
+                    stroke="currentColor"
+                    stroke-width="0.014"
+                    stroke-linecap="round"
+                    class="opacity-80 pointer-events-none"
+                  />
+                  <line
+                    data-wall-index={index}
+                    x1={wall["x1"]}
+                    y1={wall["y1"]}
+                    x2={wall["x2"]}
+                    y2={wall["y2"]}
+                    stroke="transparent"
+                    stroke-width="0.045"
+                    stroke-linecap="round"
+                    class={[
+                      @mode == "erase" && "cursor-pointer",
+                      @mode != "erase" && "pointer-events-none"
+                    ]}
+                  />
                 </g>
               </svg>
 
@@ -258,10 +291,13 @@ defmodule PinventoryWeb.FloorPlanLive do
                 :if={@selected_floor.walls == [] and @selected_floor.location_placements == []}
                 class="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm opacity-50"
               >
-                <%= if @mode == "wall" do %>
-                  Drag on the canvas to draw a wall.
-                <% else %>
-                  Choose a location on the right, then click the canvas to place it.
+                <%= cond do %>
+                  <% @mode == "wall" -> %>
+                    Drag on the canvas to draw a wall.
+                  <% @mode == "erase" -> %>
+                    Click a wall segment to erase it.
+                  <% true -> %>
+                    Choose a location on the right, then click points to draw an area. Double-click or press Enter to finish.
                 <% end %>
               </p>
             </div>
@@ -275,22 +311,22 @@ defmodule PinventoryWeb.FloorPlanLive do
               <h2 class="text-sm font-semibold tracking-tight">Locations</h2>
               <p class="text-xs opacity-60">
                 <%= if @mode == "place" do %>
-                  Select one, then click the plan to drop a pin.
+                  Select one, then click points on the plan. Close the shape to place (or replace) the area.
                 <% else %>
-                  Switch to Place location to add pins. Move pin to drag.
+                  Switch to Place area to draw or redraw a location polygon.
                 <% end %>
               </p>
             </div>
 
             <div
-              :if={@selected_pin_id}
-              id="pin-actions"
+              :if={@selected_placement_id}
+              id="placement-actions"
               class="rounded-xl border border-base-300 bg-base-200/50 p-2 space-y-2"
             >
-              <p class="text-xs opacity-70">Selected pin</p>
+              <p class="text-xs opacity-70">Selected area</p>
               <button
                 type="button"
-                id="pin-unplace"
+                id="placement-unplace"
                 class="btn btn-sm btn-ghost w-full text-error hover:bg-error/10"
                 phx-click="unplace_selected"
               >
@@ -298,7 +334,10 @@ defmodule PinventoryWeb.FloorPlanLive do
               </button>
             </div>
 
-            <ul id="placeable-locations" class="flex max-h-[28rem] flex-col gap-1 overflow-y-auto">
+            <ul
+              id="placeable-locations"
+              class="flex max-h-[min(28rem,50vh)] flex-col gap-1 overflow-y-auto"
+            >
               <li
                 :if={@locations == []}
                 class="rounded-lg px-2 py-6 text-center text-sm opacity-50"
@@ -358,8 +397,10 @@ defmodule PinventoryWeb.FloorPlanLive do
          |> assign(:selected_floor, selected)
          |> assign(:mode, "wall")
          |> assign(:placing_location_id, nil)
-         |> assign(:selected_pin_id, nil)
+         |> assign(:selected_placement_id, nil)
          |> assign(:delete_plan?, false)
+         |> assign(:undo_stack, [])
+         |> assign(:redo_stack, [])
          |> assign_location_lists()}
     end
   end
@@ -371,7 +412,7 @@ defmodule PinventoryWeb.FloorPlanLive do
     {:noreply,
      socket
      |> assign(:selected_floor, FloorPlans.get_floor!(floor.id))
-     |> assign(:selected_pin_id, nil)}
+     |> assign(:selected_placement_id, nil)}
   end
 
   def handle_event("add_floor", _params, socket) do
@@ -384,7 +425,8 @@ defmodule PinventoryWeb.FloorPlanLive do
          |> assign(:floor_plan, plan)
          |> assign(:floors, plan.floors)
          |> assign(:selected_floor, floor)
-         |> assign(:selected_pin_id, nil)
+         |> assign(:selected_placement_id, nil)
+         |> clear_history()
          |> put_flash(:info, "Floor added")}
 
       {:error, _} ->
@@ -426,8 +468,9 @@ defmodule PinventoryWeb.FloorPlanLive do
          |> assign(:floor_plan, plan)
          |> assign(:floors, plan.floors)
          |> assign(:selected_floor, selected)
-         |> assign(:selected_pin_id, nil)
+         |> assign(:selected_placement_id, nil)
          |> assign_location_lists()
+         |> clear_history()
          |> put_flash(:info, "Floor removed")}
 
       {:error, :last_floor} ->
@@ -439,15 +482,12 @@ defmodule PinventoryWeb.FloorPlanLive do
   end
 
   def handle_event("set_mode", %{"mode" => mode}, socket)
-      when mode in ["wall", "place", "select"] do
+      when mode in ["wall", "erase", "place"] do
     socket =
       socket
       |> assign(:mode, mode)
       |> then(fn s ->
         if mode != "place", do: assign(s, :placing_location_id, nil), else: s
-      end)
-      |> then(fn s ->
-        if mode != "select", do: assign(s, :selected_pin_id, nil), else: s
       end)
 
     {:noreply, socket}
@@ -458,7 +498,7 @@ defmodule PinventoryWeb.FloorPlanLive do
      socket
      |> assign(:mode, "place")
      |> assign(:placing_location_id, id)
-     |> assign(:selected_pin_id, nil)}
+     |> assign(:selected_placement_id, id)}
   end
 
   def handle_event("wall_drawn", %{"x1" => x1, "y1" => y1, "x2" => x2, "y2" => y2}, socket) do
@@ -469,67 +509,107 @@ defmodule PinventoryWeb.FloorPlanLive do
       "y2" => to_float(y2)
     }
 
+    socket = push_undo_snapshot(socket)
+
     case FloorPlans.add_wall(socket.assigns.selected_floor, wall) do
       {:ok, floor} ->
         {:noreply, refresh_selected_floor(socket, floor)}
 
       {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Could not add wall")}
+        {:noreply, put_flash(pop_failed_undo(socket), :error, "Could not add wall")}
     end
   end
 
-  def handle_event("undo_wall", _params, socket) do
+  def handle_event("wall_erased", %{"index" => index}, socket) do
+    index = parse_index(index)
     floor = socket.assigns.selected_floor
-    index = length(floor.walls) - 1
+    socket = push_undo_snapshot(socket)
 
     case FloorPlans.remove_wall(floor, index) do
       {:ok, updated} ->
         {:noreply, refresh_selected_floor(socket, updated)}
 
       {:error, _} ->
-        {:noreply, socket}
+        {:noreply, pop_failed_undo(socket)}
     end
   end
 
-  def handle_event(
-        "pin_placed",
-        %{"location_id" => location_id, "x" => x, "y" => y},
-        socket
-      ) do
-    place_pin(socket, location_id, x, y)
-  end
-
-  def handle_event(
-        "pin_moved",
-        %{"location_id" => location_id, "x" => x, "y" => y},
-        socket
-      ) do
-    place_pin(socket, location_id, x, y)
-  end
-
-  def handle_event("pin_selected", %{"location_id" => location_id}, socket) do
-    {:noreply,
-     socket
-     |> assign(:mode, "select")
-     |> assign(:selected_pin_id, location_id)
-     |> assign(:placing_location_id, nil)}
+  def handle_event("polygon_placed", %{"location_id" => location_id, "points" => points}, socket) do
+    place_polygon(socket, location_id, points)
   end
 
   def handle_event("unplace_selected", _params, socket) do
-    case socket.assigns.selected_pin_id do
+    case socket.assigns.selected_placement_id do
       nil ->
         {:noreply, socket}
 
       location_id ->
+        socket = push_undo_snapshot(socket)
         _ = FloorPlans.unplace_location(location_id)
         floor = FloorPlans.get_floor!(socket.assigns.selected_floor.id)
 
         {:noreply,
          socket
          |> refresh_selected_floor(floor)
-         |> assign(:selected_pin_id, nil)
+         |> assign(:selected_placement_id, nil)
          |> assign_location_lists()
          |> put_flash(:info, "Location removed from plan")}
+    end
+  end
+
+  def handle_event("undo", _params, socket) do
+    case socket.assigns.undo_stack do
+      [] ->
+        {:noreply, socket}
+
+      [snapshot | rest] ->
+        current = FloorPlans.plan_geometry_snapshot(socket.assigns.floor_plan)
+
+        case FloorPlans.restore_plan_geometry(snapshot) do
+          {:ok, plan} ->
+            selected_id = socket.assigns.selected_floor.id
+            selected = Enum.find(plan.floors, &(&1.id == selected_id)) || List.first(plan.floors)
+
+            {:noreply,
+             socket
+             |> assign(:floor_plan, plan)
+             |> assign(:floors, plan.floors)
+             |> assign(:selected_floor, selected)
+             |> assign(:undo_stack, rest)
+             |> assign(:redo_stack, trim_stack([current | socket.assigns.redo_stack]))
+             |> assign_location_lists()}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Could not undo")}
+        end
+    end
+  end
+
+  def handle_event("redo", _params, socket) do
+    case socket.assigns.redo_stack do
+      [] ->
+        {:noreply, socket}
+
+      [snapshot | rest] ->
+        current = FloorPlans.plan_geometry_snapshot(socket.assigns.floor_plan)
+
+        case FloorPlans.restore_plan_geometry(snapshot) do
+          {:ok, plan} ->
+            selected_id = socket.assigns.selected_floor.id
+            selected = Enum.find(plan.floors, &(&1.id == selected_id)) || List.first(plan.floors)
+
+            {:noreply,
+             socket
+             |> assign(:floor_plan, plan)
+             |> assign(:floors, plan.floors)
+             |> assign(:selected_floor, selected)
+             |> assign(:redo_stack, rest)
+             |> assign(:undo_stack, trim_stack([current | socket.assigns.undo_stack]))
+             |> assign_location_lists()}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Could not redo")}
+        end
     end
   end
 
@@ -554,25 +634,53 @@ defmodule PinventoryWeb.FloorPlanLive do
     end
   end
 
-  defp place_pin(socket, location_id, x, y) do
-    case FloorPlans.place_location(
-           socket.assigns.selected_floor,
-           location_id,
-           to_float(x),
-           to_float(y)
-         ) do
-      {:ok, _placement} ->
-        floor = FloorPlans.get_floor!(socket.assigns.selected_floor.id)
+  defp place_polygon(socket, location_id, points) do
+    normalized = normalize_event_points(points)
 
-        {:noreply,
-         socket
-         |> refresh_selected_floor(floor)
-         |> assign(:selected_pin_id, location_id)
-         |> assign_location_lists()}
+    if length(normalized) < 3 do
+      {:noreply, put_flash(socket, :error, "Draw at least three points for an area")}
+    else
+      socket = push_undo_snapshot(socket)
 
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Could not place location")}
+      case FloorPlans.place_location(socket.assigns.selected_floor, location_id, normalized) do
+        {:ok, _placement} ->
+          floor = FloorPlans.get_floor!(socket.assigns.selected_floor.id)
+
+          {:noreply,
+           socket
+           |> refresh_selected_floor(floor)
+           |> assign(:selected_placement_id, location_id)
+           |> assign_location_lists()}
+
+        {:error, _} ->
+          {:noreply, put_flash(pop_failed_undo(socket), :error, "Could not place location")}
+      end
     end
+  end
+
+  defp push_undo_snapshot(socket) do
+    snapshot = FloorPlans.plan_geometry_snapshot(socket.assigns.floor_plan)
+
+    socket
+    |> assign(:undo_stack, trim_stack([snapshot | socket.assigns.undo_stack]))
+    |> assign(:redo_stack, [])
+  end
+
+  defp pop_failed_undo(socket) do
+    case socket.assigns.undo_stack do
+      [_ | rest] -> assign(socket, :undo_stack, rest)
+      [] -> socket
+    end
+  end
+
+  defp clear_history(socket) do
+    socket
+    |> assign(:undo_stack, [])
+    |> assign(:redo_stack, [])
+  end
+
+  defp trim_stack(stack) do
+    Enum.take(stack, FloorPlans.undo_limit())
   end
 
   defp refresh_selected_floor(socket, %Floor{} = floor) do
@@ -599,6 +707,38 @@ defmodule PinventoryWeb.FloorPlanLive do
   defp floor_label(%{floor_id: floor_id, floor_name: name}, selected_floor_id) do
     if floor_id == selected_floor_id, do: "Here", else: name
   end
+
+  defp normalize_event_points(points) when is_list(points) do
+    Enum.map(points, fn
+      %{"x" => x, "y" => y} ->
+        %{"x" => to_float(x), "y" => to_float(y)}
+
+      %{x: x, y: y} ->
+        %{"x" => to_float(x), "y" => to_float(y)}
+
+      other when is_map(other) ->
+        %{
+          "x" => to_float(Map.get(other, "x") || Map.get(other, :x)),
+          "y" => to_float(Map.get(other, "y") || Map.get(other, :y))
+        }
+    end)
+  end
+
+  defp normalize_event_points(_), do: []
+
+  defp parse_index(index) when is_integer(index), do: index
+
+  defp parse_index(index) when is_binary(index) do
+    case Integer.parse(index) do
+      {n, _} -> n
+      :error -> -1
+    end
+  end
+
+  defp parse_index(_), do: -1
+
+  defp placement_label_x(points), do: elem(FloorPlans.polygon_centroid(points), 0)
+  defp placement_label_y(points), do: elem(FloorPlans.polygon_centroid(points), 1)
 
   defp to_float(value) when is_float(value), do: value
   defp to_float(value) when is_integer(value), do: value * 1.0

@@ -11,6 +11,14 @@ defmodule Pinventory.FloorPlansTest do
     %{scope: user_scope_fixture()}
   end
 
+  defp triangle(ox \\ 0.0, oy \\ 0.0) do
+    [
+      %{"x" => 0.1 + ox, "y" => 0.1 + oy},
+      %{"x" => 0.4 + ox, "y" => 0.1 + oy},
+      %{"x" => 0.4 + ox, "y" => 0.4 + oy}
+    ]
+  end
+
   describe "get_floor_plan/0" do
     test "returns nil when no plan exists" do
       assert FloorPlans.get_floor_plan() == nil
@@ -37,7 +45,7 @@ defmodule Pinventory.FloorPlansTest do
       {:ok, plan} = FloorPlans.create_floor_plan()
       floor = hd(plan.floors)
 
-      assert {:ok, _} = FloorPlans.place_location(floor, location.id, 0.4, 0.5)
+      assert {:ok, _} = FloorPlans.place_location(floor, location.id, triangle())
       assert {:ok, _} = FloorPlans.delete_floor_plan()
 
       refute FloorPlans.floor_plan_exists?()
@@ -88,37 +96,79 @@ defmodule Pinventory.FloorPlansTest do
       assert cleared.walls == []
     end
 
-    test "places a location once and moves it across floors", %{
+    test "places a location polygon once and moves it across floors", %{
       garage: garage,
       floor: floor,
       plan: plan
     } do
-      assert {:ok, %LocationPlacement{x: 0.25, y: 0.75}} =
-               FloorPlans.place_location(floor, garage.id, 0.25, 0.75)
+      points = triangle()
+
+      assert {:ok, %LocationPlacement{points: ^points}} =
+               FloorPlans.place_location(floor, garage.id, points)
 
       garage_id = garage.id
 
-      assert %{^garage_id => %{floor_name: "Floor 1", x: 0.25, y: 0.75}} =
+      assert %{^garage_id => %{floor_name: "Floor 1", points: ^points}} =
                FloorPlans.placement_index()
 
       assert {:ok, floor2} = FloorPlans.add_floor(plan)
+      moved_points = triangle(0.2, 0.2)
 
-      assert {:ok, moved} = FloorPlans.place_location(floor2, garage.id, 0.5, 0.5)
+      assert {:ok, moved} = FloorPlans.place_location(floor2, garage.id, moved_points)
       assert moved.floor_id == floor2.id
+      assert moved.points == moved_points
       assert map_size(FloorPlans.placement_index()) == 1
     end
 
+    test "rejects polygons with fewer than three points", %{garage: garage, floor: floor} do
+      assert {:error, changeset} =
+               FloorPlans.place_location(floor, garage.id, [
+                 %{"x" => 0.1, "y" => 0.1},
+                 %{"x" => 0.2, "y" => 0.2}
+               ])
+
+      assert changeset.errors[:points]
+    end
+
     test "lists unplaced locations", %{garage: garage, attic: attic, floor: floor} do
-      assert {:ok, _} = FloorPlans.place_location(floor, garage.id, 0.2, 0.2)
+      assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
       assert [%{id: id, name: "Attic"}] = FloorPlans.unplaced_locations()
       assert id == attic.id
     end
 
-    test "unplace removes pin only", %{garage: garage, floor: floor} do
-      assert {:ok, _} = FloorPlans.place_location(floor, garage.id, 0.3, 0.3)
+    test "unplace removes polygon only", %{garage: garage, floor: floor} do
+      assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
       assert {:ok, _} = FloorPlans.unplace_location(garage.id)
       assert FloorPlans.placement_index() == %{}
       assert Locations.get!(garage.id).name == "Garage"
+    end
+
+    test "restore_plan_geometry rewinds walls and placements", %{
+      garage: garage,
+      floor: floor
+    } do
+      assert {:ok, _} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.0, "y1" => 0.0, "x2" => 1.0, "y2" => 0.0})
+
+      plan = FloorPlans.get_floor_plan()
+      before = FloorPlans.plan_geometry_snapshot(plan)
+
+      floor = FloorPlans.get_floor!(floor.id)
+      assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
+
+      assert {:ok, _} =
+               FloorPlans.add_wall(FloorPlans.get_floor!(floor.id), %{
+                 "x1" => 0.0,
+                 "y1" => 1.0,
+                 "x2" => 1.0,
+                 "y2" => 1.0
+               })
+
+      assert {:ok, restored} = FloorPlans.restore_plan_geometry(before)
+      restored_floor = hd(restored.floors)
+      assert length(restored_floor.walls) == 1
+      assert restored_floor.location_placements == []
+      assert FloorPlans.placement_index() == %{}
     end
   end
 
@@ -128,7 +178,7 @@ defmodule Pinventory.FloorPlansTest do
       {:ok, shed} = Locations.create(scope, %{name: "Shed"})
       {:ok, plan} = FloorPlans.create_floor_plan()
       floor = hd(plan.floors)
-      assert {:ok, _} = FloorPlans.place_location(floor, garage.id, 0.1, 0.2)
+      assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
 
       by_name =
         Locations.list_with_item_counts_and_placements()
@@ -139,6 +189,16 @@ defmodule Pinventory.FloorPlansTest do
       refute by_name["Shed"].on_plan?
       assert by_name["Shed"].floor_name == nil
       assert shed.id == by_name["Shed"].id
+    end
+  end
+
+  describe "polygon helpers" do
+    test "builds svg points and centroid" do
+      points = triangle()
+      assert FloorPlans.polygon_points_attr(points) == "0.1,0.1 0.4,0.1 0.4,0.4"
+      {cx, cy} = FloorPlans.polygon_centroid(points)
+      assert_in_delta cx, 0.3, 0.0001
+      assert_in_delta cy, 0.2, 0.0001
     end
   end
 end

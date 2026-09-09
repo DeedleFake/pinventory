@@ -37,9 +37,8 @@ defmodule Pinventory.Repo.Migrations.CreateFloorPlans do
 
       add :floor_id, references(:floors, type: :binary_id, on_delete: :delete_all), null: false
 
-      # Normalized pin position on the floor canvas (0.0–1.0).
-      add :x, :float, null: false
-      add :y, :float, null: false
+      # Closed polygon on the floor canvas (unit square). ≥3 points of %{"x","y"}.
+      add :points, :json, null: false, default: "[]"
 
       timestamps(type: :utc_datetime)
     end

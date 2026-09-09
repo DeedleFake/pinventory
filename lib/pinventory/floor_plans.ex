@@ -5,6 +5,8 @@ defmodule Pinventory.FloorPlans do
   Absence of a `FloorPlan` row means the feature is off. At most one plan exists
   per install (`singleton_key`). Locations stay when the plan is deleted;
   placements are removed with the plan/floors via FK cascades.
+
+  Location placements are closed polygons in the unit square (not pins).
   """
 
   import Ecto.Query, warn: false
@@ -16,6 +18,7 @@ defmodule Pinventory.FloorPlans do
 
   @singleton_key "default"
   @default_floor_name "Floor 1"
+  @undo_limit 50
 
   @doc """
   Returns the household floor plan with floors (and their placements) preloaded,
@@ -192,15 +195,16 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
-  Places or moves a location pin on a floor. A location may sit on only one floor.
+  Places or replaces a location polygon on a floor. A location may sit on only one floor.
+
+  `points` is a list of `%{"x" => float, "y" => float}` with at least three vertices.
   """
-  def place_location(%Floor{} = floor, location_id, x, y)
-      when is_binary(location_id) and is_number(x) and is_number(y) do
+  def place_location(%Floor{} = floor, location_id, points)
+      when is_binary(location_id) and is_list(points) do
     attrs = %{
       location_id: location_id,
       floor_id: floor.id,
-      x: clamp_unit(x),
-      y: clamp_unit(y)
+      points: normalize_points(points)
     }
 
     case Repo.get_by(LocationPlacement, location_id: location_id) do
@@ -234,12 +238,12 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
-  Returns a map of `location_id => %{floor_id, floor_name, x, y}` for all placements.
+  Returns a map of `location_id => %{floor_id, floor_name, points}` for all placements.
   """
   def placement_index do
     from(p in LocationPlacement,
       join: f in assoc(p, :floor),
-      select: {p.location_id, %{floor_id: f.id, floor_name: f.name, x: p.x, y: p.y}}
+      select: {p.location_id, %{floor_id: f.id, floor_name: f.name, points: p.points}}
     )
     |> Repo.all()
     |> Map.new()
@@ -263,6 +267,118 @@ defmodule Pinventory.FloorPlans do
   """
   def list_locations do
     from(l in Location, order_by: [asc: l.name]) |> Repo.all()
+  end
+
+  @doc """
+  Snapshot of plan geometry for undo/redo: walls + placements per floor.
+  """
+  def plan_geometry_snapshot(%FloorPlan{} = plan) do
+    Enum.map(plan.floors, fn floor ->
+      %{
+        id: floor.id,
+        walls: Enum.map(floor.walls, &normalize_wall/1),
+        placements:
+          Enum.map(floor.location_placements, fn placement ->
+            %{location_id: placement.location_id, points: normalize_points(placement.points)}
+          end)
+      }
+    end)
+  end
+
+  @doc """
+  Restores walls and placements from a `plan_geometry_snapshot/1` value.
+  """
+  def restore_plan_geometry(snapshot) when is_list(snapshot) do
+    Repo.transaction(fn ->
+      for %{id: floor_id, walls: walls} <- snapshot do
+        floor = Repo.get!(Floor, floor_id)
+
+        floor
+        |> Floor.walls_changeset(Enum.map(walls, &normalize_wall/1))
+        |> Repo.update!()
+      end
+
+      desired =
+        Enum.flat_map(snapshot, fn %{id: floor_id, placements: placements} ->
+          Enum.map(placements, fn placement ->
+            %{
+              location_id: placement_get(placement, :location_id),
+              floor_id: floor_id,
+              points: normalize_points(placement_get(placement, :points))
+            }
+          end)
+        end)
+
+      desired_by_loc = Map.new(desired, &{&1.location_id, &1})
+      desired_ids = Map.keys(desired_by_loc)
+
+      from(p in LocationPlacement, where: p.location_id not in ^desired_ids)
+      |> Repo.delete_all()
+
+      for {location_id, attrs} <- desired_by_loc do
+        case Repo.get_by(LocationPlacement, location_id: location_id) do
+          nil ->
+            %LocationPlacement{}
+            |> LocationPlacement.changeset(attrs)
+            |> Repo.insert!()
+
+          placement ->
+            placement
+            |> LocationPlacement.changeset(attrs)
+            |> Repo.update!()
+        end
+      end
+
+      :ok
+    end)
+    |> case do
+      {:ok, :ok} -> {:ok, get_floor_plan()}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Max undo stack depth used by the editor.
+  """
+  def undo_limit, do: @undo_limit
+
+  @doc """
+  SVG `points` attribute string for a placement polygon.
+  """
+  def polygon_points_attr(points) when is_list(points) do
+    points
+    |> Enum.map(fn point ->
+      "#{point_coord(point, "x")},#{point_coord(point, "y")}"
+    end)
+    |> Enum.join(" ")
+  end
+
+  @doc """
+  Average of polygon vertices (label anchor).
+  """
+  def polygon_centroid(points) when is_list(points) and points != [] do
+    n = length(points)
+
+    {sx, sy} =
+      Enum.reduce(points, {0.0, 0.0}, fn point, {ax, ay} ->
+        {ax + point_coord(point, "x"), ay + point_coord(point, "y")}
+      end)
+
+    {sx / n, sy / n}
+  end
+
+  def polygon_centroid(_), do: {0.5, 0.5}
+
+  defp placement_get(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp point_coord(point, "x") when is_map(point) do
+    clamp_unit(Map.get(point, "x") || Map.get(point, :x))
+  end
+
+  defp point_coord(point, "y") when is_map(point) do
+    clamp_unit(Map.get(point, "y") || Map.get(point, :y))
   end
 
   defp get_floor_plan_by_id!(id) do
@@ -289,6 +405,21 @@ defmodule Pinventory.FloorPlans do
 
   defp preload_floor(floor) do
     Repo.preload(floor, location_placements: :location)
+  end
+
+  defp normalize_points(points) when is_list(points) do
+    Enum.map(points, &normalize_point/1)
+  end
+
+  defp normalize_point(%{"x" => x, "y" => y}), do: %{"x" => clamp_unit(x), "y" => clamp_unit(y)}
+
+  defp normalize_point(%{x: x, y: y}), do: normalize_point(%{"x" => x, "y" => y})
+
+  defp normalize_point(other) when is_map(other) do
+    normalize_point(%{
+      "x" => Map.get(other, "x") || Map.get(other, :x),
+      "y" => Map.get(other, "y") || Map.get(other, :y)
+    })
   end
 
   defp normalize_wall(%{"x1" => x1, "y1" => y1, "x2" => x2, "y2" => y2}) do
