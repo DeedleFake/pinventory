@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import {describe, it} from "node:test"
 import {
   mergeExtension,
+  nearestVertexWithin,
   polygonArea,
   polygonSelfIntersects,
   replaceRingArc,
@@ -165,5 +166,30 @@ describe("mergeExtension triangle → quad", () => {
       }),
       null,
     )
+  })
+})
+
+describe("nearestVertexWithin", () => {
+  const ring = pts([
+    [0.2, 0.2],
+    [0.8, 0.2],
+    [0.5, 0.8],
+  ])
+
+  it("returns the nearest vertex inside maxDist", () => {
+    const hit = nearestVertexWithin({x: 0.21, y: 0.22}, ring, 0.03)
+    assert.ok(hit)
+    assert.equal(hit.index, 0)
+    assert.deepEqual([hit.point.x, hit.point.y], [0.2, 0.2])
+  })
+
+  it("returns null when outside maxDist", () => {
+    assert.equal(nearestVertexWithin({x: 0.5, y: 0.5}, ring, 0.03), null)
+  })
+
+  it("prefers the closer of two nearby vertices", () => {
+    const hit = nearestVertexWithin({x: 0.79, y: 0.21}, ring, 0.05)
+    assert.ok(hit)
+    assert.equal(hit.index, 1)
   })
 })

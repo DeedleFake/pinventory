@@ -14,10 +14,13 @@
  *
  * Walls: first click sets start (snap), second click commits; Escape cancels.
  * Snap: wall endpoints/segments + placement vertices/edges (data-snap-*).
+ * Hold Ctrl/Meta to place at raw canvas coords (no snap); preview follows.
+ * Draft corners dedupe within SNAP_DISTANCE so near-clicks reuse an existing vertex.
  * Polygon finish: close on a different vertex, double-click, or Done (adjacent auto); Escape cancels.
  */
 import {
   mergeExtension as mergeExtensionGeometry,
+  nearestVertexWithin,
   provisionalCloseIndex,
 } from "./floor_plan_geometry.js"
 
@@ -32,12 +35,14 @@ const FloorPlanCanvas = {
     this.draftWall = null
     this.draftPolygon = null
     this.snapPoint = null
+    this.lastRawPoint = null
     this.syncFromEl()
 
     this.onPointerDown = (event) => this.handlePointerDown(event)
     this.onPointerMove = (event) => this.handlePointerMove(event)
     this.onDblClick = (event) => this.handleDblClick(event)
     this.onKeyDown = (event) => this.handleKeyDown(event)
+    this.onKeyUp = (event) => this.handleKeyUp(event)
     this.onFinishClick = (event) => {
       event.preventDefault()
       event.stopPropagation()
@@ -48,6 +53,7 @@ const FloorPlanCanvas = {
     this.svg.addEventListener("dblclick", this.onDblClick)
     window.addEventListener("pointermove", this.onPointerMove)
     window.addEventListener("keydown", this.onKeyDown)
+    window.addEventListener("keyup", this.onKeyUp)
     if (this.finishBtn) this.finishBtn.addEventListener("click", this.onFinishClick)
 
     if (!this.el.hasAttribute("tabindex")) {
@@ -77,6 +83,7 @@ const FloorPlanCanvas = {
     this.svg.removeEventListener("dblclick", this.onDblClick)
     window.removeEventListener("pointermove", this.onPointerMove)
     window.removeEventListener("keydown", this.onKeyDown)
+    window.removeEventListener("keyup", this.onKeyUp)
     if (this.finishBtn) this.finishBtn.removeEventListener("click", this.onFinishClick)
     this.clearWallDraft()
     this.clearPolygonDraft()
@@ -121,6 +128,10 @@ const FloorPlanCanvas = {
   },
 
   handleKeyDown(event) {
+    if (event.key === "Control" || event.key === "Meta") {
+      this.refreshPointerFromModifiers(event)
+    }
+
     if (!this.isEditorHotkeyTarget(event)) return
 
     const meta = event.ctrlKey || event.metaKey
@@ -178,6 +189,63 @@ const FloorPlanCanvas = {
     return document.getElementById("floor-plan-page") != null
   },
 
+  handleKeyUp(event) {
+    if (event.key === "Control" || event.key === "Meta") {
+      this.refreshPointerFromModifiers(event)
+    }
+  },
+
+  /** True when Ctrl or Meta is held — placement uses raw canvas coords. */
+  skipSnapFromEvent(event) {
+    return !!(event && (event.ctrlKey || event.metaKey))
+  },
+
+  /**
+   * Resolve pointer to unit coords; skip geometry snap while Ctrl/Meta held.
+   * Always records lastRawPoint for modifier key refresh.
+   */
+  resolvePointer(event) {
+    const raw = this.eventToUnit(event)
+    if (!raw) return {point: null, snapped: false, raw: null}
+    this.lastRawPoint = raw
+    if (this.skipSnapFromEvent(event)) {
+      return {point: raw, snapped: false, raw}
+    }
+    const snapped = this.snap(raw)
+    return {point: snapped.point, snapped: snapped.snapped, raw}
+  },
+
+  refreshPointerFromModifiers(event) {
+    if (!this.lastRawPoint) return
+    if (!(this.mode === "wall" || (this.mode === "place" && this.locationId))) {
+      return
+    }
+    const skip = this.skipSnapFromEvent(event)
+    const resolved = skip
+      ? {point: this.lastRawPoint, snapped: false}
+      : this.snap(this.lastRawPoint)
+    this.snapPoint = resolved.snapped ? resolved.point : null
+    this.drawSnapIndicator()
+    if (this.draftWall) {
+      this.draftWall.current = resolved.point
+      this.drawWallDraft()
+    } else if (this.draftPolygon) {
+      this.draftPolygon.current = resolved.point
+      this.drawPolygonDraft()
+    }
+  },
+
+  /**
+   * If `point` is within SNAP_DISTANCE of a draft vertex, reuse that vertex.
+   * Returns {point, reusedIndex} where reusedIndex is null when no dedupe.
+   */
+  dedupeDraftPoint(point, draftVertices) {
+    if (!point) return {point: null, reusedIndex: null}
+    const hit = nearestVertexWithin(point, draftVertices || [], SNAP_DISTANCE)
+    if (!hit) return {point, reusedIndex: null}
+    return {point: hit.point, reusedIndex: hit.index}
+  },
+
   handlePointerDown(event) {
     if (event.button !== 0) return
     if (event.target.closest("[data-polygon-finish]")) return
@@ -191,10 +259,9 @@ const FloorPlanCanvas = {
       return
     }
 
-    const raw = this.eventToUnit(event)
-    const snapped = this.snap(raw)
-    const point = snapped.point
-    this.snapPoint = snapped.snapped ? snapped.point : null
+    const resolved = this.resolvePointer(event)
+    let point = resolved.point
+    this.snapPoint = resolved.snapped ? resolved.point : null
     this.drawSnapIndicator()
     if (!point) return
 
@@ -209,6 +276,7 @@ const FloorPlanCanvas = {
       }
 
       const {start} = this.draftWall
+      point = this.dedupeDraftPoint(point, [start]).point
       this.clearWallDraft()
       const dx = point.x - start.x
       const dy = point.y - start.y
@@ -262,6 +330,7 @@ const FloorPlanCanvas = {
     }
 
     const first = this.draftPolygon.points[0]
+    // Existing close-near-first (slightly tighter than snap) — keep before dedupe.
     if (
       this.draftPolygon.points.length >= 3 &&
       Math.hypot(point.x - first.x, point.y - first.y) <= CLOSE_DISTANCE
@@ -270,8 +339,25 @@ const FloorPlanCanvas = {
       return
     }
 
-    this.draftPolygon.points.push(point)
-    this.draftPolygon.current = point
+    const {point: commit, reusedIndex} = this.dedupeDraftPoint(
+      point,
+      this.draftPolygon.points,
+    )
+    // Dedupe onto the first vertex with enough points still closes the ring.
+    if (reusedIndex === 0 && this.draftPolygon.points.length >= 3) {
+      this.finishPolygon()
+      return
+    }
+    // Near an already-placed draft corner: reuse it; do not stack a near-duplicate.
+    if (reusedIndex != null) {
+      this.draftPolygon.current = commit
+      this.drawPolygonDraft()
+      this.updateFinishButton()
+      return
+    }
+
+    this.draftPolygon.points.push(commit)
+    this.draftPolygon.current = commit
     this.drawPolygonDraft()
     this.updateFinishButton()
   },
@@ -290,8 +376,16 @@ const FloorPlanCanvas = {
       return
     }
 
-    draft.points.push(point)
-    draft.current = point
+    const {point: commit, reusedIndex} = this.dedupeDraftPoint(point, draft.points)
+    if (reusedIndex != null) {
+      draft.current = commit
+      this.drawPolygonDraft()
+      this.updateFinishButton()
+      return
+    }
+
+    draft.points.push(commit)
+    draft.current = commit
     this.drawPolygonDraft()
     this.updateFinishButton()
   },
@@ -312,28 +406,27 @@ const FloorPlanCanvas = {
   },
 
   handlePointerMove(event) {
-    const raw = this.eventToUnit(event)
-    if (!raw) return
-
-    if (this.mode === "wall" || (this.mode === "place" && this.locationId)) {
-      const snapped = this.snap(raw)
-      this.snapPoint = snapped.snapped ? snapped.point : null
-      this.drawSnapIndicator()
-
-      if (this.draftWall) {
-        this.draftWall.current = snapped.point
-        this.drawWallDraft()
-        return
-      }
-
-      if (this.draftPolygon) {
-        this.draftPolygon.current = snapped.point
-        this.drawPolygonDraft()
-      }
+    if (!(this.mode === "wall" || (this.mode === "place" && this.locationId))) {
+      this.clearSnapIndicator()
       return
     }
 
-    this.clearSnapIndicator()
+    const resolved = this.resolvePointer(event)
+    if (!resolved.point) return
+
+    this.snapPoint = resolved.snapped ? resolved.point : null
+    this.drawSnapIndicator()
+
+    if (this.draftWall) {
+      this.draftWall.current = resolved.point
+      this.drawWallDraft()
+      return
+    }
+
+    if (this.draftPolygon) {
+      this.draftPolygon.current = resolved.point
+      this.drawPolygonDraft()
+    }
   },
 
   handleDblClick(event) {
@@ -396,6 +489,7 @@ const FloorPlanCanvas = {
   /**
    * Shared snap for walls and location polygons: wall + placement vertices,
    * then nearest point along wall/placement segments within SNAP_DISTANCE.
+   * Callers skip this while Ctrl/Meta is held (see resolvePointer).
    */
   snap(point) {
     if (!point) return {point: null, snapped: false}

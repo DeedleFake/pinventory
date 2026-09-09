@@ -191,6 +191,26 @@ export function mergeExtension(draft) {
   return mergeBetween(existing, attachIdx, closeIdx, newPoints)
 }
 
+
+/**
+ * Nearest vertex within maxDist, or null.
+ * Returns {index, point} with a copied point.
+ */
+export function nearestVertexWithin(point, vertices, maxDist) {
+  if (!point || !vertices || vertices.length === 0) return null
+  let best = null
+  let bestDist = maxDist
+  for (let i = 0; i < vertices.length; i++) {
+    const ep = vertices[i]
+    const d = Math.hypot(ep.x - point.x, ep.y - point.y)
+    if (d <= bestDist) {
+      bestDist = d
+      best = {index: i, point: copyPoint(ep)}
+    }
+  }
+  return best
+}
+
 /**
  * Provisional close index for draft preview while dragging:
  * nearest existing vertex (≠ attach) within closeDist, else attach (adjacent auto).
