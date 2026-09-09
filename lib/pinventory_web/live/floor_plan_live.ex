@@ -187,19 +187,6 @@ defmodule PinventoryWeb.FloorPlanLive do
                 >
                   <.icon name="hero-trash" class="size-4" /> Erase
                 </button>
-                <button
-                  type="button"
-                  id="tool-move"
-                  phx-click="set_mode"
-                  phx-value-mode="move"
-                  class={[
-                    "btn btn-sm justify-start",
-                    @mode == "move" && "btn-primary",
-                    @mode != "move" && "btn-ghost border border-base-300"
-                  ]}
-                >
-                  <.icon name="hero-arrows-pointing-out" class="size-4" /> Move
-                </button>
               </div>
             </section>
 
@@ -279,7 +266,6 @@ defmodule PinventoryWeb.FloorPlanLive do
               "focus-visible:ring-2 focus-visible:ring-primary/40",
               @mode == "wall" && "cursor-crosshair",
               @mode == "erase" && "cursor-pointer",
-              @mode == "move" && "cursor-move",
               @mode == "place" && @placing_location_id && "cursor-cell",
               @mode == "place" && !@placing_location_id && "cursor-not-allowed"
             ]}
@@ -324,8 +310,7 @@ defmodule PinventoryWeb.FloorPlanLive do
                     @selected_placement_id == placement.location_id &&
                       "fill-primary/35 opacity-100",
                     @selected_placement_id != placement.location_id &&
-                      "fill-primary/20 opacity-90",
-                    @mode == "move" && "cursor-move"
+                      "fill-primary/20 opacity-90"
                   ]}
                   stroke-width="0.006"
                 />
@@ -385,8 +370,7 @@ defmodule PinventoryWeb.FloorPlanLive do
                   stroke-linecap="round"
                   class={[
                     @mode == "erase" && "cursor-pointer",
-                    @mode == "move" && "cursor-move",
-                    @mode not in ["erase", "move"] && "pointer-events-none"
+                    @mode != "erase" && "pointer-events-none"
                   ]}
                 />
               </g>
@@ -401,8 +385,6 @@ defmodule PinventoryWeb.FloorPlanLive do
                   Click once for the start, again for the end. Snap to walls and location corners. Escape cancels.
                 <% @mode == "erase" -> %>
                   Click a wall segment to erase it.
-                <% @mode == "move" -> %>
-                  Drag a wall or location area to move it. Escape cancels an in-progress drag.
                 <% @mode == "place" && @placing_location_id && @place_mode == "extend" -> %>
                   Click a corner to attach, add points, then click a different corner to close, or Done to close on an adjacent edge. Escape cancels.
                 <% @mode == "place" && @placing_location_id -> %>
@@ -513,15 +495,13 @@ defmodule PinventoryWeb.FloorPlanLive do
     end
   end
 
-  def handle_event("set_mode", %{"mode" => mode}, socket)
-      when mode in ["wall", "erase", "move"] do
+  def handle_event("set_mode", %{"mode" => mode}, socket) when mode in ["wall", "erase"] do
     {:noreply,
      socket
      |> assign(:mode, mode)
      |> assign(:placing_location_id, nil)
      |> assign(:place_mode, "new")
-     |> assign(:existing_points_json, "[]")
-     |> assign(:selected_placement_id, nil)}
+     |> assign(:existing_points_json, "[]")}
   end
 
   def handle_event("select_location", %{"id" => id}, socket) do
@@ -569,43 +549,8 @@ defmodule PinventoryWeb.FloorPlanLive do
     end
   end
 
-  def handle_event(
-        "wall_moved",
-        %{"index" => index, "x1" => x1, "y1" => y1, "x2" => x2, "y2" => y2},
-        socket
-      ) do
-    index = parse_index(index)
-    floor = socket.assigns.selected_floor
-
-    if index < 0 or index >= length(floor.walls) do
-      {:noreply, socket}
-    else
-      wall = %{
-        "x1" => to_float(x1),
-        "y1" => to_float(y1),
-        "x2" => to_float(x2),
-        "y2" => to_float(y2)
-      }
-
-      walls = List.replace_at(floor.walls, index, wall)
-      socket = push_undo_snapshot(socket)
-
-      case FloorPlans.set_walls(floor, walls) do
-        {:ok, updated} ->
-          {:noreply, refresh_selected_floor(socket, updated)}
-
-        {:error, _} ->
-          {:noreply, pop_failed_undo(socket)}
-      end
-    end
-  end
-
   def handle_event("polygon_placed", %{"location_id" => location_id, "points" => points}, socket) do
     place_polygon(socket, location_id, points)
-  end
-
-  def handle_event("polygon_moved", %{"location_id" => location_id, "points" => points}, socket) do
-    move_polygon(socket, location_id, points)
   end
 
   def handle_event("unplace_location", %{"id" => location_id}, socket) do
@@ -736,30 +681,6 @@ defmodule PinventoryWeb.FloorPlanLive do
            |> assign(:existing_points_json, points_json)
            |> assign(:placing_location_id, location_id)
            |> assign(:mode, "place")}
-
-        {:error, _} ->
-          {:noreply, pop_failed_undo(socket)}
-      end
-    end
-  end
-
-  defp move_polygon(socket, location_id, points) do
-    normalized = normalize_event_points(points)
-
-    if length(normalized) < 3 do
-      {:noreply, socket}
-    else
-      socket = push_undo_snapshot(socket)
-
-      case FloorPlans.place_location(socket.assigns.selected_floor, location_id, normalized) do
-        {:ok, _placement} ->
-          floor = FloorPlans.get_floor!(socket.assigns.selected_floor.id)
-
-          {:noreply,
-           socket
-           |> refresh_selected_floor(floor)
-           |> assign(:selected_placement_id, location_id)
-           |> assign_location_lists()}
 
         {:error, _} ->
           {:noreply, pop_failed_undo(socket)}

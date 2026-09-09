@@ -35,7 +35,6 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, "#floor-plan-wall-tools")
     assert has_element?(view, "#tool-wall")
     assert has_element?(view, "#tool-erase")
-    assert has_element?(view, "#tool-move")
     refute has_element?(view, "#tool-place")
     assert has_element?(view, "#history-undo")
     assert has_element?(view, "#history-redo")
@@ -228,80 +227,6 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     |> render_submit()
 
     assert has_element?(view, "#floor-tabs", "Basement")
-  end
-
-  test "move tool selects move mode without a location drawing tool", %{conn: conn, scope: scope} do
-    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, _} = FloorPlans.create_floor_plan()
-    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
-
-    view |> element("#place-location-#{garage.id}") |> render_click()
-    assert has_element?(view, "#floor-plan-canvas[data-mode=place]")
-
-    view |> element("#tool-move") |> render_click()
-
-    assert has_element?(view, "#floor-plan-canvas[data-mode=move]")
-    html = render(view)
-    assert html =~ ~s|data-location-id=""|
-  end
-
-  test "wall_moved updates a wall segment and supports undo", %{conn: conn} do
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor = hd(plan.floors)
-
-    assert {:ok, _} =
-             FloorPlans.add_wall(floor, %{"x1" => 0.1, "y1" => 0.2, "x2" => 0.8, "y2" => 0.2})
-
-    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
-
-    view
-    |> element("#floor-plan-canvas")
-    |> render_hook("wall_moved", %{
-      "index" => 0,
-      "x1" => 0.15,
-      "y1" => 0.25,
-      "x2" => 0.85,
-      "y2" => 0.25
-    })
-
-    assert [%{"x1" => 0.15, "y1" => 0.25, "x2" => 0.85, "y2" => 0.25}] =
-             hd(FloorPlans.get_floor_plan().floors).walls
-
-    view |> element("#history-undo") |> render_click()
-
-    assert [%{"x1" => 0.1, "y1" => 0.2, "x2" => 0.8, "y2" => 0.2}] =
-             hd(FloorPlans.get_floor_plan().floors).walls
-  end
-
-  test "polygon_moved translates placement points and keeps move mode", %{
-    conn: conn,
-    scope: scope
-  } do
-    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor = hd(plan.floors)
-    assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
-
-    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
-    view |> element("#tool-move") |> render_click()
-    assert has_element?(view, "#floor-plan-canvas[data-mode=move]")
-
-    moved = [
-      %{"x" => 0.2, "y" => 0.2},
-      %{"x" => 0.5, "y" => 0.2},
-      %{"x" => 0.5, "y" => 0.5}
-    ]
-
-    view
-    |> element("#floor-plan-canvas")
-    |> render_hook("polygon_moved", %{
-      "location_id" => garage.id,
-      "points" => moved
-    })
-
-    garage_id = garage.id
-    assert %{^garage_id => %{points: ^moved}} = FloorPlans.placement_index()
-    assert has_element?(view, "#floor-plan-canvas[data-mode=move]")
   end
 
   test "deletes the floor plan and returns to locations", %{conn: conn, scope: scope} do
