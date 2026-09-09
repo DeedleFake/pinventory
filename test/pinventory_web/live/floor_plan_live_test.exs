@@ -172,7 +172,13 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     html = render(view)
     assert html =~ ~s|data-location-id=""|
     assert html =~ "placement-label-badge"
-    assert html =~ "is-list-hover"
+    assert html =~ "foreignObject"
+    assert html =~ "placement-label-text"
+    assert has_element?(view, ~s|#placeable-locations[phx-hook="PlacementListHover"]|)
+    assert has_element?(view, ~s|#place-location-#{garage.id}.cursor-not-allowed|)
+    refute has_element?(view, ~s|#place-location-#{garage.id}.opacity-60|)
+    assert html =~ "bg-primary/15"
+    assert html =~ "Here"
   end
 
   test "location placed on another floor switches to that floor", %{

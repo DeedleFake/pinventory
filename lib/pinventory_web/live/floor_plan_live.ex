@@ -140,6 +140,7 @@ defmodule PinventoryWeb.FloorPlanLive do
 
               <ul
                 id="placeable-locations"
+                phx-hook="PlacementListHover"
                 class="flex max-h-[min(32rem,55vh)] flex-col gap-1 overflow-y-auto lg:max-h-none lg:flex-1"
               >
                 <li
@@ -151,16 +152,6 @@ defmodule PinventoryWeb.FloorPlanLive do
                 <li
                   :for={location <- @locations}
                   data-location-id={location.id}
-                  phx-mouseenter={
-                    if location_placed_on_floor?(location.id, @selected_floor) do
-                      JS.add_class("is-list-hover", to: "#placement-group-#{location.id}")
-                    end
-                  }
-                  phx-mouseleave={
-                    if location_placed_on_floor?(location.id, @selected_floor) do
-                      JS.remove_class("is-list-hover", to: "#placement-group-#{location.id}")
-                    end
-                  }
                   class={[
                     "flex items-stretch overflow-hidden rounded-lg border",
                     @mode == "place" && @placing_location_id == location.id &&
@@ -195,9 +186,9 @@ defmodule PinventoryWeb.FloorPlanLive do
                     phx-click="select_floor"
                     phx-value-id={@placement_by_location[location.id].floor_id}
                     title={"Go to #{@placement_by_location[location.id].floor_name}"}
-                    class="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left text-sm transition-colors"
+                    class="flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left text-sm opacity-70 transition-colors"
                   >
-                    <span class="min-w-0 flex-1 truncate font-medium">{location.name}</span>
+                    <span class="min-w-0 flex-1 truncate">{location.name}</span>
                     <span class="shrink-0 rounded-full bg-base-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">
                       {floor_label(@placement_by_location[location.id], @selected_floor.id)}
                     </span>
@@ -206,11 +197,11 @@ defmodule PinventoryWeb.FloorPlanLive do
                     :if={location_placed_on_floor?(location.id, @selected_floor)}
                     id={"place-location-#{location.id}"}
                     aria-disabled="true"
-                    class="flex min-w-0 flex-1 cursor-not-allowed items-center gap-2 px-2.5 py-2 text-left text-sm opacity-60"
+                    class="flex min-w-0 flex-1 cursor-not-allowed items-center gap-2 px-2.5 py-2 text-left text-sm"
                   >
                     <span class="min-w-0 flex-1 truncate font-medium">{location.name}</span>
-                    <span class="shrink-0 rounded-full bg-base-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">
-                      {floor_label(@placement_by_location[location.id], @selected_floor.id)}
+                    <span class="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                      Here
                     </span>
                   </div>
                   <button

@@ -172,12 +172,22 @@
 }
 
 .placement-label-text {
-  fill: var(--color-base-content);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 0.004px;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+  /* foreignObject maps CSS px 1:1 to SVG user units in the unit-square viewBox */
+  font-size: 0.011px;
   font-weight: 600;
   letter-spacing: -0.02em;
-  paint-order: stroke;
-  stroke: color-mix(in oklab, var(--color-base-100) 88%, transparent);
-  stroke-width: 0.004px;
+  line-height: 1;
+  color: var(--color-base-content);
   transition: opacity 140ms ease;
 }
 

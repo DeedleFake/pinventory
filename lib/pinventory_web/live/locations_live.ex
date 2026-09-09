@@ -290,58 +290,51 @@ defmodule PinventoryWeb.LocationsLive do
 
   defp locations_list(assigns) do
     ~H"""
-    <div id="locations" class="flex flex-col gap-1" phx-update="stream">
-      <div
-        id="locations-empty"
-        class="hidden only:block rounded-xl border border-base-300 px-3 py-8 text-center text-sm opacity-60"
-      >
-        No locations yet. Add one above.
-      </div>
+    <div id="locations-list-hover" phx-hook="PlacementListHover">
+      <div id="locations" class="flex flex-col gap-1" phx-update="stream">
+        <div
+          id="locations-empty"
+          class="hidden only:block rounded-xl border border-base-300 px-3 py-8 text-center text-sm opacity-60"
+        >
+          No locations yet. Add one above.
+        </div>
 
-      <.link
-        :for={{id, location} <- @streams.locations}
-        navigate={~p"/location/#{location.id}"}
-        id={id}
-        phx-mouseenter={
-          if location_on_selected_floor?(location.id, @selected_floor, @placement_by_location) do
-            JS.add_class("is-list-hover", to: "#placement-group-#{location.id}")
-          end
-        }
-        phx-mouseleave={
-          if location_on_selected_floor?(location.id, @selected_floor, @placement_by_location) do
-            JS.remove_class("is-list-hover", to: "#placement-group-#{location.id}")
-          end
-        }
-        class={[
-          "flex items-center gap-3 rounded-xl border border-base-300 bg-base-100 p-3",
-          "transition-all hover:border-base-content/20 hover:bg-base-200/40"
-        ]}
-      >
-        <div class="min-w-0 flex-1">
-          <div class="truncate font-medium">{location.name}</div>
-          <div :if={@floor_plan} class="mt-0.5 flex flex-wrap items-center gap-1.5">
-            <span
-              :if={location.on_plan?}
-              id={"#{id}-floor"}
-              class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
-            >
-              <.icon name="hero-map" class="size-3" />
-              {location.floor_name}
-            </span>
-            <span
-              :if={not location.on_plan?}
-              id={"#{id}-not-on-plan"}
-              class="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning"
-            >
-              <.icon name="hero-exclamation-triangle" class="size-3" /> Not on plan
-            </span>
+        <.link
+          :for={{id, location} <- @streams.locations}
+          navigate={~p"/location/#{location.id}"}
+          id={id}
+          data-location-id={location.id}
+          class={[
+            "flex items-center gap-3 rounded-xl border border-base-300 bg-base-100 p-3",
+            "transition-all hover:border-base-content/20 hover:bg-base-200/40"
+          ]}
+        >
+          <div class="min-w-0 flex-1">
+            <div class="truncate font-medium">{location.name}</div>
+            <div :if={@floor_plan} class="mt-0.5 flex flex-wrap items-center gap-1.5">
+              <span
+                :if={location.on_plan?}
+                id={"#{id}-floor"}
+                class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
+              >
+                <.icon name="hero-map" class="size-3" />
+                {location.floor_name}
+              </span>
+              <span
+                :if={not location.on_plan?}
+                id={"#{id}-not-on-plan"}
+                class="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning"
+              >
+                <.icon name="hero-exclamation-triangle" class="size-3" /> Not on plan
+              </span>
+            </div>
           </div>
-        </div>
-        <div id={"#{id}-item-count"} class="shrink-0 text-sm tabular-nums opacity-70">
-          {item_count_label(location.item_count || 0)}
-        </div>
-        <.icon name="hero-chevron-right" class="size-4 shrink-0 opacity-40" />
-      </.link>
+          <div id={"#{id}-item-count"} class="shrink-0 text-sm tabular-nums opacity-70">
+            {item_count_label(location.item_count || 0)}
+          </div>
+          <.icon name="hero-chevron-right" class="size-4 shrink-0 opacity-40" />
+        </.link>
+      </div>
     </div>
     """
   end
@@ -491,15 +484,6 @@ defmodule PinventoryWeb.LocationsLive do
   end
 
   defp locations_floor_path(floor_id), do: ~p"/locations/#{floor_id}"
-
-  defp location_on_selected_floor?(_location_id, nil, _placement_by_location), do: false
-
-  defp location_on_selected_floor?(location_id, selected_floor, placement_by_location) do
-    case Map.get(placement_by_location, location_id) do
-      %{floor_id: floor_id} -> floor_id == selected_floor.id
-      _ -> false
-    end
-  end
 
   defp floors_top_first(floors) when is_list(floors) do
     Enum.sort_by(floors, & &1.position, :desc)

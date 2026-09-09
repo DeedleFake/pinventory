@@ -252,8 +252,10 @@ defmodule PinventoryWeb.LocationsLiveTest do
     {:ok, view, html} = live(conn, ~p"/locations/#{floor.id}")
 
     assert html =~ ~s|id="location-#{garage.id}"|
-    assert html =~ "is-list-hover"
+    assert html =~ ~s|data-location-id="#{garage.id}"|
+    assert has_element?(view, ~s|#locations-list-hover[phx-hook="PlacementListHover"]|)
     assert has_element?(view, "#placement-group-#{garage.id}")
     assert has_element?(view, ~s|#placement-group-#{garage.id}[phx-click]|)
+    assert html =~ "foreignObject"
   end
 end

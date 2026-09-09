@@ -23,7 +23,7 @@ defmodule PinventoryWeb.FloorPlanComponents do
     name = (assigns.placement.location && assigns.placement.location.name) || ""
     label = label_text(name)
     badge_w = label_badge_width(label)
-    badge_h = 0.022
+    badge_h = 0.024
 
     assigns =
       assigns
@@ -92,15 +92,11 @@ defmodule PinventoryWeb.FloorPlanComponents do
           rx={@badge_h / 2}
           ry={@badge_h / 2}
         />
-        <text
-          class="placement-label-text"
-          text-anchor="middle"
-          dominant-baseline="middle"
-          y="0.001"
-          font-size="0.016"
-        >
-          {@label}
-        </text>
+        <foreignObject x={@badge_x} y={@badge_y} width={@badge_w} height={@badge_h}>
+          <div xmlns="http://www.w3.org/1999/xhtml" class="placement-label-text">
+            {@label}
+          </div>
+        </foreignObject>
       </g>
     </g>
     """
@@ -119,10 +115,10 @@ defmodule PinventoryWeb.FloorPlanComponents do
   defp label_text(_), do: ""
 
   defp label_badge_width(text) when is_binary(text) do
-    # font-size 0.016 in unit square; ~0.52em average glyph width + horizontal padding
-    char_w = 0.016 * 0.52
-    pad = 0.014
-    max(0.032, String.length(text) * char_w + pad)
+    # foreignObject label ~font-size 0.011 in unit square; ~0.55em avg glyph + pad
+    char_w = 0.011 * 0.55
+    pad = 0.012
+    max(0.036, String.length(text) * char_w + pad)
   end
 
   defp placement_edges(points) when is_list(points) and length(points) >= 2 do
