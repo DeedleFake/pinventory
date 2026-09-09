@@ -104,10 +104,14 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, ~s|#place-location-#{garage.id}[aria-disabled]|)
     refute has_element?(view, ~s|#place-location-#{garage.id}[phx-click]|)
     assert has_element?(view, "#unplace-location-#{garage.id}")
+    assert has_element?(view, "#placement-group-#{garage.id}")
+    assert has_element?(view, ~s|#placeable-locations li[data-location-id="#{garage.id}"]|)
 
     assert has_element?(view, "#floor-plan-canvas[data-mode=wall]")
     html = render(view)
     assert html =~ ~s|data-location-id=""|
+    assert html =~ "placement-label-badge"
+    assert html =~ "is-list-hover"
   end
 
   test "location placed on another floor switches to that floor", %{

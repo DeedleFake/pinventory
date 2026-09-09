@@ -149,3 +149,68 @@
     0 8px 10px -6px rgb(0 0 0 / 0.15);
   border-radius: 0.5rem;
 }
+
+/* Floor-plan placement areas + in-polygon labels */
+.placement-area {
+  fill: color-mix(in oklab, var(--color-primary) 18%, transparent);
+  stroke-width: 0.005;
+  opacity: 0.92;
+  transition:
+    fill 140ms ease,
+    stroke-width 140ms ease,
+    opacity 140ms ease;
+}
+
+.placement-label-badge {
+  fill: color-mix(in oklab, var(--color-primary) 28%, var(--color-base-100));
+  stroke: color-mix(in oklab, var(--color-primary) 70%, transparent);
+  stroke-width: 0.0022;
+  transition:
+    fill 140ms ease,
+    stroke 140ms ease,
+    stroke-width 140ms ease;
+}
+
+.placement-label-text {
+  fill: var(--color-base-content);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  paint-order: stroke;
+  stroke: color-mix(in oklab, var(--color-base-100) 88%, transparent);
+  stroke-width: 0.004px;
+  transition: opacity 140ms ease;
+}
+
+.placement-group.is-list-hover > .placement-area,
+.placement-group.is-highlighted > .placement-area {
+  fill: color-mix(in oklab, var(--color-primary) 34%, transparent);
+  stroke-width: 0.0085;
+  opacity: 1;
+}
+
+.placement-group.is-list-hover .placement-label-badge,
+.placement-group.is-highlighted .placement-label-badge {
+  fill: color-mix(in oklab, var(--color-primary) 42%, var(--color-base-100));
+  stroke: var(--color-primary);
+  stroke-width: 0.0028;
+}
+
+.placement-group.is-selected > .placement-area {
+  fill: color-mix(in oklab, var(--color-primary) 42%, transparent);
+  stroke-width: 0.01;
+  opacity: 1;
+}
+
+.placement-group.is-selected .placement-label-badge {
+  fill: color-mix(in oklab, var(--color-primary) 52%, var(--color-base-100));
+  stroke: var(--color-primary);
+  stroke-width: 0.0032;
+}
+
+.placement-group.is-dimmed {
+  opacity: 0.38;
+}
+
+.placement-group.is-dimmed .placement-label-text {
+  opacity: 0.75;
+}

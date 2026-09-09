@@ -5,6 +5,8 @@ defmodule PinventoryWeb.LocationsLive do
   alias Pinventory.Locations
   alias Pinventory.Locations.Location
 
+  import PinventoryWeb.FloorPlanComponents
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -73,39 +75,16 @@ defmodule PinventoryWeb.LocationsLive do
               class="h-full w-full rounded-lg text-base-content"
             >
               <rect x="0" y="0" width="1" height="1" class="fill-base-100" />
-              <g :for={placement <- @preview_floor.location_placements}>
-                <polygon
-                  id={"preview-placement-#{placement.location_id}"}
-                  data-placement-location-id={placement.location_id}
-                  points={FloorPlans.polygon_points_attr(placement.points)}
-                  class={[
-                    "stroke-primary transition-all duration-150",
-                    @highlighted_location_id == placement.location_id &&
-                      "fill-primary/45 opacity-100",
-                    @highlighted_location_id != placement.location_id &&
-                      @highlighted_location_id != nil && "fill-primary/10 opacity-40",
-                    @highlighted_location_id == nil && "fill-primary/25 opacity-90"
-                  ]}
-                  stroke-width={
-                    if(@highlighted_location_id == placement.location_id, do: "0.01", else: "0.006")
-                  }
-                />
-                <text
-                  x={placement_label_x(placement.points)}
-                  y={placement_label_y(placement.points)}
-                  text-anchor="middle"
-                  dominant-baseline="middle"
-                  font-size="0.035"
-                  class={[
-                    "fill-base-content pointer-events-none",
-                    @highlighted_location_id != nil &&
-                      @highlighted_location_id != placement.location_id && "opacity-30"
-                  ]}
-                  style="paint-order: stroke; stroke: var(--color-base-100, #fff); stroke-width: 0.01px;"
-                >
-                  {placement.location && placement.location.name}
-                </text>
-              </g>
+              <.placement_area
+                :for={placement <- @preview_floor.location_placements}
+                placement={placement}
+                polygon_dom_id={"preview-placement-#{placement.location_id}"}
+                highlighted?={@highlighted_location_id == placement.location_id}
+                dimmed?={
+                  @highlighted_location_id != nil and
+                    @highlighted_location_id != placement.location_id
+                }
+              />
               <line
                 :for={wall <- @preview_floor.walls}
                 x1={wall["x1"]}
@@ -363,7 +342,4 @@ defmodule PinventoryWeb.LocationsLive do
       []
     end
   end
-
-  defp placement_label_x(points), do: elem(FloorPlans.polygon_centroid(points), 0)
-  defp placement_label_y(points), do: elem(FloorPlans.polygon_centroid(points), 1)
 end

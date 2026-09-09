@@ -4,6 +4,8 @@ defmodule PinventoryWeb.FloorPlanLive do
   alias Pinventory.FloorPlans
   alias Pinventory.FloorPlans.Floor
 
+  import PinventoryWeb.FloorPlanComponents
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -148,6 +150,17 @@ defmodule PinventoryWeb.FloorPlanLive do
                 </li>
                 <li
                   :for={location <- @locations}
+                  data-location-id={location.id}
+                  phx-mouseenter={
+                    if location_placed_on_floor?(location.id, @selected_floor) do
+                      JS.add_class("is-list-hover", to: "#placement-group-#{location.id}")
+                    end
+                  }
+                  phx-mouseleave={
+                    if location_placed_on_floor?(location.id, @selected_floor) do
+                      JS.remove_class("is-list-hover", to: "#placement-group-#{location.id}")
+                    end
+                  }
                   class={[
                     "flex items-stretch overflow-hidden rounded-lg border",
                     @mode == "place" && @placing_location_id == location.id &&
@@ -283,51 +296,12 @@ defmodule PinventoryWeb.FloorPlanLive do
                 stroke="none"
               />
 
-              <g :for={placement <- @selected_floor.location_placements}>
-                <polygon
-                  data-placement-location-id={placement.location_id}
-                  points={FloorPlans.polygon_points_attr(placement.points)}
-                  class={[
-                    "stroke-primary transition-opacity",
-                    @selected_placement_id == placement.location_id &&
-                      "fill-primary/35 opacity-100",
-                    @selected_placement_id != placement.location_id &&
-                      "fill-primary/20 opacity-90"
-                  ]}
-                  stroke-width="0.006"
-                />
-                <g data-placement-snap={placement.location_id} class="pointer-events-none">
-                  <line
-                    :for={edge <- placement_edges(placement.points)}
-                    data-snap-edge
-                    x1={edge.x1}
-                    y1={edge.y1}
-                    x2={edge.x2}
-                    y2={edge.y2}
-                    stroke="transparent"
-                    stroke-width="0.001"
-                  />
-                  <circle
-                    :for={vertex <- placement.points}
-                    data-snap-vertex
-                    cx={point_x(vertex)}
-                    cy={point_y(vertex)}
-                    r="0.001"
-                    class="fill-transparent"
-                  />
-                </g>
-                <text
-                  x={placement_label_x(placement.points)}
-                  y={placement_label_y(placement.points)}
-                  text-anchor="middle"
-                  dominant-baseline="middle"
-                  font-size="0.04"
-                  class="fill-base-content pointer-events-none"
-                  style="paint-order: stroke; stroke: var(--color-base-100, #fff); stroke-width: 0.012px;"
-                >
-                  {placement.location && placement.location.name}
-                </text>
-              </g>
+              <.placement_area
+                :for={placement <- @selected_floor.location_placements}
+                placement={placement}
+                selected?={@selected_placement_id == placement.location_id}
+                show_snap?={true}
+              />
 
               <g :for={{wall, index} <- Enum.with_index(@selected_floor.walls)}>
                 <line
@@ -956,27 +930,6 @@ defmodule PinventoryWeb.FloorPlanLive do
         {"new", "[]"}
     end
   end
-
-  defp placement_edges(points) when is_list(points) and length(points) >= 2 do
-    points
-    |> Enum.chunk_every(2, 1, [hd(points)])
-    |> Enum.map(fn [a, b] ->
-      %{x1: point_x(a), y1: point_y(a), x2: point_x(b), y2: point_y(b)}
-    end)
-  end
-
-  defp placement_edges(_), do: []
-
-  defp point_x(point) when is_map(point) do
-    to_float(Map.get(point, "x") || Map.get(point, :x))
-  end
-
-  defp point_y(point) when is_map(point) do
-    to_float(Map.get(point, "y") || Map.get(point, :y))
-  end
-
-  defp placement_label_x(points), do: elem(FloorPlans.polygon_centroid(points), 0)
-  defp placement_label_y(points), do: elem(FloorPlans.polygon_centroid(points), 1)
 
   defp floors_top_first(floors) when is_list(floors) do
     Enum.sort_by(floors, & &1.position, :desc)
