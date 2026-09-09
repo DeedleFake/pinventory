@@ -17,6 +17,10 @@
  * Hold Ctrl/Meta to place at raw canvas coords (no snap); preview follows.
  * Draft corners dedupe within SNAP_DISTANCE so near-clicks reuse an existing vertex.
  * Polygon finish: close on a different vertex, double-click, or Done (adjacent auto); Escape cancels.
+ *
+ * Camera: fixed unit-square world (0–1). SVG viewBox is the viewport (zoom/pan).
+ * Wheel zooms toward cursor; Space+drag or middle-mouse pans; Reset view restores fit.
+ * preserveAspectRatio meet keeps the world square (no window stretch).
  */
 import {
   mergeExtension as mergeExtensionGeometry,
@@ -27,40 +31,60 @@ import {
 const MIN_WALL_LENGTH = 0.02
 const SNAP_DISTANCE = 0.03
 const CLOSE_DISTANCE = 0.025
+const MIN_VIEW_SIZE = 0.12
+const MAX_VIEW_SIZE = 2.5
 
 const FloorPlanCanvas = {
   mounted() {
     this.svg = this.el.querySelector("[data-floor-plan-svg]")
     this.finishBtn = this.el.querySelector("[data-polygon-finish]")
+    this.resetBtn = this.el.querySelector("[data-zoom-reset]")
     this.draftWall = null
     this.draftPolygon = null
     this.snapPoint = null
     this.lastRawPoint = null
+    this.spaceHeld = false
+    this.panning = false
+    this.panLast = null
+    this.camera = {x: 0, y: 0, size: 1}
     this.syncFromEl()
+    this.applyCamera()
 
     this.onPointerDown = (event) => this.handlePointerDown(event)
     this.onPointerMove = (event) => this.handlePointerMove(event)
+    this.onPointerUp = (event) => this.handlePointerUp(event)
     this.onDblClick = (event) => this.handleDblClick(event)
     this.onKeyDown = (event) => this.handleKeyDown(event)
     this.onKeyUp = (event) => this.handleKeyUp(event)
+    this.onWheel = (event) => this.handleWheel(event)
     this.onFinishClick = (event) => {
       event.preventDefault()
       event.stopPropagation()
       this.finishPolygon()
     }
+    this.onResetClick = (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      this.resetCamera()
+    }
 
     this.svg.addEventListener("pointerdown", this.onPointerDown)
     this.svg.addEventListener("dblclick", this.onDblClick)
+    this.el.addEventListener("wheel", this.onWheel, {passive: false})
     window.addEventListener("pointermove", this.onPointerMove)
+    window.addEventListener("pointerup", this.onPointerUp)
+    window.addEventListener("pointercancel", this.onPointerUp)
     window.addEventListener("keydown", this.onKeyDown)
     window.addEventListener("keyup", this.onKeyUp)
     if (this.finishBtn) this.finishBtn.addEventListener("click", this.onFinishClick)
+    if (this.resetBtn) this.resetBtn.addEventListener("click", this.onResetClick)
 
     if (!this.el.hasAttribute("tabindex")) {
       this.el.setAttribute("tabindex", "0")
     }
 
     this.updateFinishButton()
+    this.updatePanCursor()
   },
 
   updated() {
@@ -82,6 +106,7 @@ const FloorPlanCanvas = {
       this.draftWall = null
       this.draftPolygon = null
       this.snapPoint = null
+      this.applyCamera()
     }
 
     const nextFinish = this.el.querySelector("[data-polygon-finish]")
@@ -90,11 +115,21 @@ const FloorPlanCanvas = {
       this.finishBtn = nextFinish
       if (this.finishBtn) this.finishBtn.addEventListener("click", this.onFinishClick)
     }
+
+    const nextReset = this.el.querySelector("[data-zoom-reset]")
+    if (nextReset !== this.resetBtn) {
+      if (this.resetBtn) this.resetBtn.removeEventListener("click", this.onResetClick)
+      this.resetBtn = nextReset
+      if (this.resetBtn) this.resetBtn.addEventListener("click", this.onResetClick)
+    }
+
     this.syncFromEl()
+    this.applyCamera()
     if (this.draftPolygon) this.drawPolygonDraft()
     if (this.draftWall) this.drawWallDraft()
     this.drawSnapIndicator()
     this.updateFinishButton()
+    this.updatePanCursor()
   },
 
   destroyed() {
@@ -102,10 +137,14 @@ const FloorPlanCanvas = {
       this.svg.removeEventListener("pointerdown", this.onPointerDown)
       this.svg.removeEventListener("dblclick", this.onDblClick)
     }
+    this.el.removeEventListener("wheel", this.onWheel)
     window.removeEventListener("pointermove", this.onPointerMove)
+    window.removeEventListener("pointerup", this.onPointerUp)
+    window.removeEventListener("pointercancel", this.onPointerUp)
     window.removeEventListener("keydown", this.onKeyDown)
     window.removeEventListener("keyup", this.onKeyUp)
     if (this.finishBtn) this.finishBtn.removeEventListener("click", this.onFinishClick)
+    if (this.resetBtn) this.resetBtn.removeEventListener("click", this.onResetClick)
     this.clearWallDraft()
     this.clearPolygonDraft()
     this.clearSnapIndicator()
@@ -154,6 +193,14 @@ const FloorPlanCanvas = {
     }
 
     if (!this.isEditorHotkeyTarget(event)) return
+
+    if (event.code === "Space" && !event.repeat) {
+      // Space+drag pans without starting a wall/place click.
+      event.preventDefault()
+      this.spaceHeld = true
+      this.updatePanCursor()
+      return
+    }
 
     const meta = event.ctrlKey || event.metaKey
     if (!meta) {
@@ -214,6 +261,10 @@ const FloorPlanCanvas = {
     if (event.key === "Control" || event.key === "Meta") {
       this.refreshPointerFromModifiers(event)
     }
+    if (event.code === "Space") {
+      this.spaceHeld = false
+      if (!this.panning) this.updatePanCursor()
+    }
   },
 
   /** True when Ctrl or Meta is held — placement uses raw canvas coords. */
@@ -268,8 +319,17 @@ const FloorPlanCanvas = {
   },
 
   handlePointerDown(event) {
-    if (event.button !== 0) return
     if (event.target.closest("[data-polygon-finish]")) return
+    if (event.target.closest("[data-zoom-reset]")) return
+
+    // Middle mouse, or Space + primary button: pan the camera.
+    if (event.button === 1 || (event.button === 0 && this.spaceHeld)) {
+      event.preventDefault()
+      this.startPan(event)
+      return
+    }
+
+    if (event.button !== 0) return
 
     if (this.mode === "erase") {
       const wallEl = event.target.closest("[data-wall-index]")
@@ -427,6 +487,24 @@ const FloorPlanCanvas = {
   },
 
   handlePointerMove(event) {
+    if (this.panning && this.panLast) {
+      event.preventDefault()
+      const dx = event.clientX - this.panLast.x
+      const dy = event.clientY - this.panLast.y
+      this.panLast = {x: event.clientX, y: event.clientY}
+
+      const rect = this.svg.getBoundingClientRect()
+      const pixelSize = Math.min(rect.width, rect.height)
+      if (pixelSize > 0) {
+        const scale = this.camera.size / pixelSize
+        this.camera.x -= dx * scale
+        this.camera.y -= dy * scale
+        this.clampCamera()
+        this.applyCamera()
+      }
+      return
+    }
+
     if (!(this.mode === "wall" || (this.mode === "place" && this.locationId))) {
       this.clearSnapIndicator()
       return
@@ -499,12 +577,100 @@ const FloorPlanCanvas = {
   },
 
   eventToUnit(event) {
-    if (!event) return null
-    const rect = this.svg.getBoundingClientRect()
-    if (rect.width <= 0 || rect.height <= 0) return null
-    const x = (event.clientX - rect.left) / rect.width
-    const y = (event.clientY - rect.top) / rect.height
-    return {x: clamp01(x), y: clamp01(y)}
+    const point = this.clientToWorld(event && event.clientX, event && event.clientY)
+    if (!point) return null
+    return {x: clamp01(point.x), y: clamp01(point.y)}
+  },
+
+  /**
+   * Screen → world via SVG CTM (honors viewBox zoom/pan + meet letterboxing).
+   * Unclamped so zoom-toward-cursor math can use points outside 0–1.
+   */
+  clientToWorld(clientX, clientY) {
+    if (!this.svg || clientX == null || clientY == null) return null
+    const ctm = this.svg.getScreenCTM()
+    if (!ctm) return null
+    const pt = this.svg.createSVGPoint()
+    pt.x = clientX
+    pt.y = clientY
+    const world = pt.matrixTransform(ctm.inverse())
+    if (!Number.isFinite(world.x) || !Number.isFinite(world.y)) return null
+    return {x: world.x, y: world.y}
+  },
+
+  applyCamera() {
+    if (!this.svg || !this.camera) return
+    const {x, y, size} = this.camera
+    this.svg.setAttribute("viewBox", `${x} ${y} ${size} ${size}`)
+  },
+
+  resetCamera() {
+    this.camera = {x: 0, y: 0, size: 1}
+    this.applyCamera()
+  },
+
+  clampCamera() {
+    const cam = this.camera
+    const size = Math.max(MIN_VIEW_SIZE, Math.min(MAX_VIEW_SIZE, cam.size))
+    cam.size = size
+    // Keep some of the unit square visible.
+    const minCoord = -size * 0.85
+    const maxCoord = 1 - size * 0.15
+    cam.x = Math.max(minCoord, Math.min(cam.x, maxCoord))
+    cam.y = Math.max(minCoord, Math.min(cam.y, maxCoord))
+  },
+
+  handleWheel(event) {
+    if (!this.svg) return
+    event.preventDefault()
+
+    const world = this.clientToWorld(event.clientX, event.clientY)
+    if (!world) return
+
+    const direction = event.deltaY < 0 ? -1 : 1
+    // Trackpads can send small deltas; normalize toward discrete steps.
+    const intensity = Math.min(1.5, Math.abs(event.deltaY) / 100)
+    const factor = direction < 0 ? Math.pow(0.9, intensity) : Math.pow(1.1, intensity)
+    const prev = this.camera.size
+    const next = Math.max(MIN_VIEW_SIZE, Math.min(MAX_VIEW_SIZE, prev * factor))
+    if (next === prev) return
+
+    const tX = (world.x - this.camera.x) / prev
+    const tY = (world.y - this.camera.y) / prev
+    this.camera.size = next
+    this.camera.x = world.x - tX * next
+    this.camera.y = world.y - tY * next
+    this.clampCamera()
+    this.applyCamera()
+  },
+
+  startPan(event) {
+    this.panning = true
+    this.panLast = {x: event.clientX, y: event.clientY}
+    this.updatePanCursor()
+    try {
+      this.svg.setPointerCapture(event.pointerId)
+    } catch (_err) {
+      /* ignore */
+    }
+  },
+
+  handlePointerUp(_event) {
+    if (!this.panning) return
+    this.panning = false
+    this.panLast = null
+    this.updatePanCursor()
+  },
+
+  updatePanCursor() {
+    if (!this.el) return
+    if (this.panning) {
+      this.el.style.cursor = "grabbing"
+    } else if (this.spaceHeld) {
+      this.el.style.cursor = "grab"
+    } else {
+      this.el.style.cursor = ""
+    }
   },
 
   /**

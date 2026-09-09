@@ -69,7 +69,7 @@ defmodule PinventoryWeb.LocationsLive do
             <svg
               id="floor-plan-preview-svg"
               viewBox="0 0 1 1"
-              preserveAspectRatio="none"
+              preserveAspectRatio="xMidYMid meet"
               class="h-full w-full rounded-lg text-base-content"
             >
               <rect x="0" y="0" width="1" height="1" class="fill-base-100" />

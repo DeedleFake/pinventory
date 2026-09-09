@@ -42,8 +42,13 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, "#history-undo")
     assert has_element?(view, "#history-redo")
     assert has_element?(view, "#polygon-finish")
+    assert has_element?(view, "#floor-plan-zoom-reset")
+    assert has_element?(view, "#floor-plan-view-chrome")
+    assert html =~ ~s|preserveAspectRatio="xMidYMid meet"|
+    refute html =~ ~s|preserveAspectRatio="none"|
     assert has_element?(view, "#floor-rail")
     assert has_element?(view, "#floor-rail-list[phx-hook=FloorRailSort]")
+    refute has_element?(view, ~s|#floor-drag-#{floor.id}[draggable]|)
     assert has_element?(view, "#floor-rail-item-#{floor.id}")
     assert has_element?(view, "#floor-tab-#{floor.id}", "Floor 1")
     assert has_element?(view, "#floor-add")
@@ -352,7 +357,8 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     # Highest floor (Floor 2) is listed first in the rail.
     html = render(view)
     assert html =~ ~r/floor-rail-item-#{floor2.id}[\s\S]*floor-rail-item-#{floor1.id}/
-    assert has_element?(view, "#floor-drag-#{floor1.id}[data-floor-handle][draggable]")
+    assert has_element?(view, "#floor-drag-#{floor1.id}[data-floor-handle]")
+    refute has_element?(view, ~s|#floor-drag-#{floor1.id}[draggable]|)
     refute has_element?(view, "#floor-move-up-#{floor1.id}")
 
     # Highest-first order with Floor 1 on top (position becomes higher).

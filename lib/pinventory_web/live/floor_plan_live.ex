@@ -235,6 +235,24 @@ defmodule PinventoryWeb.FloorPlanLive do
             ]}
           >
             <div
+              id="floor-plan-view-chrome"
+              class="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2"
+            >
+              <button
+                type="button"
+                id="floor-plan-zoom-reset"
+                data-zoom-reset
+                class="btn btn-sm btn-ghost border border-base-300 bg-base-100/90 pointer-events-auto shadow-md"
+                title="Reset zoom (fits floor)"
+              >
+                <.icon name="hero-arrows-pointing-out" class="size-4" /> Reset view
+              </button>
+              <span class="hidden rounded-md border border-base-300 bg-base-100/80 px-2 py-1 text-[10px] opacity-70 sm:inline">
+                Wheel zoom · Space/middle-drag pan
+              </span>
+            </div>
+
+            <div
               id="polygon-finish-bar"
               class="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-2"
             >
@@ -253,7 +271,7 @@ defmodule PinventoryWeb.FloorPlanLive do
               data-floor-plan-svg
               id={"floor-svg-#{@selected_floor.id}"}
               viewBox="0 0 1 1"
-              preserveAspectRatio="none"
+              preserveAspectRatio="xMidYMid meet"
               class="h-full w-full text-base-content"
             >
               <rect
@@ -446,8 +464,7 @@ defmodule PinventoryWeb.FloorPlanLive do
                     type="button"
                     id={"floor-drag-#{floor.id}"}
                     data-floor-handle
-                    draggable="true"
-                    class="inline-flex w-7 shrink-0 cursor-grab items-center justify-center rounded-md opacity-50 hover:bg-base-200 hover:opacity-100 active:cursor-grabbing"
+                    class="inline-flex w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md opacity-50 hover:bg-base-200 hover:opacity-100 active:cursor-grabbing"
                     title="Drag to reorder"
                     aria-label={"Reorder #{floor.name}"}
                   >
