@@ -32,6 +32,9 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, "#floor-plan-page")
     assert has_element?(view, "#floor-plan-canvas")
     assert has_element?(view, "#floor-plan-sidebar")
+    assert has_element?(view, "#floor-plan-history")
+    assert has_element?(view, "#floor-plan-sidebar #history-undo")
+    assert has_element?(view, "#floor-plan-sidebar #history-redo")
     assert has_element?(view, "#floor-plan-wall-tools")
     assert has_element?(view, "#tool-wall")
     assert has_element?(view, "#tool-erase")
@@ -63,7 +66,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert html =~ ~s|data-location-id=""|
   end
 
-  test "selecting a placed location defaults to extend", %{
+  test "placed location on current floor is not selectable", %{
     conn: conn,
     scope: scope
   } do
@@ -77,13 +80,13 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert html =~ "data-snap-edge"
     refute has_element?(view, "#redraw-location-#{garage.id}")
 
-    view |> element("#place-location-#{garage.id}") |> render_click()
+    assert has_element?(view, ~s|#place-location-#{garage.id}[aria-disabled]|)
+    refute has_element?(view, ~s|#place-location-#{garage.id}[phx-click]|)
+    assert has_element?(view, "#unplace-location-#{garage.id}")
 
-    assert has_element?(view, ~s|#floor-plan-canvas[data-place-mode="extend"]|)
-    assert has_element?(view, ~s|#floor-plan-canvas[data-location-id="#{garage.id}"]|)
-    canvas = view |> element("#floor-plan-canvas") |> render()
-    assert canvas =~ "0.1"
-    assert canvas =~ "data-existing-points"
+    assert has_element?(view, "#floor-plan-canvas[data-mode=wall]")
+    html = render(view)
+    assert html =~ ~s|data-location-id=""|
   end
 
   test "polygon_placed replaces points when extending via merged client list", %{
@@ -179,6 +182,9 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     html = render(view)
     assert html =~ "polygon"
     assert html =~ "0.1,0.1"
+    assert has_element?(view, ~s|#place-location-#{garage.id}[aria-disabled]|)
+    assert html =~ ~s|data-location-id=""|
+    assert has_element?(view, ~s|#floor-plan-canvas[data-place-mode="new"]|)
   end
 
   test "undo and redo wall edits", %{conn: conn} do
@@ -206,7 +212,6 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
 
-    view |> element("#place-location-#{garage.id}") |> render_click()
     view |> element("#unplace-location-#{garage.id}") |> render_click()
     assert FloorPlans.placement_index() == %{}
 

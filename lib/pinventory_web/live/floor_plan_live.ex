@@ -45,26 +45,6 @@ defmodule PinventoryWeb.FloorPlanLive do
           <div class="ml-auto flex flex-wrap items-center gap-1">
             <button
               type="button"
-              id="history-undo"
-              class="btn btn-sm btn-ghost"
-              phx-click="undo"
-              disabled={@undo_stack == []}
-              title="Undo (Ctrl+Z)"
-            >
-              <.icon name="hero-arrow-uturn-left" class="size-4" /> Undo
-            </button>
-            <button
-              type="button"
-              id="history-redo"
-              class="btn btn-sm btn-ghost"
-              phx-click="redo"
-              disabled={@redo_stack == []}
-              title="Redo (Ctrl+Shift+Z)"
-            >
-              <.icon name="hero-arrow-uturn-right" class="size-4" /> Redo
-            </button>
-            <button
-              type="button"
               id="floor-plan-delete"
               class="btn btn-sm btn-ghost text-error hover:bg-error/10"
               phx-click="open_delete_plan"
@@ -158,6 +138,29 @@ defmodule PinventoryWeb.FloorPlanLive do
             id="floor-plan-sidebar"
             class="flex w-full shrink-0 flex-col gap-4 rounded-2xl border border-base-300 bg-base-100 p-3 lg:w-[17rem]"
           >
+            <section id="floor-plan-history" class="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                id="history-undo"
+                class="btn btn-sm btn-ghost flex-1 justify-start"
+                phx-click="undo"
+                disabled={@undo_stack == []}
+                title="Undo (Ctrl+Z)"
+              >
+                <.icon name="hero-arrow-uturn-left" class="size-4" /> Undo
+              </button>
+              <button
+                type="button"
+                id="history-redo"
+                class="btn btn-sm btn-ghost flex-1 justify-start"
+                phx-click="redo"
+                disabled={@redo_stack == []}
+                title="Redo (Ctrl+Shift+Z)"
+              >
+                <.icon name="hero-arrow-uturn-right" class="size-4" /> Redo
+              </button>
+            </section>
+
             <section id="floor-plan-wall-tools" class="space-y-2">
               <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Walls</h2>
               <div class="flex flex-col gap-1.5">
@@ -194,7 +197,7 @@ defmodule PinventoryWeb.FloorPlanLive do
               <div class="space-y-1">
                 <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Locations</h2>
                 <p class="text-xs opacity-60">
-                  Click a location to draw its area. Placed locations extend by default.
+                  Click an unplaced location to draw its area. Locations already on this floor cannot be selected.
                 </p>
               </div>
 
@@ -210,6 +213,7 @@ defmodule PinventoryWeb.FloorPlanLive do
                 </li>
                 <li :for={location <- @locations} class="flex items-stretch gap-1">
                   <button
+                    :if={not location_placed_on_floor?(location.id, @selected_floor)}
                     type="button"
                     id={"place-location-#{location.id}"}
                     phx-click="select_location"
@@ -236,6 +240,17 @@ defmodule PinventoryWeb.FloorPlanLive do
                       Open
                     </span>
                   </button>
+                  <div
+                    :if={location_placed_on_floor?(location.id, @selected_floor)}
+                    id={"place-location-#{location.id}"}
+                    aria-disabled="true"
+                    class="flex min-w-0 flex-1 cursor-not-allowed items-center gap-2 rounded-lg border border-transparent px-2.5 py-2 text-left text-sm opacity-60"
+                  >
+                    <span class="min-w-0 flex-1 truncate font-medium">{location.name}</span>
+                    <span class="shrink-0 rounded-full bg-base-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">
+                      {floor_label(@placement_by_location[location.id], @selected_floor.id)}
+                    </span>
+                  </div>
                   <button
                     :if={location_placed_on_floor?(location.id, @selected_floor)}
                     type="button"
@@ -505,15 +520,19 @@ defmodule PinventoryWeb.FloorPlanLive do
   end
 
   def handle_event("select_location", %{"id" => id}, socket) do
-    {place_mode, points_json} = place_mode_for(socket, id)
+    if location_placed_on_floor?(id, socket.assigns.selected_floor) do
+      {:noreply, socket}
+    else
+      {place_mode, points_json} = place_mode_for(socket, id)
 
-    {:noreply,
-     socket
-     |> assign(:mode, "place")
-     |> assign(:placing_location_id, id)
-     |> assign(:place_mode, place_mode)
-     |> assign(:existing_points_json, points_json)
-     |> assign(:selected_placement_id, id)}
+      {:noreply,
+       socket
+       |> assign(:mode, "place")
+       |> assign(:placing_location_id, id)
+       |> assign(:place_mode, place_mode)
+       |> assign(:existing_points_json, points_json)
+       |> assign(:selected_placement_id, id)}
+    end
   end
 
   def handle_event("wall_drawn", %{"x1" => x1, "y1" => y1, "x2" => x2, "y2" => y2}, socket) do
@@ -667,20 +686,15 @@ defmodule PinventoryWeb.FloorPlanLive do
         {:ok, _placement} ->
           floor = FloorPlans.get_floor!(socket.assigns.selected_floor.id)
 
-          socket =
-            socket
-            |> refresh_selected_floor(floor)
-            |> assign(:selected_placement_id, location_id)
-            |> assign_location_lists()
-
-          {place_mode, points_json} = place_mode_for(socket, location_id)
-
           {:noreply,
            socket
-           |> assign(:place_mode, place_mode)
-           |> assign(:existing_points_json, points_json)
-           |> assign(:placing_location_id, location_id)
-           |> assign(:mode, "place")}
+           |> refresh_selected_floor(floor)
+           |> assign(:selected_placement_id, location_id)
+           |> assign(:placing_location_id, nil)
+           |> assign(:place_mode, "new")
+           |> assign(:existing_points_json, "[]")
+           |> assign(:mode, "place")
+           |> assign_location_lists()}
 
         {:error, _} ->
           {:noreply, pop_failed_undo(socket)}
