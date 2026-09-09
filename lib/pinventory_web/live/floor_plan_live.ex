@@ -217,7 +217,7 @@ defmodule PinventoryWeb.FloorPlanLive do
                     :if={location_placed_on_floor?(location.id, @selected_floor)}
                     type="button"
                     id={"unplace-location-#{location.id}"}
-                    class="inline-flex w-10 shrink-0 items-center justify-center self-stretch border-l border-base-300 text-error transition-colors hover:bg-error/10"
+                    class="inline-flex w-10 shrink-0 items-center justify-center self-stretch border-l border-error/45 bg-error/15 text-error transition-colors hover:border-error/60 hover:bg-error/25"
                     phx-click="unplace_location"
                     phx-value-id={location.id}
                     title="Remove from this floor"
@@ -461,9 +461,9 @@ defmodule PinventoryWeb.FloorPlanLive do
                     type="button"
                     id={"floor-remove-#{floor.id}"}
                     class={[
-                      "inline-flex w-8 shrink-0 items-center justify-center self-stretch rounded-md text-error transition-colors",
-                      length(@floors) <= 1 && "cursor-not-allowed opacity-30",
-                      length(@floors) > 1 && "hover:bg-error/10"
+                      "inline-flex w-8 shrink-0 items-center justify-center self-stretch rounded-md border border-error/45 bg-error/15 text-error transition-colors",
+                      length(@floors) <= 1 && "cursor-not-allowed opacity-35",
+                      length(@floors) > 1 && "hover:border-error/60 hover:bg-error/25"
                     ]}
                     phx-click="prompt_remove_floor"
                     phx-value-id={floor.id}
