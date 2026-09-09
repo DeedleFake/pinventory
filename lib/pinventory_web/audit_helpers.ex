@@ -3,6 +3,10 @@ defmodule PinventoryWeb.AuditHelpers do
   Shared display helpers for audit events in LiveViews.
   """
 
+  use Phoenix.Component
+
+  import PinventoryWeb.CoreComponents, only: [icon: 1]
+
   @doc """
   Human-readable actor label from a preloaded user or nil.
   """
@@ -51,6 +55,10 @@ defmodule PinventoryWeb.AuditHelpers do
     end
   end
 
+  def event_line(%{action: "location.deleted", metadata: meta}) do
+    "Deleted location “#{meta["location_name"] || "location"}”"
+  end
+
   def event_line(%{action: "stock.changed", changes: changes, metadata: meta}) do
     location = meta["location_name"] || "location"
 
@@ -89,8 +97,11 @@ defmodule PinventoryWeb.AuditHelpers do
   @doc """
   Returns a location id that can be opened in the UI, or `nil`.
 
-  There is no location delete action today; all location-bearing events are eligible.
+  Skips `location.deleted` (the location row is gone) and events with no
+  `location_id`.
   """
+  def linkable_location_id(%{action: "location.deleted"}), do: nil
+
   def linkable_location_id(%{location_id: location_id})
       when is_binary(location_id) and location_id != "",
       do: location_id
@@ -109,8 +120,8 @@ defmodule PinventoryWeb.AuditHelpers do
   @doc """
   Navigation target for an activity edit group.
 
-  Prefers the item page when the edit touches an item; otherwise the locations
-  page anchor for a location-only edit. Returns `{:item, id}`, `{:location, id}`,
+  Prefers the item page when the edit touches an item; otherwise the location
+  page for a location-only edit. Returns `{:item, id}`, `{:location, id}`,
   or `nil`.
   """
   def activity_link_target(edit) do
@@ -146,6 +157,34 @@ defmodule PinventoryWeb.AuditHelpers do
   """
   def last_stock_label(event) do
     "#{actor_label(event.user)} · #{format_event_time(event.inserted_at)}"
+  end
+
+  attr :id, :string, required: true
+  attr :event, :map, required: true
+  attr :href, :string, default: nil
+
+  def activity_event_line(assigns) do
+    ~H"""
+    <li class="text-sm">
+      <.link
+        :if={@href}
+        id={@id}
+        navigate={@href}
+        class={[
+          "flex items-center gap-2 rounded-lg px-2 py-1.5 -mx-2",
+          "font-medium text-primary",
+          "transition-colors hover:bg-primary/10"
+        ]}
+      >
+        <.icon name="hero-map-pin" class="size-3.5 shrink-0 opacity-70" />
+        <span class="min-w-0 flex-1 underline decoration-primary/30 underline-offset-2">
+          {event_line(@event)}
+        </span>
+        <.icon name="hero-chevron-right" class="size-4 shrink-0 opacity-50" />
+      </.link>
+      <span :if={!@href} id={@id} class="opacity-80">{event_line(@event)}</span>
+    </li>
+    """
   end
 
   defp edit_subject(events) do
@@ -186,5 +225,6 @@ defmodule PinventoryWeb.AuditHelpers do
   defp summary_part(%{action: "item.deleted"}), do: "deleted"
   defp summary_part(%{action: "location.created"}), do: "location created"
   defp summary_part(%{action: "location.updated"}), do: "location renamed"
+  defp summary_part(%{action: "location.deleted"}), do: "location deleted"
   defp summary_part(_), do: nil
 end

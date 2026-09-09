@@ -89,7 +89,8 @@ defmodule Pinventory.AuditTest do
     end
 
     test "delete records item.deleted with actor", %{scope: scope, user: user} do
-      {:ok, item} = Items.create_item(scope, %{name: "Disposable"})
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, item} = Items.create_item(scope, %{name: "Disposable"}, %{garage.id => 2})
 
       assert {:ok, _} = Items.delete_item(scope, item)
 
@@ -101,6 +102,11 @@ defmodule Pinventory.AuditTest do
       assert deleted.user_id == user.id
       assert deleted.metadata["item_name"] == "Disposable"
       assert deleted.item_id == item.id
+
+      refute Repo.exists?(
+               from e in Event,
+                 where: e.edit_id == ^deleted.edit_id and e.action == "stock.changed"
+             )
     end
 
     test "no-op update writes no audit events", %{scope: scope} do
@@ -171,6 +177,31 @@ defmodule Pinventory.AuditTest do
       assert {:ok, _} = Locations.update(scope, location, %{name: "Bin"})
       assert Repo.aggregate(Event, :count) == count_before
     end
+
+    test "delete records location.deleted with actor", %{scope: scope, user: user} do
+      {:ok, location} = Locations.create(scope, %{name: "Spare Bin"})
+
+      assert {:ok, _} = Locations.delete(scope, location)
+
+      deleted =
+        Event
+        |> where([e], e.action == "location.deleted" and e.entity_id == ^location.id)
+        |> Repo.one!()
+
+      assert deleted.user_id == user.id
+      assert deleted.metadata["location_name"] == "Spare Bin"
+      assert deleted.location_id == location.id
+      assert deleted.changes == %{"name" => %{"from" => "Spare Bin", "to" => nil}}
+    end
+
+    test "refused location delete writes no events", %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, _} = Items.create_item(scope, %{name: "Hammer"}, %{garage.id => 1})
+      count_before = Repo.aggregate(Event, :count)
+
+      assert {:error, :location_has_items} = Locations.delete(scope, garage)
+      assert Repo.aggregate(Event, :count) == count_before
+    end
   end
 
   describe "query helpers" do
@@ -220,6 +251,54 @@ defmodule Pinventory.AuditTest do
       rename_edit =
         Enum.find(edits, fn edit ->
           Enum.any?(edit.events, &(&1.action == "item.updated"))
+        end)
+
+      assert rename_edit
+      assert length(rename_edit.events) == 1
+    end
+
+    test "list_edits_for_location groups by edit_id for one location", %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
+
+      {:ok, item} =
+        Items.create_item(scope, %{name: "Level"}, %{garage.id => 1, shelf.id => 2})
+
+      edits = Audit.list_edits_for_location(garage.id)
+      assert length(edits) == 2
+
+      create_edit =
+        Enum.find(edits, fn edit ->
+          Enum.any?(edit.events, &(&1.action == "location.created"))
+        end)
+
+      stock_edit =
+        Enum.find(edits, fn edit ->
+          Enum.any?(edit.events, &(&1.action == "stock.changed"))
+        end)
+
+      assert create_edit
+      assert length(create_edit.events) == 1
+      assert create_edit.user.id == scope.user.id
+
+      assert stock_edit
+      assert length(stock_edit.events) == 1
+      assert hd(stock_edit.events).item_id == item.id
+      assert Enum.all?(stock_edit.events, &(&1.location_id == garage.id))
+      assert Enum.all?(stock_edit.events, &Ecto.assoc_loaded?(&1.user))
+
+      refute Enum.any?(edits, fn edit ->
+               Enum.any?(edit.events, &(&1.location_id == shelf.id))
+             end)
+
+      {:ok, _} = Locations.update(scope, garage, %{name: "Workshop"})
+
+      edits = Audit.list_edits_for_location(garage.id)
+      assert length(edits) == 3
+
+      rename_edit =
+        Enum.find(edits, fn edit ->
+          Enum.any?(edit.events, &(&1.action == "location.updated"))
         end)
 
       assert rename_edit

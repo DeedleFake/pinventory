@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+if [[ ! -d "$ROOT/node_modules/playwright-core" ]]; then
+  (cd "$ROOT" && npm install --omit=dev)
+fi
+exec node "$ROOT/verify-pinventory.mjs" "$@"

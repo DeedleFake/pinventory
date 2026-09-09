@@ -10,7 +10,7 @@ defmodule PinventoryWeb.UserLive.Settings do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} nav={:settings}>
       <div id="settings-page" class="space-y-6">
         <h1 class="text-xl font-semibold tracking-tight">Settings</h1>
 
@@ -425,7 +425,7 @@ defmodule PinventoryWeb.UserLive.Settings do
   defp activity_navigate_path({:item, item_id}), do: ~p"/item/#{item_id}"
 
   defp activity_navigate_path({:location, location_id}),
-    do: ~p"/locations#location-#{location_id}"
+    do: ~p"/location/#{location_id}"
 
   attr :edit, :map, required: true
 

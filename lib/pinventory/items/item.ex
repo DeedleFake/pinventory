@@ -8,6 +8,8 @@ defmodule Pinventory.Items.Item do
     field :name, :string
     field :total_quantity, :integer, virtual: true, default: 0
     field :location_count, :integer, virtual: true, default: 0
+    # Stock at one location. Set by list_items_at_location/1 only.
+    field :quantity, :integer, virtual: true, default: 0
 
     has_many :item_locations, Pinventory.Items.ItemLocation
     has_many :locations, through: [:item_locations, :location]
@@ -19,8 +21,12 @@ defmodule Pinventory.Items.Item do
   def changeset(item, attrs) do
     item
     |> cast(attrs, [:name])
+    |> update_change(:name, &trim_name/1)
     |> validate_required([:name])
     |> validate_length(:name, min: 2)
     |> unique_constraint(:name)
   end
+
+  defp trim_name(name) when is_binary(name), do: String.trim(name)
+  defp trim_name(name), do: name
 end

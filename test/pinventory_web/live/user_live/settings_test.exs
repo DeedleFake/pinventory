@@ -19,6 +19,9 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       assert has_element?(lv, "#settings-tab-users")
       assert has_element?(lv, "#settings-tab-activity")
       assert has_element?(lv, "#settings-account")
+      assert has_element?(lv, ~s|#nav-items[href="/"]|, "Items")
+      assert has_element?(lv, ~s|#nav-locations[href="/locations"]|, "Locations")
+      assert has_element?(lv, ~s|#nav-settings[aria-current="page"]|)
     end
 
     test "redirects if user is not logged in", %{conn: conn} do
@@ -93,7 +96,7 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
              )
     end
 
-    test "activity tab links location-only edits to the locations page", %{conn: conn} do
+    test "activity tab links location-only edits to the location page", %{conn: conn} do
       alias Pinventory.Accounts.Scope
       alias Pinventory.Locations
 
@@ -118,7 +121,7 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
 
       assert has_element?(
                view,
-               ~s|a#activity-edit-#{garage_edit.edit_id}[href="/locations#location-#{garage.id}"]|
+               ~s|a#activity-edit-#{garage_edit.edit_id}[href="/location/#{garage.id}"]|
              )
     end
 
@@ -146,6 +149,36 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       [event] = deleted.events
       assert has_element?(view, "#activity-event-#{event.id}", "Deleted item")
       # Non-linkable edits render as <article>, not an <a>
+      refute has_element?(view, ~s|a#activity-edit-#{deleted.edit_id}|)
+      assert has_element?(view, "article#activity-edit-#{deleted.edit_id}")
+    end
+
+    test "activity tab does not link deleted location entries", %{conn: conn} do
+      alias Pinventory.Accounts.Scope
+      alias Pinventory.Locations
+
+      user = user_fixture()
+      scope = Scope.for_user(user)
+      conn = log_in_user(conn, user)
+
+      {:ok, location} = Locations.create(scope, %{name: "Gone Bin"})
+      location_id = location.id
+      assert {:ok, _} = Locations.delete(scope, location)
+
+      assert {:ok, view, _html} = live(conn, ~p"/user/settings/activity")
+
+      deleted =
+        Pinventory.Audit.list_recent_edits(limit: 20)
+        |> Enum.find(fn edit ->
+          Enum.any?(
+            edit.events,
+            &(&1.action == "location.deleted" and &1.location_id == location_id)
+          )
+        end)
+
+      assert deleted
+      [event] = deleted.events
+      assert has_element?(view, "#activity-event-#{event.id}", "Deleted location")
       refute has_element?(view, ~s|a#activity-edit-#{deleted.edit_id}|)
       assert has_element?(view, "article#activity-edit-#{deleted.edit_id}")
     end

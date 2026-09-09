@@ -15,6 +15,7 @@ defmodule Pinventory.Audit.Event do
     item.deleted
     location.created
     location.updated
+    location.deleted
     stock.changed
   )
 

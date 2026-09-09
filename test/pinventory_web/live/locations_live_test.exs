@@ -26,6 +26,34 @@ defmodule PinventoryWeb.LocationsLiveTest do
     assert has_element?(view, "#location-#{garage.id}-item-count", "1 item")
   end
 
+  test "lists locations as links to the location page", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+
+    {:ok, view, _html} = live(conn, ~p"/locations")
+
+    assert has_element?(
+             view,
+             ~s|a#location-#{garage.id}[href="/location/#{garage.id}"]|,
+             "Garage"
+           )
+
+    refute has_element?(view, "form#location-#{garage.id}")
+    refute has_element?(view, "#location-#{garage.id}-save")
+    refute has_element?(view, "#location-delete")
+  end
+
+  test "opens the location page from the list", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+
+    {:ok, view, _html} = live(conn, ~p"/locations")
+
+    view
+    |> element("#location-#{garage.id}")
+    |> render_click()
+
+    assert_redirect(view, "/location/#{garage.id}")
+  end
+
   test "adds a new location at the top of the list", %{conn: conn, scope: scope} do
     {:ok, existing} = Locations.create(scope, %{name: "Existing"})
 
@@ -39,6 +67,7 @@ defmodule PinventoryWeb.LocationsLiveTest do
 
     assert html =~ "Brand New"
     assert html =~ "Location created"
+    assert has_element?(view, "#location-new-form")
 
     # New location is first stream row after the empty-state placeholder
     assert html =~ ~r/id="location-[^"]+"[\s\S]*id="location-#{existing.id}"/
@@ -53,97 +82,6 @@ defmodule PinventoryWeb.LocationsLiveTest do
       |> render_submit()
 
     assert html =~ "can&#39;t be blank" or html =~ "can't be blank"
-  end
-
-  test "renames a location without removing it from the list", %{conn: conn, scope: scope} do
-    {:ok, location} = Locations.create(scope, %{name: "Old Name"})
-
-    {:ok, view, _html} = live(conn, ~p"/locations")
-
-    view
-    |> form("#location-#{location.id}", location: %{name: "New Name"})
-    |> render_submit()
-
-    assert has_element?(view, "#location-#{location.id}")
-    assert render(view) =~ "New Name"
-    assert render(view) =~ "Location saved"
-    refute render(view) =~ "Old Name"
-  end
-
-  test "disables save until the name changes and marks the dirty row", %{conn: conn, scope: scope} do
-    {:ok, location} = Locations.create(scope, %{name: "Shelf"})
-
-    {:ok, view, _html} = live(conn, ~p"/locations")
-
-    assert has_element?(view, "#location-#{location.id}-save:disabled")
-    refute has_element?(view, "#location-#{location.id}.border-primary")
-
-    view
-    |> form("#location-#{location.id}", location: %{name: "Shelf 2"})
-    |> render_change()
-
-    refute has_element?(view, "#location-#{location.id}-save:disabled")
-    assert has_element?(view, "#location-#{location.id}.border-primary")
-
-    view
-    |> form("#location-#{location.id}", location: %{name: "Shelf"})
-    |> render_change()
-
-    assert has_element?(view, "#location-#{location.id}-save:disabled")
-    refute has_element?(view, "#location-#{location.id}.border-primary")
-  end
-
-  test "disables save again after a successful rename", %{conn: conn, scope: scope} do
-    {:ok, location} = Locations.create(scope, %{name: "Bin"})
-
-    {:ok, view, _html} = live(conn, ~p"/locations")
-
-    view
-    |> form("#location-#{location.id}", location: %{name: "Bin A"})
-    |> render_submit()
-
-    assert has_element?(view, "#location-#{location.id}-save:disabled")
-    refute has_element?(view, "#location-#{location.id}.border-primary")
-  end
-
-  test "pushes unsaved-changes events when edits start and clear", %{conn: conn, scope: scope} do
-    {:ok, location} = Locations.create(scope, %{name: "Drawer"})
-
-    {:ok, view, _html} = live(conn, ~p"/locations")
-
-    assert has_element?(view, ~s(#locations-page[phx-hook="UnsavedChanges"][data-dirty="false"]))
-
-    view
-    |> form("#location-#{location.id}", location: %{name: "Drawer 2"})
-    |> render_change()
-
-    assert_push_event(view, "unsaved-changes", %{dirty: true})
-    assert has_element?(view, ~s(#locations-page[data-dirty="true"]))
-
-    view
-    |> form("#location-#{location.id}", location: %{name: "Drawer"})
-    |> render_change()
-
-    assert_push_event(view, "unsaved-changes", %{dirty: false})
-    assert has_element?(view, ~s(#locations-page[data-dirty="false"]))
-  end
-
-  test "clears unsaved-changes after a successful save", %{conn: conn, scope: scope} do
-    {:ok, location} = Locations.create(scope, %{name: "Crate"})
-
-    {:ok, view, _html} = live(conn, ~p"/locations")
-
-    view
-    |> form("#location-#{location.id}", location: %{name: "Crate 2"})
-    |> render_change()
-
-    assert_push_event(view, "unsaved-changes", %{dirty: true})
-
-    view
-    |> form("#location-#{location.id}", location: %{name: "Crate 2"})
-    |> render_submit()
-
-    assert_push_event(view, "unsaved-changes", %{dirty: false})
   end
 
   test "marks typed new location drafts as unsaved", %{conn: conn} do
@@ -170,9 +108,16 @@ defmodule PinventoryWeb.LocationsLiveTest do
     assert has_element?(view, "#location-#{location.id}-item-count", "0 items")
   end
 
-  test "items page links to edit locations", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/")
+  test "marks locations as the current header section", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/locations")
 
-    assert has_element?(view, "#edit-locations[href='/locations']", "Edit Locations")
+    assert has_element?(
+             view,
+             ~s|#nav-locations[href="/locations"][aria-current="page"]|,
+             "Locations"
+           )
+
+    assert has_element?(view, ~s|#nav-items[href="/"]|, "Items")
+    refute has_element?(view, ~s|#nav-items[aria-current="page"]|)
   end
 end
