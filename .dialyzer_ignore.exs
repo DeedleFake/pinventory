@@ -5,5 +5,6 @@
 # That is a known ecosystem false positive, not a bug in app code.
 [
   {"lib/pinventory/items.ex", :call_without_opaque},
-  {"lib/pinventory/locations.ex", :call_without_opaque}
+  {"lib/pinventory/locations.ex", :call_without_opaque},
+  {"lib/pinventory/floor_plans.ex", :call_without_opaque}
 ]

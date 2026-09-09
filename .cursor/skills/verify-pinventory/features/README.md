@@ -44,5 +44,6 @@ Each feature file starts with an H1 and one paragraph. Then exactly four H2 sect
 - [Log in](./log-in.md) covers password login, closed registration, and failed credentials.
 - [Items](./items.md) covers list, create, stock, filter, and persistence.
 - [Locations](./locations.md) covers add, open, rename, and the per-location item list.
+- [Floor plan](./floor-plan.md) covers optional multi-floor walls, pins, list badges, and delete-plan.
 - [Delete](./delete.md) covers type-the-name item delete and empty-only location delete.
 - [Settings](./settings.md) covers sudo settings tabs, invites, and the activity feed.

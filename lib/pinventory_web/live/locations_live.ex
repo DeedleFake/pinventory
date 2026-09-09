@@ -1,6 +1,7 @@
 defmodule PinventoryWeb.LocationsLive do
   use PinventoryWeb, :live_view
 
+  alias Pinventory.FloorPlans
   alias Pinventory.Locations
   alias Pinventory.Locations.Location
 
@@ -14,7 +15,80 @@ defmodule PinventoryWeb.LocationsLive do
         phx-hook="UnsavedChanges"
         data-dirty={to_string(@dirty?)}
       >
-        <h1 class="text-xl font-semibold tracking-tight">Locations</h1>
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 class="text-xl font-semibold tracking-tight">Locations</h1>
+
+          <.link
+            :if={@floor_plan}
+            navigate={~p"/locations/floor-plan"}
+            id="floor-plan-edit"
+            class="btn btn-ghost btn-sm border border-base-300"
+          >
+            <.icon name="hero-map" class="size-4" /> Edit floor plan
+          </.link>
+
+          <button
+            :if={is_nil(@floor_plan)}
+            type="button"
+            id="floor-plan-add"
+            class="btn btn-primary btn-sm"
+            phx-click="add_floor_plan"
+          >
+            <.icon name="hero-map" class="size-4" /> Add Floor Plan
+          </button>
+        </div>
+
+        <.link
+          :if={@floor_plan && @preview_floor}
+          navigate={~p"/locations/floor-plan"}
+          id="floor-plan-preview"
+          class={[
+            "block overflow-hidden rounded-2xl border border-base-300 bg-base-100",
+            "transition-all hover:border-base-content/20 hover:bg-base-200/30 hover:shadow-sm"
+          ]}
+        >
+          <div class="flex items-center justify-between gap-3 border-b border-base-300 px-3 py-2">
+            <div class="min-w-0">
+              <p class="text-sm font-medium tracking-tight">Floor plan</p>
+              <p class="truncate text-xs opacity-60">
+                {@preview_floor.name}
+                <span :if={length(@floor_plan.floors) > 1}>
+                  · {length(@floor_plan.floors)} floors
+                </span>
+                · click to edit
+              </p>
+            </div>
+            <.icon name="hero-pencil-square" class="size-4 shrink-0 opacity-40" />
+          </div>
+          <div class="aspect-[5/2] bg-base-200/40 p-2 sm:p-3">
+            <svg
+              id="floor-plan-preview-svg"
+              viewBox="0 0 1 1"
+              preserveAspectRatio="none"
+              class="h-full w-full rounded-lg text-base-content"
+            >
+              <rect x="0" y="0" width="1" height="1" class="fill-base-100" />
+              <line
+                :for={wall <- @preview_floor.walls}
+                x1={wall["x1"]}
+                y1={wall["y1"]}
+                x2={wall["x2"]}
+                y2={wall["y2"]}
+                stroke="currentColor"
+                stroke-width="0.016"
+                stroke-linecap="round"
+                class="opacity-70"
+              />
+              <circle
+                :for={placement <- @preview_floor.location_placements}
+                cx={placement.x}
+                cy={placement.y}
+                r="0.03"
+                class="fill-primary opacity-90"
+              />
+            </svg>
+          </div>
+        </.link>
 
         <.form
           for={@new_form}
@@ -75,7 +149,29 @@ defmodule PinventoryWeb.LocationsLive do
               "transition-all hover:border-base-content/20 hover:bg-base-200/40"
             ]}
           >
-            <div class="min-w-0 flex-1 truncate font-medium">{location.name}</div>
+            <div class="min-w-0 flex-1">
+              <div class="truncate font-medium">{location.name}</div>
+              <div
+                :if={@floor_plan}
+                class="mt-0.5 flex flex-wrap items-center gap-1.5"
+              >
+                <span
+                  :if={location.on_plan?}
+                  id={"#{id}-floor"}
+                  class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
+                >
+                  <.icon name="hero-map-pin" class="size-3" />
+                  {location.floor_name}
+                </span>
+                <span
+                  :if={not location.on_plan?}
+                  id={"#{id}-not-on-plan"}
+                  class="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning"
+                >
+                  <.icon name="hero-exclamation-triangle" class="size-3" /> Not on plan
+                </span>
+              </div>
+            </div>
             <div
               id={"#{id}-item-count"}
               class="shrink-0 text-sm tabular-nums opacity-70"
@@ -92,13 +188,17 @@ defmodule PinventoryWeb.LocationsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    locations = Locations.list_with_item_counts()
+    floor_plan = FloorPlans.get_floor_plan()
+    locations = Locations.list_with_item_counts_and_placements()
+    preview_floor = floor_plan && List.first(floor_plan.floors)
 
     socket =
       socket
       |> assign(:page_title, "Locations")
       |> assign(:new_form, empty_new_form())
       |> assign(:dirty?, false)
+      |> assign(:floor_plan, floor_plan)
+      |> assign(:preview_floor, preview_floor)
       |> stream_configure(:locations, dom_id: &"location-#{&1.id}")
       |> stream(:locations, locations)
 
@@ -106,6 +206,22 @@ defmodule PinventoryWeb.LocationsLive do
   end
 
   @impl true
+  def handle_event("add_floor_plan", _params, socket) do
+    case FloorPlans.create_floor_plan() do
+      {:ok, _plan} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Floor plan created")
+         |> push_navigate(to: ~p"/locations/floor-plan")}
+
+      {:error, :already_exists} ->
+        {:noreply, push_navigate(socket, to: ~p"/locations/floor-plan")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Could not create floor plan")}
+    end
+  end
+
   def handle_event("validate_new", %{"location" => params}, socket) do
     form =
       %Location{}
@@ -125,7 +241,7 @@ defmodule PinventoryWeb.LocationsLive do
     |> then(&Locations.create(socket.assigns.current_scope, &1))
     |> case do
       {:ok, location} ->
-        location = %{location | item_count: 0}
+        location = %{location | item_count: 0, on_plan?: false, floor_name: nil}
 
         socket =
           socket

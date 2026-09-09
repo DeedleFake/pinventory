@@ -7,9 +7,13 @@ defmodule Pinventory.Locations.Location do
   schema "locations" do
     field :name, :string
     field :item_count, :integer, virtual: true, default: 0
+    # Populated by list helpers when a floor plan exists; nil means not loaded / not placed.
+    field :floor_name, :string, virtual: true
+    field :on_plan?, :boolean, virtual: true, default: false
 
     has_many :item_locations, Pinventory.Items.ItemLocation
     has_many :items, through: [:item_locations, :item]
+    has_one :placement, Pinventory.FloorPlans.LocationPlacement
 
     timestamps(type: :utc_datetime)
   end

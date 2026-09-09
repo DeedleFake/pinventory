@@ -3,6 +3,7 @@ defmodule PinventoryWeb.LocationsLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Pinventory.FloorPlans
   alias Pinventory.Items
   alias Pinventory.Locations
 
@@ -106,6 +107,38 @@ defmodule PinventoryWeb.LocationsLiveTest do
     {:ok, view, _html} = live(conn, ~p"/locations")
 
     assert has_element?(view, "#location-#{location.id}-item-count", "0 items")
+  end
+
+  test "shows Add Floor Plan when no plan exists", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/locations")
+
+    assert has_element?(view, "#floor-plan-add", "Add Floor Plan")
+    refute has_element?(view, "#floor-plan-preview")
+  end
+
+  test "creates a floor plan and navigates to the editor", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/locations")
+
+    view |> element("#floor-plan-add") |> render_click()
+
+    assert_redirect(view, "/locations/floor-plan")
+  end
+
+  test "shows floor plan preview and placement badges", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, shed} = Locations.create(scope, %{name: "Shed"})
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor = hd(plan.floors)
+    assert {:ok, _} = FloorPlans.place_location(floor, garage.id, 0.2, 0.3)
+
+    {:ok, view, html} = live(conn, ~p"/locations")
+
+    assert has_element?(view, "#floor-plan-preview")
+    assert has_element?(view, "#floor-plan-edit")
+    refute has_element?(view, "#floor-plan-add")
+    assert html =~ "Floor 1"
+    assert has_element?(view, "#location-#{garage.id}-floor", "Floor 1")
+    assert has_element?(view, "#location-#{shed.id}-not-on-plan", "Not on plan")
   end
 
   test "marks locations as the current header section", %{conn: conn} do
