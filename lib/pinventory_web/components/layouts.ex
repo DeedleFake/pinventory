@@ -138,7 +138,7 @@ defmodule PinventoryWeb.Layouts do
     <main class={["px-4 sm:px-6 lg:px-8", @wide && "py-4", not @wide && "py-10"]}>
       <div class={[
         "mx-auto space-y-4",
-        @wide && "max-w-[110rem]",
+        @wide && "max-w-none",
         not @wide && "max-w-2xl"
       ]}>
         {render_slot(@inner_block)}

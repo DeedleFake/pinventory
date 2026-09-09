@@ -361,7 +361,7 @@ defmodule PinventoryWeb.FloorPlanLive do
 
           <aside
             id="floor-rail"
-            class="flex w-full shrink-0 flex-col gap-2 rounded-2xl border border-base-300 bg-base-100 p-3 lg:w-56"
+            class="flex w-full shrink-0 flex-col gap-2 rounded-2xl border border-base-300 bg-base-100 p-3 lg:w-72"
           >
             <div class="flex items-center justify-between gap-2 px-0.5">
               <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Floors</h2>
