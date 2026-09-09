@@ -234,6 +234,36 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, "#floor-tabs", "Basement")
   end
 
+  test "accepts wall_drawn after switching floors", %{conn: conn} do
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor1 = hd(plan.floors)
+    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+
+    assert has_element?(view, "#floor-svg-#{floor1.id}")
+
+    view
+    |> element("#floor-plan-canvas")
+    |> render_hook("wall_drawn", %{"x1" => 0.1, "y1" => 0.1, "x2" => 0.9, "y2" => 0.1})
+
+    assert length(FloorPlans.get_floor!(floor1.id).walls) == 1
+
+    view |> element("#floor-tab-#{floor2.id}") |> render_click()
+
+    assert has_element?(view, "#floor-svg-#{floor2.id}")
+    refute has_element?(view, "#floor-svg-#{floor1.id}")
+    assert has_element?(view, "#floor-plan-canvas[data-mode=wall]")
+
+    view
+    |> element("#floor-plan-canvas")
+    |> render_hook("wall_drawn", %{"x1" => 0.2, "y1" => 0.2, "x2" => 0.8, "y2" => 0.8})
+
+    walls2 = FloorPlans.get_floor!(floor2.id).walls
+    assert [%{"x1" => 0.2, "y1" => 0.2, "x2" => 0.8, "y2" => 0.8}] = walls2
+    assert length(FloorPlans.get_floor!(floor1.id).walls) == 1
+  end
+
   test "deletes the floor plan and returns to locations", %{conn: conn, scope: scope} do
     {:ok, _} = Locations.create(scope, %{name: "Garage"})
     {:ok, _} = FloorPlans.create_floor_plan()

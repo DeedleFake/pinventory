@@ -64,7 +64,26 @@ const FloorPlanCanvas = {
   },
 
   updated() {
-    this.svg = this.el.querySelector("[data-floor-plan-svg]")
+    // Floor switches change the SVG id (floor-svg-<id>), so morphdom replaces
+    // the node. Rebind listeners — mounted() only runs once on the stable
+    // #floor-plan-canvas wrapper.
+    const nextSvg = this.el.querySelector("[data-floor-plan-svg]")
+    if (nextSvg !== this.svg) {
+      if (this.svg) {
+        this.svg.removeEventListener("pointerdown", this.onPointerDown)
+        this.svg.removeEventListener("dblclick", this.onDblClick)
+      }
+      this.svg = nextSvg
+      if (this.svg) {
+        this.svg.addEventListener("pointerdown", this.onPointerDown)
+        this.svg.addEventListener("dblclick", this.onDblClick)
+      }
+      // Draft overlays lived on the old SVG; drop in-progress drawing.
+      this.draftWall = null
+      this.draftPolygon = null
+      this.snapPoint = null
+    }
+
     const nextFinish = this.el.querySelector("[data-polygon-finish]")
     if (nextFinish !== this.finishBtn) {
       if (this.finishBtn) this.finishBtn.removeEventListener("click", this.onFinishClick)
@@ -79,8 +98,10 @@ const FloorPlanCanvas = {
   },
 
   destroyed() {
-    this.svg.removeEventListener("pointerdown", this.onPointerDown)
-    this.svg.removeEventListener("dblclick", this.onDblClick)
+    if (this.svg) {
+      this.svg.removeEventListener("pointerdown", this.onPointerDown)
+      this.svg.removeEventListener("dblclick", this.onDblClick)
+    }
     window.removeEventListener("pointermove", this.onPointerMove)
     window.removeEventListener("keydown", this.onKeyDown)
     window.removeEventListener("keyup", this.onKeyUp)
