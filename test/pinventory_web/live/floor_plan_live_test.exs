@@ -42,7 +42,11 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, "#history-undo")
     assert has_element?(view, "#history-redo")
     assert has_element?(view, "#polygon-finish")
+    assert has_element?(view, "#floor-rail")
+    assert has_element?(view, "#floor-rail-item-#{floor.id}")
     assert has_element?(view, "#floor-tab-#{floor.id}", "Floor 1")
+    refute has_element?(view, "#floor-tabs")
+    refute has_element?(view, "#floor-rename-row")
     assert has_element?(view, "#place-location-#{garage.id}")
   end
 
@@ -310,6 +314,10 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     {:ok, _} = FloorPlans.create_floor_plan()
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
 
+    assert has_element?(view, "#floor-rail")
+    refute has_element?(view, "#floor-tabs")
+    refute has_element?(view, "#floor-rename-row")
+
     view |> element("#floor-add") |> render_click()
     assert render(view) =~ "Floor 2"
 
@@ -317,7 +325,33 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     |> form("#floor-rename-form", %{name: "Basement"})
     |> render_submit()
 
-    assert has_element?(view, "#floor-tabs", "Basement")
+    assert has_element?(view, "#floor-rail", "Basement")
+    assert render(view) =~ "Basement"
+  end
+
+  test "reorders floors with up and down controls", %{conn: conn} do
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor1 = hd(plan.floors)
+    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+
+    # Highest floor (Floor 2) is listed first in the rail.
+    html = render(view)
+    assert html =~ ~r/floor-rail-item-#{floor2.id}[\s\S]*floor-rail-item-#{floor1.id}/
+
+    view |> element("#floor-move-down-#{floor2.id}") |> render_click()
+
+    plan = FloorPlans.get_floor_plan()
+    assert Enum.map(plan.floors, & &1.name) == ["Floor 2", "Floor 1"]
+    assert Enum.map(plan.floors, & &1.position) == [0, 1]
+
+    html = render(view)
+    assert html =~ ~r/floor-rail-item-#{floor1.id}[\s\S]*floor-rail-item-#{floor2.id}/
+
+    view |> element("#floor-move-up-#{floor2.id}") |> render_click()
+    plan = FloorPlans.get_floor_plan()
+    assert Enum.map(plan.floors, &{&1.name, &1.position}) == [{"Floor 1", 0}, {"Floor 2", 1}]
   end
 
   test "accepts wall_drawn after switching floors", %{conn: conn} do

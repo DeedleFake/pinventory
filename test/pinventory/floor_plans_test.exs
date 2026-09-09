@@ -76,6 +76,40 @@ defmodule Pinventory.FloorPlansTest do
       [floor] = plan.floors
       assert {:error, :last_floor} = FloorPlans.delete_floor(floor)
     end
+
+    test "moves and reorders floors by position", %{plan: plan} do
+      assert {:ok, floor2} = FloorPlans.add_floor(plan)
+      assert {:ok, _floor3} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+
+      assert Enum.map(FloorPlans.get_floor_plan().floors, & &1.name) == [
+               "Floor 1",
+               "Floor 2",
+               "Floor 3"
+             ]
+
+      # Raise Floor 2 above Floor 3.
+      assert {:ok, _} = FloorPlans.move_floor(floor2, :higher)
+
+      assert Enum.map(FloorPlans.get_floor_plan().floors, &{&1.name, &1.position}) == [
+               {"Floor 1", 0},
+               {"Floor 3", 1},
+               {"Floor 2", 2}
+             ]
+
+      plan = FloorPlans.get_floor_plan()
+      [f1, f3, f2] = plan.floors
+
+      # Highest-first list → positions 2,1,0
+      assert {:ok, _} = FloorPlans.reorder_floors(plan, [f1.id, f3.id, f2.id])
+
+      assert Enum.map(FloorPlans.get_floor_plan().floors, &{&1.name, &1.position}) == [
+               {"Floor 2", 0},
+               {"Floor 3", 1},
+               {"Floor 1", 2}
+             ]
+
+      assert {:error, :invalid_order} = FloorPlans.reorder_floors(plan, [f1.id])
+    end
   end
 
   describe "walls and placements" do

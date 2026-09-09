@@ -145,6 +145,88 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
+  Moves a floor one step higher or lower in the building (by `position`).
+
+  `:higher` raises the floor toward the top of the building; `:lower` lowers it.
+  No-ops with `{:ok, floor}` when there is no neighbor in that direction.
+  """
+  def move_floor(%Floor{} = floor, direction) when direction in [:higher, :lower] do
+    neighbor =
+      case direction do
+        :higher ->
+          Repo.one(
+            from f in Floor,
+              where: f.floor_plan_id == ^floor.floor_plan_id and f.position > ^floor.position,
+              order_by: [asc: f.position],
+              limit: 1
+          )
+
+        :lower ->
+          Repo.one(
+            from f in Floor,
+              where: f.floor_plan_id == ^floor.floor_plan_id and f.position < ^floor.position,
+              order_by: [desc: f.position],
+              limit: 1
+          )
+      end
+
+    case neighbor do
+      nil ->
+        {:ok, preload_floor(floor)}
+
+      other ->
+        swap_floor_positions(floor, other)
+    end
+  end
+
+  @doc """
+  Sets floor order from a highest-first list of floor ids.
+
+  Position `length-1` is the top of the building; `0` is the bottom.
+  """
+  def reorder_floors(%FloorPlan{} = plan, floor_ids) when is_list(floor_ids) do
+    floors =
+      from(f in Floor, where: f.floor_plan_id == ^plan.id)
+      |> Repo.all()
+
+    floor_by_id = Map.new(floors, &{&1.id, &1})
+    known_ids = MapSet.new(Map.keys(floor_by_id))
+    given_ids = Enum.uniq(floor_ids)
+
+    cond do
+      given_ids == [] ->
+        {:error, :invalid_order}
+
+      MapSet.new(given_ids) != known_ids ->
+        {:error, :invalid_order}
+
+      true ->
+        # Highest-first → positions length-1 .. 0
+        max_pos = length(given_ids) - 1
+
+        Multi.new()
+        |> Multi.run(:reorder, fn _repo, _ ->
+          Enum.with_index(given_ids)
+          |> Enum.each(fn {id, index} ->
+            floor = Map.fetch!(floor_by_id, id)
+            position = max_pos - index
+
+            floor
+            |> Floor.changeset(%{position: position})
+            |> Repo.update!()
+          end)
+
+          {:ok, :ok}
+        end)
+        |> Repo.transaction()
+        |> case do
+          {:ok, _} -> {:ok, get_floor_plan_by_id!(plan.id)}
+          {:error, _step, reason, _} -> {:error, reason}
+        end
+    end
+  end
+
+  @doc """
   Deletes a floor and its placements. Refuses when it is the last floor on the plan.
   """
   def delete_floor(%Floor{} = floor) do
@@ -414,6 +496,21 @@ defmodule Pinventory.FloorPlans do
 
   defp preload_floor(floor) do
     Repo.preload(floor, location_placements: :location)
+  end
+
+  defp swap_floor_positions(%Floor{} = a, %Floor{} = b) do
+    pos_a = a.position
+    pos_b = b.position
+
+    # No unique constraint on position, so a direct swap is safe.
+    Multi.new()
+    |> Multi.update(:a, Floor.changeset(a, %{position: pos_b}))
+    |> Multi.update(:b, Floor.changeset(b, %{position: pos_a}))
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{a: floor}} -> {:ok, preload_floor(floor)}
+      {:error, _step, reason, _} -> {:error, reason}
+    end
   end
 
   defp normalize_points(points) when is_list(points) do
