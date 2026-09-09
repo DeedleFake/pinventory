@@ -252,16 +252,13 @@ defmodule PinventoryWeb.LocationsLive do
   def handle_event("add_floor_plan", _params, socket) do
     case FloorPlans.create_floor_plan() do
       {:ok, _plan} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Floor plan created")
-         |> push_navigate(to: ~p"/locations/floor-plan")}
+        {:noreply, push_navigate(socket, to: ~p"/locations/floor-plan")}
 
       {:error, :already_exists} ->
         {:noreply, push_navigate(socket, to: ~p"/locations/floor-plan")}
 
       {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Could not create floor plan")}
+        {:noreply, socket}
     end
   end
 

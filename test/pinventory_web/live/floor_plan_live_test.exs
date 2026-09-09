@@ -54,12 +54,71 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
 
     assert has_element?(view, "#floor-plan-canvas[data-mode=place]")
     assert has_element?(view, ~s|#floor-plan-canvas[data-location-id="#{garage.id}"]|)
+    assert has_element?(view, ~s|#floor-plan-canvas[data-place-mode="new"]|)
 
     view |> element("#tool-wall") |> render_click()
 
     assert has_element?(view, "#floor-plan-canvas[data-mode=wall]")
     html = render(view)
     assert html =~ ~s|data-location-id=""|
+  end
+
+  test "selecting a placed location defaults to extend; redraw is explicit", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor = hd(plan.floors)
+    assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
+
+    {:ok, view, html} = live(conn, ~p"/locations/floor-plan")
+    assert html =~ "data-snap-vertex"
+    assert html =~ "data-snap-edge"
+    assert has_element?(view, "#redraw-location-#{garage.id}")
+
+    view |> element("#place-location-#{garage.id}") |> render_click()
+
+    assert has_element?(view, ~s|#floor-plan-canvas[data-place-mode="extend"]|)
+    assert has_element?(view, ~s|#floor-plan-canvas[data-location-id="#{garage.id}"]|)
+    canvas = view |> element("#floor-plan-canvas") |> render()
+    assert canvas =~ "0.1"
+    assert canvas =~ "data-existing-points"
+
+    view |> element("#redraw-location-#{garage.id}") |> render_click()
+
+    assert has_element?(view, ~s|#floor-plan-canvas[data-place-mode="redraw"]|)
+    redraw_html = view |> element("#floor-plan-canvas") |> render()
+    assert redraw_html =~ ~s|data-existing-points="[]"|
+  end
+
+  test "polygon_placed replaces points when extending via merged client list", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor = hd(plan.floors)
+    assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+
+    extended = [
+      %{"x" => 0.1, "y" => 0.1},
+      %{"x" => 0.2, "y" => 0.05},
+      %{"x" => 0.4, "y" => 0.1},
+      %{"x" => 0.4, "y" => 0.4}
+    ]
+
+    view
+    |> element("#floor-plan-canvas")
+    |> render_hook("polygon_placed", %{
+      "location_id" => garage.id,
+      "points" => extended
+    })
+
+    garage_id = garage.id
+    assert %{^garage_id => %{points: ^extended}} = FloorPlans.placement_index()
   end
 
   test "draws a wall from the canvas hook event", %{conn: conn} do

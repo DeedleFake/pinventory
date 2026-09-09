@@ -194,7 +194,7 @@ defmodule PinventoryWeb.FloorPlanLive do
               <div class="space-y-1">
                 <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Locations</h2>
                 <p class="text-xs opacity-60">
-                  Click a location to draw or redraw its area on the plan.
+                  Click a location to draw its area. Placed locations extend by default; use Redraw to replace.
                 </p>
               </div>
 
@@ -239,6 +239,25 @@ defmodule PinventoryWeb.FloorPlanLive do
                   <button
                     :if={location_placed_on_floor?(location.id, @selected_floor)}
                     type="button"
+                    id={"redraw-location-#{location.id}"}
+                    class={[
+                      "btn btn-square btn-sm btn-ghost",
+                      @mode == "place" && @placing_location_id == location.id &&
+                        @place_mode == "redraw" &&
+                        "btn-primary",
+                      not (@mode == "place" && @placing_location_id == location.id &&
+                             @place_mode == "redraw") &&
+                        "opacity-70 hover:opacity-100"
+                    ]}
+                    phx-click="redraw_location"
+                    phx-value-id={location.id}
+                    title="Redraw area from scratch"
+                  >
+                    <.icon name="hero-arrow-path" class="size-4" />
+                  </button>
+                  <button
+                    :if={location_placed_on_floor?(location.id, @selected_floor)}
+                    type="button"
                     id={"unplace-location-#{location.id}"}
                     class="btn btn-square btn-sm btn-ghost text-error hover:bg-error/10"
                     phx-click="unplace_location"
@@ -257,6 +276,8 @@ defmodule PinventoryWeb.FloorPlanLive do
             phx-hook="FloorPlanCanvas"
             data-mode={@mode}
             data-location-id={@placing_location_id || ""}
+            data-place-mode={@place_mode}
+            data-existing-points={@existing_points_json}
             tabindex="0"
             class={[
               "relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-base-300 bg-base-200/40",
@@ -312,6 +333,26 @@ defmodule PinventoryWeb.FloorPlanLive do
                   ]}
                   stroke-width="0.006"
                 />
+                <g data-placement-snap={placement.location_id} class="pointer-events-none">
+                  <line
+                    :for={edge <- placement_edges(placement.points)}
+                    data-snap-edge
+                    x1={edge.x1}
+                    y1={edge.y1}
+                    x2={edge.x2}
+                    y2={edge.y2}
+                    stroke="transparent"
+                    stroke-width="0.001"
+                  />
+                  <circle
+                    :for={vertex <- placement.points}
+                    data-snap-vertex
+                    cx={point_x(vertex)}
+                    cy={point_y(vertex)}
+                    r="0.001"
+                    class="fill-transparent"
+                  />
+                </g>
                 <text
                   x={placement_label_x(placement.points)}
                   y={placement_label_y(placement.points)}
@@ -360,11 +401,13 @@ defmodule PinventoryWeb.FloorPlanLive do
             >
               <%= cond do %>
                 <% @mode == "wall" -> %>
-                  Drag on the canvas to draw a wall. Endpoints snap to nearby walls.
+                  Click once for the start, again for the end. Snap to walls and location corners. Escape cancels.
                 <% @mode == "erase" -> %>
                   Click a wall segment to erase it.
+                <% @mode == "place" && @placing_location_id && @place_mode == "extend" -> %>
+                  Click a corner to attach, add points, then click a corner or Done to merge. Escape cancels.
                 <% @mode == "place" && @placing_location_id -> %>
-                  Click points to draw an area. Click near the first point or double-click to finish. Press Escape to cancel.
+                  Click points to draw an area. Close near the first point, double-click, or Done. Escape cancels.
                 <% true -> %>
                   Choose a location in the sidebar, then click points to draw its area.
               <% end %>
@@ -380,10 +423,7 @@ defmodule PinventoryWeb.FloorPlanLive do
   def mount(_params, _session, socket) do
     case FloorPlans.get_floor_plan() do
       nil ->
-        {:ok,
-         socket
-         |> put_flash(:error, "No floor plan yet. Add one from Locations.")
-         |> push_navigate(to: ~p"/locations")}
+        {:ok, push_navigate(socket, to: ~p"/locations")}
 
       plan ->
         floors = plan.floors
@@ -397,6 +437,8 @@ defmodule PinventoryWeb.FloorPlanLive do
          |> assign(:selected_floor, selected)
          |> assign(:mode, "wall")
          |> assign(:placing_location_id, nil)
+         |> assign(:place_mode, "new")
+         |> assign(:existing_points_json, "[]")
          |> assign(:selected_placement_id, nil)
          |> assign(:delete_plan?, false)
          |> assign(:undo_stack, [])
@@ -426,11 +468,10 @@ defmodule PinventoryWeb.FloorPlanLive do
          |> assign(:floors, plan.floors)
          |> assign(:selected_floor, floor)
          |> assign(:selected_placement_id, nil)
-         |> clear_history()
-         |> put_flash(:info, "Floor added")}
+         |> clear_history()}
 
       {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Could not add floor")}
+        {:noreply, socket}
     end
   end
 
@@ -443,17 +484,10 @@ defmodule PinventoryWeb.FloorPlanLive do
          socket
          |> assign(:floor_plan, plan)
          |> assign(:floors, plan.floors)
-         |> assign(:selected_floor, floor)
-         |> put_flash(:info, "Floor renamed")}
+         |> assign(:selected_floor, floor)}
 
-      {:error, changeset} ->
-        msg =
-          case changeset.errors[:name] do
-            {message, _} -> message
-            _ -> "Could not rename floor"
-          end
-
-        {:noreply, put_flash(socket, :error, msg)}
+      {:error, _changeset} ->
+        {:noreply, socket}
     end
   end
 
@@ -470,14 +504,13 @@ defmodule PinventoryWeb.FloorPlanLive do
          |> assign(:selected_floor, selected)
          |> assign(:selected_placement_id, nil)
          |> assign_location_lists()
-         |> clear_history()
-         |> put_flash(:info, "Floor removed")}
+         |> clear_history()}
 
       {:error, :last_floor} ->
-        {:noreply, put_flash(socket, :error, "Keep at least one floor")}
+        {:noreply, socket}
 
       {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Could not remove floor")}
+        {:noreply, socket}
     end
   end
 
@@ -485,14 +518,30 @@ defmodule PinventoryWeb.FloorPlanLive do
     {:noreply,
      socket
      |> assign(:mode, mode)
-     |> assign(:placing_location_id, nil)}
+     |> assign(:placing_location_id, nil)
+     |> assign(:place_mode, "new")
+     |> assign(:existing_points_json, "[]")}
   end
 
   def handle_event("select_location", %{"id" => id}, socket) do
+    {place_mode, points_json} = place_mode_for(socket, id)
+
     {:noreply,
      socket
      |> assign(:mode, "place")
      |> assign(:placing_location_id, id)
+     |> assign(:place_mode, place_mode)
+     |> assign(:existing_points_json, points_json)
+     |> assign(:selected_placement_id, id)}
+  end
+
+  def handle_event("redraw_location", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> assign(:mode, "place")
+     |> assign(:placing_location_id, id)
+     |> assign(:place_mode, "redraw")
+     |> assign(:existing_points_json, "[]")
      |> assign(:selected_placement_id, id)}
   end
 
@@ -511,7 +560,7 @@ defmodule PinventoryWeb.FloorPlanLive do
         {:noreply, refresh_selected_floor(socket, floor)}
 
       {:error, _} ->
-        {:noreply, put_flash(pop_failed_undo(socket), :error, "Could not add wall")}
+        {:noreply, pop_failed_undo(socket)}
     end
   end
 
@@ -543,12 +592,22 @@ defmodule PinventoryWeb.FloorPlanLive do
         do: nil,
         else: socket.assigns.selected_placement_id
 
-    {:noreply,
-     socket
-     |> refresh_selected_floor(floor)
-     |> assign(:selected_placement_id, selected_placement)
-     |> assign_location_lists()
-     |> put_flash(:info, "Location removed from plan")}
+    socket =
+      socket
+      |> refresh_selected_floor(floor)
+      |> assign(:selected_placement_id, selected_placement)
+      |> assign_location_lists()
+
+    socket =
+      if socket.assigns.placing_location_id == location_id do
+        socket
+        |> assign(:place_mode, "new")
+        |> assign(:existing_points_json, "[]")
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   def handle_event("undo", _params, socket) do
@@ -574,7 +633,7 @@ defmodule PinventoryWeb.FloorPlanLive do
              |> assign_location_lists()}
 
           {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Could not undo")}
+            {:noreply, socket}
         end
     end
   end
@@ -602,7 +661,7 @@ defmodule PinventoryWeb.FloorPlanLive do
              |> assign_location_lists()}
 
           {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Could not redo")}
+            {:noreply, socket}
         end
     end
   end
@@ -618,13 +677,10 @@ defmodule PinventoryWeb.FloorPlanLive do
   def handle_event("confirm_delete_plan", _params, socket) do
     case FloorPlans.delete_floor_plan(socket.assigns.floor_plan) do
       {:ok, _} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Floor plan deleted")
-         |> push_navigate(to: ~p"/locations")}
+        {:noreply, push_navigate(socket, to: ~p"/locations")}
 
       {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Could not delete floor plan")}
+        {:noreply, socket}
     end
   end
 
@@ -632,7 +688,7 @@ defmodule PinventoryWeb.FloorPlanLive do
     normalized = normalize_event_points(points)
 
     if length(normalized) < 3 do
-      {:noreply, put_flash(socket, :error, "Draw at least three points for an area")}
+      {:noreply, socket}
     else
       socket = push_undo_snapshot(socket)
 
@@ -640,14 +696,23 @@ defmodule PinventoryWeb.FloorPlanLive do
         {:ok, _placement} ->
           floor = FloorPlans.get_floor!(socket.assigns.selected_floor.id)
 
+          socket =
+            socket
+            |> refresh_selected_floor(floor)
+            |> assign(:selected_placement_id, location_id)
+            |> assign_location_lists()
+
+          {place_mode, points_json} = place_mode_for(socket, location_id)
+
           {:noreply,
            socket
-           |> refresh_selected_floor(floor)
-           |> assign(:selected_placement_id, location_id)
-           |> assign_location_lists()}
+           |> assign(:place_mode, place_mode)
+           |> assign(:existing_points_json, points_json)
+           |> assign(:placing_location_id, location_id)
+           |> assign(:mode, "place")}
 
         {:error, _} ->
-          {:noreply, put_flash(pop_failed_undo(socket), :error, "Could not place location")}
+          {:noreply, pop_failed_undo(socket)}
       end
     end
   end
@@ -730,6 +795,36 @@ defmodule PinventoryWeb.FloorPlanLive do
   end
 
   defp parse_index(_), do: -1
+
+  defp place_mode_for(socket, location_id) do
+    floor = socket.assigns.selected_floor
+
+    case Enum.find(floor.location_placements, &(&1.location_id == location_id)) do
+      %{points: points} when is_list(points) and length(points) >= 3 ->
+        {"extend", Jason.encode!(normalize_event_points(points))}
+
+      _ ->
+        {"new", "[]"}
+    end
+  end
+
+  defp placement_edges(points) when is_list(points) and length(points) >= 2 do
+    points
+    |> Enum.chunk_every(2, 1, [hd(points)])
+    |> Enum.map(fn [a, b] ->
+      %{x1: point_x(a), y1: point_y(a), x2: point_x(b), y2: point_y(b)}
+    end)
+  end
+
+  defp placement_edges(_), do: []
+
+  defp point_x(point) when is_map(point) do
+    to_float(Map.get(point, "x") || Map.get(point, :x))
+  end
+
+  defp point_y(point) when is_map(point) do
+    to_float(Map.get(point, "y") || Map.get(point, :y))
+  end
 
   defp placement_label_x(points), do: elem(FloorPlans.polygon_centroid(points), 0)
   defp placement_label_y(points), do: elem(FloorPlans.polygon_centroid(points), 1)
