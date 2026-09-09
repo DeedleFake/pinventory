@@ -96,7 +96,7 @@ defmodule Pinventory.FloorPlansTest do
       assert cleared.walls == []
     end
 
-    test "places a location polygon once and moves it across floors", %{
+    test "places a location polygon once and rejects a second floor", %{
       garage: garage,
       floor: floor,
       plan: plan
@@ -112,12 +112,24 @@ defmodule Pinventory.FloorPlansTest do
                FloorPlans.placement_index()
 
       assert {:ok, floor2} = FloorPlans.add_floor(plan)
-      moved_points = triangle(0.2, 0.2)
 
-      assert {:ok, moved} = FloorPlans.place_location(floor2, garage.id, moved_points)
-      assert moved.floor_id == floor2.id
-      assert moved.points == moved_points
-      assert map_size(FloorPlans.placement_index()) == 1
+      assert {:error, :already_placed} =
+               FloorPlans.place_location(floor2, garage.id, triangle(0.2, 0.2))
+
+      assert %{^garage_id => %{floor_id: floor_id}} = FloorPlans.placement_index()
+      assert floor_id == floor.id
+    end
+
+    test "updates points when placing again on the same floor", %{
+      garage: garage,
+      floor: floor
+    } do
+      assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
+      extended = triangle(0.05, 0.05)
+
+      assert {:ok, updated} = FloorPlans.place_location(floor, garage.id, extended)
+      assert updated.floor_id == floor.id
+      assert updated.points == extended
     end
 
     test "rejects polygons with fewer than three points", %{garage: garage, floor: floor} do

@@ -89,6 +89,62 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert html =~ ~s|data-location-id=""|
   end
 
+  test "location placed on another floor switches to that floor", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor1 = hd(plan.floors)
+    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    assert {:ok, _} = FloorPlans.place_location(floor1, garage.id, triangle())
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+
+    view |> element("#floor-tab-#{floor2.id}") |> render_click()
+    assert has_element?(view, "#floor-svg-#{floor2.id}")
+    refute has_element?(view, "#unplace-location-#{garage.id}")
+
+    assert has_element?(view, ~s|#place-location-#{garage.id}[phx-click="select_floor"]|)
+    assert has_element?(view, ~s|#place-location-#{garage.id}[phx-value-id="#{floor1.id}"]|)
+    assert render(view) =~ "Floor 1"
+
+    view |> element("#place-location-#{garage.id}") |> render_click()
+
+    assert has_element?(view, "#floor-svg-#{floor1.id}")
+    refute has_element?(view, "#floor-svg-#{floor2.id}")
+    assert has_element?(view, "#unplace-location-#{garage.id}")
+    assert has_element?(view, "#floor-plan-canvas[data-mode=wall]")
+    html = render(view)
+    assert html =~ ~s|data-location-id=""|
+  end
+
+  test "polygon_placed rejects a location already on another floor", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor1 = hd(plan.floors)
+    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    assert {:ok, _} = FloorPlans.place_location(floor1, garage.id, triangle())
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+    view |> element("#floor-tab-#{floor2.id}") |> render_click()
+
+    view
+    |> element("#floor-plan-canvas")
+    |> render_hook("polygon_placed", %{
+      "location_id" => garage.id,
+      "points" => triangle()
+    })
+
+    garage_id = garage.id
+    assert %{^garage_id => %{floor_id: floor_id}} = FloorPlans.placement_index()
+    assert floor_id == floor1.id
+    assert FloorPlans.get_floor!(floor2.id).location_placements == []
+  end
+
   test "polygon_placed replaces points when extending via merged client list", %{
     conn: conn,
     scope: scope
@@ -202,6 +258,36 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
 
     view |> element("#history-redo") |> render_click()
     assert length(hd(FloorPlans.get_floor_plan().floors).walls) == 1
+  end
+
+  test "undo and redo switch to the floor that changed", %{conn: conn} do
+    {:ok, plan} = FloorPlans.create_floor_plan()
+    floor1 = hd(plan.floors)
+    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+
+    view
+    |> element("#floor-plan-canvas")
+    |> render_hook("wall_drawn", %{"x1" => 0.1, "y1" => 0.1, "x2" => 0.9, "y2" => 0.1})
+
+    view |> element("#floor-tab-#{floor2.id}") |> render_click()
+    assert has_element?(view, "#floor-svg-#{floor2.id}")
+
+    view |> element("#history-undo") |> render_click()
+
+    assert has_element?(view, "#floor-svg-#{floor1.id}")
+    refute has_element?(view, "#floor-svg-#{floor2.id}")
+    assert FloorPlans.get_floor!(floor1.id).walls == []
+
+    view |> element("#floor-tab-#{floor2.id}") |> render_click()
+    assert has_element?(view, "#floor-svg-#{floor2.id}")
+
+    view |> element("#history-redo") |> render_click()
+
+    assert has_element?(view, "#floor-svg-#{floor1.id}")
+    refute has_element?(view, "#floor-svg-#{floor2.id}")
+    assert length(FloorPlans.get_floor!(floor1.id).walls) == 1
   end
 
   test "undo restores a removed placement", %{conn: conn, scope: scope} do

@@ -197,7 +197,7 @@ defmodule PinventoryWeb.FloorPlanLive do
               <div class="space-y-1">
                 <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Locations</h2>
                 <p class="text-xs opacity-60">
-                  Click an unplaced location to draw its area. Locations already on this floor cannot be selected.
+                  Click an unplaced location to draw its area. Locations already on the plan cannot be drawn again; click one to open its floor.
                 </p>
               </div>
 
@@ -213,7 +213,7 @@ defmodule PinventoryWeb.FloorPlanLive do
                 </li>
                 <li :for={location <- @locations} class="flex items-stretch gap-1">
                   <button
-                    :if={not location_placed_on_floor?(location.id, @selected_floor)}
+                    :if={not Map.has_key?(@placement_by_location, location.id)}
                     type="button"
                     id={"place-location-#{location.id}"}
                     phx-click="select_location"
@@ -227,17 +227,28 @@ defmodule PinventoryWeb.FloorPlanLive do
                     ]}
                   >
                     <span class="min-w-0 flex-1 truncate font-medium">{location.name}</span>
-                    <span
-                      :if={Map.has_key?(@placement_by_location, location.id)}
-                      class="shrink-0 rounded-full bg-base-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70"
-                    >
-                      {floor_label(@placement_by_location[location.id], @selected_floor.id)}
-                    </span>
-                    <span
-                      :if={not Map.has_key?(@placement_by_location, location.id)}
-                      class="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-warning"
-                    >
+                    <span class="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-warning">
                       Open
+                    </span>
+                  </button>
+                  <button
+                    :if={
+                      location_placed_on_other_floor?(
+                        location.id,
+                        @selected_floor,
+                        @placement_by_location
+                      )
+                    }
+                    type="button"
+                    id={"place-location-#{location.id}"}
+                    phx-click="select_floor"
+                    phx-value-id={@placement_by_location[location.id].floor_id}
+                    title={"Go to #{@placement_by_location[location.id].floor_name}"}
+                    class="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-transparent px-2.5 py-2 text-left text-sm transition-colors hover:border-base-300 hover:bg-base-200/60"
+                  >
+                    <span class="min-w-0 flex-1 truncate font-medium">{location.name}</span>
+                    <span class="shrink-0 rounded-full bg-base-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">
+                      {floor_label(@placement_by_location[location.id], @selected_floor.id)}
                     </span>
                   </button>
                   <div
@@ -520,7 +531,7 @@ defmodule PinventoryWeb.FloorPlanLive do
   end
 
   def handle_event("select_location", %{"id" => id}, socket) do
-    if location_placed_on_floor?(id, socket.assigns.selected_floor) do
+    if Map.has_key?(socket.assigns.placement_by_location, id) do
       {:noreply, socket}
     else
       {place_mode, points_json} = place_mode_for(socket, id)
@@ -605,21 +616,19 @@ defmodule PinventoryWeb.FloorPlanLive do
       [] ->
         {:noreply, socket}
 
-      [snapshot | rest] ->
-        current = FloorPlans.plan_geometry_snapshot(socket.assigns.floor_plan)
+      [entry | rest] ->
+        # Keep the affected floor id so redo also switches back to that floor.
+        current = history_entry(socket, entry.floor_id)
 
-        case FloorPlans.restore_plan_geometry(snapshot) do
+        case FloorPlans.restore_plan_geometry(entry.snapshot) do
           {:ok, plan} ->
-            selected_id = socket.assigns.selected_floor.id
-            selected = Enum.find(plan.floors, &(&1.id == selected_id)) || List.first(plan.floors)
-
             {:noreply,
              socket
              |> assign(:floor_plan, plan)
              |> assign(:floors, plan.floors)
-             |> assign(:selected_floor, selected)
              |> assign(:undo_stack, rest)
              |> assign(:redo_stack, trim_stack([current | socket.assigns.redo_stack]))
+             |> select_history_floor(plan, entry.floor_id)
              |> assign_location_lists()}
 
           {:error, _} ->
@@ -633,21 +642,18 @@ defmodule PinventoryWeb.FloorPlanLive do
       [] ->
         {:noreply, socket}
 
-      [snapshot | rest] ->
-        current = FloorPlans.plan_geometry_snapshot(socket.assigns.floor_plan)
+      [entry | rest] ->
+        current = history_entry(socket, entry.floor_id)
 
-        case FloorPlans.restore_plan_geometry(snapshot) do
+        case FloorPlans.restore_plan_geometry(entry.snapshot) do
           {:ok, plan} ->
-            selected_id = socket.assigns.selected_floor.id
-            selected = Enum.find(plan.floors, &(&1.id == selected_id)) || List.first(plan.floors)
-
             {:noreply,
              socket
              |> assign(:floor_plan, plan)
              |> assign(:floors, plan.floors)
-             |> assign(:selected_floor, selected)
              |> assign(:redo_stack, rest)
              |> assign(:undo_stack, trim_stack([current | socket.assigns.undo_stack]))
+             |> select_history_floor(plan, entry.floor_id)
              |> assign_location_lists()}
 
           {:error, _} ->
@@ -703,11 +709,27 @@ defmodule PinventoryWeb.FloorPlanLive do
   end
 
   defp push_undo_snapshot(socket) do
-    snapshot = FloorPlans.plan_geometry_snapshot(socket.assigns.floor_plan)
+    socket
+    |> assign(:undo_stack, trim_stack([history_entry(socket) | socket.assigns.undo_stack]))
+    |> assign(:redo_stack, [])
+  end
+
+  defp history_entry(socket, floor_id \\ nil) do
+    %{
+      floor_id: floor_id || socket.assigns.selected_floor.id,
+      snapshot: FloorPlans.plan_geometry_snapshot(socket.assigns.floor_plan)
+    }
+  end
+
+  defp select_history_floor(socket, plan, floor_id) do
+    selected =
+      Enum.find(plan.floors, &(&1.id == floor_id)) ||
+        Enum.find(plan.floors, &(&1.id == socket.assigns.selected_floor.id)) ||
+        List.first(plan.floors)
 
     socket
-    |> assign(:undo_stack, trim_stack([snapshot | socket.assigns.undo_stack]))
-    |> assign(:redo_stack, [])
+    |> assign(:selected_floor, FloorPlans.get_floor!(selected.id))
+    |> assign(:selected_placement_id, nil)
   end
 
   defp pop_failed_undo(socket) do
@@ -746,6 +768,13 @@ defmodule PinventoryWeb.FloorPlanLive do
 
   defp location_placed_on_floor?(location_id, %Floor{} = floor) do
     Enum.any?(floor.location_placements, &(&1.location_id == location_id))
+  end
+
+  defp location_placed_on_other_floor?(location_id, %Floor{} = floor, placement_by_location) do
+    case Map.get(placement_by_location, location_id) do
+      %{floor_id: floor_id} when floor_id != floor.id -> true
+      _ -> false
+    end
   end
 
   defp floor_label(%{floor_id: floor_id, floor_name: name}, selected_floor_id) do

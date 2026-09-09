@@ -198,6 +198,9 @@ defmodule Pinventory.FloorPlans do
   Places or replaces a location polygon on a floor. A location may sit on only one floor.
 
   `points` is a list of `%{"x" => float, "y" => float}` with at least three vertices.
+
+  Returns `{:error, :already_placed}` when the location already has a placement on a
+  different floor. Same-floor updates (e.g. extend) are allowed.
   """
   def place_location(%Floor{} = floor, location_id, points)
       when is_binary(location_id) and is_list(points) do
@@ -213,6 +216,9 @@ defmodule Pinventory.FloorPlans do
         |> LocationPlacement.changeset(attrs)
         |> Repo.insert()
 
+      %{floor_id: existing_floor_id} when existing_floor_id != floor.id ->
+        {:error, :already_placed}
+
       existing ->
         existing
         |> LocationPlacement.changeset(attrs)
@@ -221,6 +227,9 @@ defmodule Pinventory.FloorPlans do
     |> case do
       {:ok, placement} ->
         {:ok, Repo.preload(placement, [:location, :floor])}
+
+      {:error, :already_placed} = error ->
+        error
 
       error ->
         error
