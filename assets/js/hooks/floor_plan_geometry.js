@@ -483,10 +483,9 @@ export function lengthInFeet(a, b, feetPerUnit = DEFAULT_FEET_PER_UNIT) {
 
 /**
  * Midpoint label pose along ab.
- * Horizontal-ish segments: text runs parallel to the line (top/bottom toward the line).
- * Vertical-ish (|angle| > 45° after upright fold): text stays upright so beginning/end
- * face the line, staying closer to readable.
- * `offset` is world-space distance off the segment (along the outward normal).
+ * Text stays tied to the segment: try all four sides of the text box against
+ * the line (parallel ±180°, or perpendicular ±90°) and keep the rotation
+ * closest to upright. `offset` is world-space distance off the segment.
  */
 export function measurementLabelPose(a, b, offset = 0.03) {
   if (!a || !b) return null
@@ -496,26 +495,45 @@ export function measurementLabelPose(a, b, offset = 0.03) {
   if (len < 1e-12) return null
   const mx = (a.x + b.x) / 2
   const my = (a.y + b.y) / 2
+  const lineDeg = (Math.atan2(dy, dx) * 180) / Math.PI
+
+  const normalize = (deg) => {
+    let d = ((deg + 180) % 360) - 180
+    if (d <= -180) d += 360
+    return d
+  }
+
+  // Four sides of the text relative to the line direction.
+  const candidates = [0, 90, 180, -90].map((side) => normalize(lineDeg + side))
+  let best = candidates[0]
+  let bestAbs = Math.abs(best)
+  for (const deg of candidates) {
+    const aAbs = Math.abs(deg)
+    if (aAbs < bestAbs - 1e-9 || (Math.abs(aAbs - bestAbs) < 1e-9 && deg > best)) {
+      best = deg
+      bestAbs = aAbs
+    }
+  }
+
+  // Offset along the line normal; flip so the chosen side faces the segment.
+  // sideTurns = how much we rotated from lineDeg to best (in {0,±90,180}).
+  let sideTurns = normalize(best - lineDeg)
   let nx = -dy / len
   let ny = dx / len
-  let deg = (Math.atan2(dy, dx) * 180) / Math.PI
-  if (deg > 90 || deg <= -90) {
-    deg += deg > 0 ? -180 : 180
+  // Parallel, reading opposite: flip offset. Perpendicular: keep line normal
+  // so beginning/end sit toward the segment from the label center.
+  if (Math.abs(Math.abs(sideTurns) - 180) < 1e-6) {
     nx = -nx
     ny = -ny
   }
-  // Steeper than 45° from horizontal: keep upright (ends toward the line).
-  if (Math.abs(deg) > 45) {
-    deg = 0
-  }
-  return {x: mx + nx * offset, y: my + ny * offset, angleDeg: deg}
+
+  return {x: mx + nx * offset, y: my + ny * offset, angleDeg: best}
 }
 
 /** World font size that tracks zoom: ~constant on screen, clamped. */
-export function measurementFontSize(viewSize, baseAtUnitView = 0.038) {
+export function measurementFontSize(viewSize, baseAtUnitView = 0.032) {
   const size = Number(viewSize)
   if (!Number.isFinite(size) || size <= 0) return baseAtUnitView
-  // viewSize 1 → base; zoom in (smaller view) → smaller world font; zoom out → larger.
   const scaled = baseAtUnitView * size
   const min = baseAtUnitView * 0.35
   const max = baseAtUnitView * 2.5

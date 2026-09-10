@@ -398,28 +398,29 @@ describe("measurement labels", () => {
     assert.equal(formatFeet(3.2), "3.2 ft")
   })
 
-  it("keeps label angles readable (never upside-down)", () => {
+  it("picks the upright-most of the four text sides", () => {
     const right = measurementLabelPose({x: 0, y: 0}, {x: 1, y: 0}, 0.03)
     assert.ok(Math.abs(right.angleDeg) < 1e-6)
     const left = measurementLabelPose({x: 1, y: 0}, {x: 0, y: 0}, 0.03)
     assert.ok(Math.abs(left.angleDeg) < 1e-6)
+    // Vertical line: prefer upright (ends against the line), not sideways.
     const up = measurementLabelPose({x: 0, y: 1}, {x: 0, y: 0}, 0.03)
-    assert.equal(up.angleDeg, 0)
-    const steep = measurementLabelPose({x: 0, y: 0}, {x: -1, y: 0.1}, 0.03)
+    assert.ok(Math.abs(up.angleDeg) < 1e-6)
+    // Steep diagonal (~63°): perpendicular side (~-27°) beats parallel (~63°).
+    const steep = measurementLabelPose({x: 0, y: 0}, {x: 0.5, y: 1}, 0.03)
+    assert.ok(Math.abs(steep.angleDeg) < Math.abs(63) - 10)
     assert.ok(steep.angleDeg > -90 && steep.angleDeg <= 90)
   })
 
-  it("keeps steep labels upright and shallow ones parallel", () => {
+  it("keeps shallow diagonals parallel to the line", () => {
     const shallow = measurementLabelPose({x: 0, y: 0}, {x: 1, y: 0.2}, 0.03)
     assert.ok(Math.abs(shallow.angleDeg) > 1 && Math.abs(shallow.angleDeg) <= 45)
-    const vertical = measurementLabelPose({x: 0, y: 0}, {x: 0.1, y: 1}, 0.03)
-    assert.equal(vertical.angleDeg, 0)
   })
 
   it("scales font size with view size and clamps", () => {
-    assert.ok(Math.abs(measurementFontSize(1) - 0.038) < 1e-9)
-    assert.ok(measurementFontSize(0.1) > measurementFontSize(1) * 0.3)
-    assert.ok(measurementFontSize(10) < measurementFontSize(1) * 2.6)
+    assert.ok(Math.abs(measurementFontSize(1) - 0.032) < 1e-9)
+    assert.ok(measurementFontSize(0.1) >= 0.032 * 0.35 - 1e-9)
+    assert.ok(measurementFontSize(10) <= 0.032 * 2.5 + 1e-9)
     assert.ok(measurementFontSize(0.05) <= measurementFontSize(0.2))
   })
 })
