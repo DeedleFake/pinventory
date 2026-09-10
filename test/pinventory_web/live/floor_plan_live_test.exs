@@ -111,7 +111,8 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, "#floor-rail-list[phx-hook=FloorRailSort]")
     refute has_element?(view, ~s|#floor-drag-#{floor.id}[draggable]|)
     assert has_element?(view, "#floor-rail-item-#{floor.id}")
-    assert has_element?(view, "#floor-name-#{floor.id}[value=\"Floor 1\"]")
+    assert has_element?(view, "#floor-tab-#{floor.id}", "Floor 1")
+    assert has_element?(view, "#floor-edit-#{floor.id}")
     assert has_element?(view, "#floor-add")
     assert has_element?(view, "#floor-remove-#{floor.id}")
     refute has_element?(view, "#floor-remove")
@@ -417,12 +418,28 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert_patch(view, ~p"/locations/floor-plan/#{floor2.id}")
     assert render(view) =~ "Floor 2"
 
+    refute has_element?(view, "#floor-name-#{floor2.id}")
+    assert has_element?(view, "#floor-edit-#{floor2.id}")
+
+    view |> element("#floor-edit-#{floor2.id}") |> render_click()
+    assert has_element?(view, "#floor-name-#{floor2.id}")
+    assert has_element?(view, "#floor-save-#{floor2.id}")
+    refute has_element?(view, "#floor-edit-#{floor2.id}")
+
     view
-    |> form("#floor-rename-form-#{floor2.id}", %{name: "Basement"})
+    |> form("#floor-rename-form-#{floor2.id}", %{floor_id: floor2.id, name: "Basement"})
     |> render_submit()
 
-    assert has_element?(view, "#floor-name-#{floor2.id}[value=\"Basement\"]")
+    assert has_element?(view, "#floor-tab-#{floor2.id}", "Basement")
+    assert has_element?(view, "#floor-edit-#{floor2.id}")
+    refute has_element?(view, "#floor-save-#{floor2.id}")
     assert Enum.find(FloorPlans.list_floors(), &(&1.id == floor2.id)).name == "Basement"
+
+    floor1 = Enum.find(FloorPlans.list_floors(), &(&1.name == "Floor 1"))
+    view |> element("#floor-edit-#{floor1.id}") |> render_click()
+    assert_patch(view, ~p"/locations/floor-plan/#{floor1.id}")
+    assert has_element?(view, "#floor-name-#{floor1.id}")
+    assert has_element?(view, "#floor-save-#{floor1.id}")
   end
 
   test "reorders floors via drag-and-drop hook event", %{conn: conn} do

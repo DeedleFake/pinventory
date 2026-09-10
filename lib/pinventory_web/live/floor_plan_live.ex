@@ -344,7 +344,7 @@ defmodule PinventoryWeb.FloorPlanLive do
 
           <aside
             id="floor-rail"
-            class="flex w-full shrink-0 flex-col gap-2 rounded-2xl border border-base-300 bg-base-100 p-3 lg:w-72"
+            class="flex w-full shrink-0 flex-col gap-2 rounded-2xl border border-base-300 bg-base-100 p-3 lg:w-80"
           >
             <div class="flex items-center justify-between gap-2 px-0.5">
               <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Floors</h2>
@@ -417,11 +417,12 @@ defmodule PinventoryWeb.FloorPlanLive do
                     <.icon name="hero-bars-2" class="size-4" />
                   </button>
                   <form
-                    :if={floor.id == @selected_floor.id}
+                    :if={@editing_floor_id == floor.id}
                     id={"floor-rename-form-#{floor.id}"}
                     phx-submit="rename_floor"
                     class="min-w-0 flex-1"
                   >
+                    <input type="hidden" name="floor_id" value={floor.id} />
                     <label class="sr-only" for={"floor-name-#{floor.id}"}>Floor name</label>
                     <input
                       type="text"
@@ -429,23 +430,51 @@ defmodule PinventoryWeb.FloorPlanLive do
                       name="name"
                       value={floor.name}
                       autocomplete="off"
-                      phx-blur={JS.dispatch("submit", to: "#floor-rename-form-#{floor.id}")}
+                      phx-mounted={JS.focus()}
                       class={[
                         "input input-sm h-auto min-h-0 w-full min-w-0 border-0 bg-transparent px-1.5 py-2",
-                        "text-sm font-medium text-primary shadow-none",
+                        "text-sm font-medium shadow-none",
+                        floor.id == @selected_floor.id && "text-primary",
                         "focus:border-0 focus:outline-none focus:ring-0"
                       ]}
                     />
                   </form>
                   <button
-                    :if={floor.id != @selected_floor.id}
+                    :if={@editing_floor_id != floor.id}
                     type="button"
                     id={"floor-tab-#{floor.id}"}
                     phx-click="select_floor"
                     phx-value-id={floor.id}
-                    class="min-w-0 flex-1 truncate rounded-md px-1.5 py-2 text-left text-sm font-medium opacity-80 hover:opacity-100"
+                    class={[
+                      "min-w-0 flex-1 truncate rounded-md px-1.5 py-2 text-left text-sm font-medium",
+                      floor.id == @selected_floor.id && "text-primary",
+                      floor.id != @selected_floor.id && "opacity-80 hover:opacity-100"
+                    ]}
                   >
                     {floor.name}
+                  </button>
+                  <button
+                    :if={@editing_floor_id != floor.id}
+                    type="button"
+                    id={"floor-edit-#{floor.id}"}
+                    class="inline-flex w-8 shrink-0 items-center justify-center self-stretch rounded-md opacity-60 transition-colors hover:bg-base-200 hover:opacity-100"
+                    phx-click="edit_floor"
+                    phx-value-id={floor.id}
+                    title="Rename floor"
+                    aria-label={"Rename #{floor.name}"}
+                  >
+                    <.icon name="hero-pencil" class="size-4" />
+                  </button>
+                  <button
+                    :if={@editing_floor_id == floor.id}
+                    type="submit"
+                    form={"floor-rename-form-#{floor.id}"}
+                    id={"floor-save-#{floor.id}"}
+                    class="inline-flex w-8 shrink-0 items-center justify-center self-stretch rounded-md text-primary transition-colors hover:bg-primary/15"
+                    title="Save name"
+                    aria-label={"Save #{floor.name}"}
+                  >
+                    <.icon name="hero-check" class="size-4" />
                   </button>
                   <button
                     type="button"
@@ -498,6 +527,7 @@ defmodule PinventoryWeb.FloorPlanLive do
          |> assign(:selected_placement_id, nil)
          |> assign(:delete_plan?, false)
          |> assign(:removing_floor_id, nil)
+         |> assign(:editing_floor_id, nil)
          |> assign(:undo_stack, [])
          |> assign(:redo_stack, [])
          |> assign_location_lists()}
@@ -542,6 +572,7 @@ defmodule PinventoryWeb.FloorPlanLive do
          |> assign(:floors, floors)
          |> assign(:selected_placement_id, nil)
          |> assign(:removing_floor_id, nil)
+         |> assign(:editing_floor_id, nil)
          |> push_patch(to: floor_plan_path(floor.id))}
 
       {:error, _} ->
@@ -549,18 +580,43 @@ defmodule PinventoryWeb.FloorPlanLive do
     end
   end
 
-  def handle_event("rename_floor", %{"name" => name}, socket) do
-    case FloorPlans.rename_floor(socket.assigns.selected_floor, name) do
-      {:ok, floor} ->
-        floors = FloorPlans.list_floors()
+  def handle_event("edit_floor", %{"id" => id}, socket) do
+    if Enum.any?(socket.assigns.floors, &(&1.id == id)) do
+      socket =
+        socket
+        |> assign(:editing_floor_id, id)
+        |> assign(:removing_floor_id, nil)
 
-        {:noreply,
-         socket
-         |> assign(:floors, floors)
-         |> assign(:selected_floor, floor)}
-
-      {:error, _changeset} ->
+      if socket.assigns.selected_floor.id == id do
         {:noreply, socket}
+      else
+        {:noreply, push_patch(socket, to: floor_plan_path(id))}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("rename_floor", %{"floor_id" => id, "name" => name}, socket) do
+    floor = Enum.find(socket.assigns.floors, &(&1.id == id))
+
+    if floor do
+      case FloorPlans.rename_floor(floor, name) do
+        {:ok, floor} ->
+          floors = FloorPlans.list_floors()
+          selected = Enum.find(floors, &(&1.id == socket.assigns.selected_floor.id)) || floor
+
+          {:noreply,
+           socket
+           |> assign(:floors, floors)
+           |> assign(:selected_floor, selected)
+           |> assign(:editing_floor_id, nil)}
+
+        {:error, _changeset} ->
+          {:noreply, socket}
+      end
+    else
+      {:noreply, assign(socket, :editing_floor_id, nil)}
     end
   end
 
@@ -869,9 +925,17 @@ defmodule PinventoryWeb.FloorPlanLive do
     socket = assign(socket, :selected_floor, FloorPlans.get_floor!(floor.id))
 
     if changed? do
-      socket
-      |> assign(:selected_placement_id, nil)
-      |> assign(:removing_floor_id, nil)
+      socket =
+        socket
+        |> assign(:selected_placement_id, nil)
+        |> assign(:removing_floor_id, nil)
+
+      # Keep edit mode when edit_floor patched us onto this floor.
+      if socket.assigns.editing_floor_id == floor.id do
+        socket
+      else
+        assign(socket, :editing_floor_id, nil)
+      end
     else
       socket
     end
