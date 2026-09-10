@@ -481,14 +481,8 @@ export function lengthInFeet(a, b, feetPerUnit = DEFAULT_FEET_PER_UNIT) {
   return segmentLength(a, b) * feetPerUnit
 }
 
-/**
- * Midpoint label pose along ab.
- * Try all four text sides against the line; keep the upright-most rotation.
- * `inkGap` is the distance from the stroke to the facing ink edge (same for
- * top/bottom and beginning/end). `halfFace` is center→top/bottom for a middle
- * anchor (from real font metrics). End-on uses start/end on that same inkGap.
- */
-export function measurementLabelPose(a, b, fontSize = 0.032, halfFace = null, inkGap = null, startBearing = 0) {
+/** Midpoint label pose along ab. Upright-most of the four text sides. */
+export function measurementLabelPose(a, b, fontSize = 0.032) {
   if (!a || !b) return null
   const dx = b.x - a.x
   const dy = b.y - a.y
@@ -498,9 +492,8 @@ export function measurementLabelPose(a, b, fontSize = 0.032, halfFace = null, in
   const my = (a.y + b.y) / 2
   const lineDeg = (Math.atan2(dy, dx) * 180) / Math.PI
   const fs = Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 0.032
-  const face = Number.isFinite(halfFace) && halfFace > 0 ? halfFace : fs * 0.5
-  const gap = Number.isFinite(inkGap) && inkGap >= 0 ? inkGap : fs * 0.2
-  const bearing = Number.isFinite(startBearing) ? startBearing : 0
+  const edgeGap = fs * 0.2
+  const halfEm = fs * 0.5
 
   const normalize = (deg) => {
     let d = ((deg + 180) % 360) - 180
@@ -531,7 +524,7 @@ export function measurementLabelPose(a, b, fontSize = 0.032, halfFace = null, in
     Math.abs(sideTurns) < 45 || Math.abs(Math.abs(sideTurns) - 180) < 45
 
   if (parallel) {
-    const clearance = face + gap
+    const clearance = halfEm + edgeGap
     return {
       x: mx + nx * clearance,
       y: my + ny * clearance,
@@ -544,8 +537,7 @@ export function measurementLabelPose(a, b, fontSize = 0.032, halfFace = null, in
   const growX = Math.cos(rad)
   const growY = Math.sin(rad)
   const growsAway = growX * nx + growY * ny >= 0
-  // Put facing ink on the same gap: start/end anchors include side bearing.
-  const endClearance = gap - bearing
+  const endClearance = halfEm - edgeGap
   return {
     x: mx + nx * endClearance,
     y: my + ny * endClearance,

@@ -1080,37 +1080,6 @@ const FloorPlanCanvas = {
   },
 
   /**
-   * Real half-height of middle-anchored label ink, plus a shared on-screen ink gap
-   * (same world distance for top/bottom and beginning/end).
-   */
-  measureLabelFaceMetrics(fontSize) {
-    const fs = fontSize || 0.032
-    const inkGap = fs * 0.2
-    if (!this.svg) return {halfFace: fs * 0.5, inkGap, startBearing: 0}
-    const probe = document.createElementNS("http://www.w3.org/2000/svg", "text")
-    probe.setAttribute("dominant-baseline", "central")
-    probe.setAttribute("font-size", String(fs))
-    probe.setAttribute("class", "fill-primary font-sans")
-    probe.textContent = "0"
-    probe.setAttribute("transform", "translate(0 0)")
-    this.svg.appendChild(probe)
-    let halfFace = fs * 0.5
-    let startBearing = 0
-    try {
-      probe.setAttribute("text-anchor", "middle")
-      const midBox = probe.getBBox()
-      if (midBox && midBox.height > 0) halfFace = midBox.height / 2
-      probe.setAttribute("text-anchor", "start")
-      const startBox = probe.getBBox()
-      if (startBox) startBearing = startBox.x
-    } catch (_err) {
-      /* getBBox can throw if not in document yet */
-    }
-    probe.remove()
-    return {halfFace, inkGap, startBearing}
-  },
-
-  /**
    * Length labels along draft segments (feet). Text follows each segment;
    * angle stays in (-90, 90] so labels are never upside-down.
    */
@@ -1128,13 +1097,12 @@ const FloorPlanCanvas = {
     const scale = this.feetPerUnit || DEFAULT_FEET_PER_UNIT
     const viewSize = (this.camera && this.camera.size) || 1
     const fontSize = measurementFontSize(viewSize)
-    const {halfFace, inkGap, startBearing} = this.measureLabelFaceMetrics(fontSize)
     for (const pair of segments || []) {
       if (!pair || pair.length < 2) continue
       const [a, b] = pair
       if (!a || !b) continue
       if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-6) continue
-      const pose = measurementLabelPose(a, b, fontSize, halfFace, inkGap, startBearing)
+      const pose = measurementLabelPose(a, b, fontSize)
       if (!pose) continue
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text")
       label.setAttribute("text-anchor", pose.anchor || "middle")

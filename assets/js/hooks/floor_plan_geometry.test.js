@@ -417,21 +417,16 @@ describe("measurement labels", () => {
     assert.ok(Math.abs(shallow.angleDeg) > 1 && Math.abs(shallow.angleDeg) <= 45)
   })
 
-  it("uses the same ink gap for parallel and perpendicular sides", () => {
+  it("keeps top/bottom at half-em plus edge gap and end-on at half-em minus edge gap", () => {
     const fs = 0.04
-    const halfFace = 0.015
-    const inkGap = 0.008
-    const flat = measurementLabelPose({x: 0, y: 0}, {x: 1, y: 0}, fs, halfFace, inkGap)
+    const flat = measurementLabelPose({x: 0, y: 0}, {x: 1, y: 0}, fs)
     assert.equal(flat.anchor, "middle")
-    assert.ok(Math.abs(Math.abs(flat.y) - (halfFace + inkGap)) < 1e-9)
-    const steep = measurementLabelPose({x: 0, y: 0}, {x: 0.2, y: 1}, fs, halfFace, inkGap, 0)
+    assert.ok(Math.abs(Math.abs(flat.y) - 0.028) < 1e-9)
+    const steep = measurementLabelPose({x: 0, y: 0}, {x: 0.2, y: 1}, fs)
     assert.ok(steep.anchor === "start" || steep.anchor === "end")
     const mid = {x: 0.1, y: 0.5}
     const d = Math.hypot(steep.x - mid.x, steep.y - mid.y)
-    assert.ok(Math.abs(d - inkGap) < 1e-6, `ink gap ${d} vs ${inkGap}`)
-    const bearing = measurementLabelPose({x: 0, y: 0}, {x: 0.2, y: 1}, fs, halfFace, inkGap, -0.002)
-    const d2 = Math.hypot(bearing.x - mid.x, bearing.y - mid.y)
-    assert.ok(Math.abs(d2 - (inkGap + 0.002)) < 1e-6)
+    assert.ok(Math.abs(d - 0.012) < 1e-6, `end gap ${d}`)
   })
 
   it("scales font size with view size and clamps", () => {
