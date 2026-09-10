@@ -485,9 +485,10 @@ export function lengthInFeet(a, b, feetPerUnit = DEFAULT_FEET_PER_UNIT) {
  * Midpoint label pose along ab.
  * Text stays tied to the segment: try all four sides of the text box against
  * the line (parallel ±180°, or perpendicular ±90°) and keep the rotation
- * closest to upright. `offset` is world-space distance off the segment.
+ * closest to upright. Offset clears the stroke using `fontSize` (parallel:
+ * ~half glyph height; perpendicular: ~half label width so ends don't cross).
  */
-export function measurementLabelPose(a, b, offset = 0.03) {
+export function measurementLabelPose(a, b, fontSize = 0.032) {
   if (!a || !b) return null
   const dx = b.x - a.x
   const dy = b.y - a.y
@@ -496,6 +497,7 @@ export function measurementLabelPose(a, b, offset = 0.03) {
   const mx = (a.x + b.x) / 2
   const my = (a.y + b.y) / 2
   const lineDeg = (Math.atan2(dy, dx) * 180) / Math.PI
+  const fs = Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 0.032
 
   const normalize = (deg) => {
     let d = ((deg + 180) % 360) - 180
@@ -503,7 +505,6 @@ export function measurementLabelPose(a, b, offset = 0.03) {
     return d
   }
 
-  // Four sides of the text relative to the line direction.
   const candidates = [0, 90, 180, -90].map((side) => normalize(lineDeg + side))
   let best = candidates[0]
   let bestAbs = Math.abs(best)
@@ -515,19 +516,19 @@ export function measurementLabelPose(a, b, offset = 0.03) {
     }
   }
 
-  // Offset along the line normal; flip so the chosen side faces the segment.
-  // sideTurns = how much we rotated from lineDeg to best (in {0,±90,180}).
-  let sideTurns = normalize(best - lineDeg)
+  const sideTurns = normalize(best - lineDeg)
   let nx = -dy / len
   let ny = dx / len
-  // Parallel, reading opposite: flip offset. Perpendicular: keep line normal
-  // so beginning/end sit toward the segment from the label center.
   if (Math.abs(Math.abs(sideTurns) - 180) < 1e-6) {
     nx = -nx
     ny = -ny
   }
 
-  return {x: mx + nx * offset, y: my + ny * offset, angleDeg: best}
+  const parallel =
+    Math.abs(sideTurns) < 45 || Math.abs(Math.abs(sideTurns) - 180) < 45
+  // Keep the chosen side against the line without the glyph body crossing it.
+  const clearance = parallel ? fs * 0.95 : fs * 2.6
+  return {x: mx + nx * clearance, y: my + ny * clearance, angleDeg: best}
 }
 
 /** World font size that tracks zoom: ~constant on screen, clamped. */

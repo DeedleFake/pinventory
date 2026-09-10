@@ -1097,13 +1097,12 @@ const FloorPlanCanvas = {
     const scale = this.feetPerUnit || DEFAULT_FEET_PER_UNIT
     const viewSize = (this.camera && this.camera.size) || 1
     const fontSize = measurementFontSize(viewSize)
-    const offset = Math.max(0.012, fontSize * 0.75)
     for (const pair of segments || []) {
       if (!pair || pair.length < 2) continue
       const [a, b] = pair
       if (!a || !b) continue
       if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-6) continue
-      const pose = measurementLabelPose(a, b, offset)
+      const pose = measurementLabelPose(a, b, fontSize)
       if (!pose) continue
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text")
       label.setAttribute("text-anchor", "middle")

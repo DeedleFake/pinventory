@@ -417,6 +417,19 @@ describe("measurement labels", () => {
     assert.ok(Math.abs(shallow.angleDeg) > 1 && Math.abs(shallow.angleDeg) <= 45)
   })
 
+  it("offsets the label off the segment", () => {
+    const a = {x: 0, y: 0}
+    const b = {x: 1, y: 0}
+    const fs = 0.04
+    const pose = measurementLabelPose(a, b, fs)
+    const dist = Math.abs(pose.y - 0)
+    assert.ok(dist >= fs * 0.9, `expected clearance, got ${dist}`)
+    const steep = measurementLabelPose({x: 0, y: 0}, {x: 0.2, y: 1}, fs)
+    const mid = {x: 0.1, y: 0.5}
+    const d = Math.hypot(steep.x - mid.x, steep.y - mid.y)
+    assert.ok(d >= fs * 2.0, `steep clearance ${d}`)
+  })
+
   it("scales font size with view size and clamps", () => {
     assert.ok(Math.abs(measurementFontSize(1) - 0.032) < 1e-9)
     assert.ok(measurementFontSize(0.1) >= 0.032 * 0.35 - 1e-9)
