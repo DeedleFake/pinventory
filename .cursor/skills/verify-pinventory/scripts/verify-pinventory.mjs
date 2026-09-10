@@ -49,10 +49,16 @@ Browser (Chromium over CDP, persistent until cleanup):
   browser login
   browser goto <path>
   browser click <selector>
+  browser click-at <selector> <x> <y>
+  browser click-box <selector> <fx> <fy>
+  browser box <selector>
+  browser hover <selector>
   browser fill <selector> <value>
   browser press <key>
   browser wait <selector>
+  browser wait-attached <selector>
   browser wait-enabled <selector>
+  browser enabled <selector>
   browser text <selector>
   browser exists <selector>
   browser attr <selector> <name>
@@ -454,6 +460,65 @@ async function cmdBrowser(args) {
     return;
   }
 
+  if (action === "click-at") {
+    const xRaw = rest.length >= 2 ? rest[rest.length - 2] : undefined;
+    const yRaw = rest.length >= 2 ? rest[rest.length - 1] : undefined;
+    const selector = rest.slice(0, -2).join(" ").trim();
+    const x = Number(xRaw);
+    const y = Number(yRaw);
+    if (!selector || !Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new Error("browser click-at <selector> <x> <y>");
+    }
+    await withPage(async (page) => {
+      await page.locator(selector).first().click({ position: { x, y } });
+      console.log(`ok clicked ${selector} at ${x},${y}`);
+    });
+    return;
+  }
+
+  if (action === "box") {
+    const selector = rest.join(" ").trim();
+    if (!selector) throw new Error("browser box <selector>");
+    await withPage(async (page) => {
+      const box = await page.locator(selector).first().boundingBox();
+      if (!box) throw new Error(`no bounding box for ${selector}`);
+      console.log(
+        `ok ${selector} x=${box.x} y=${box.y} w=${box.width} h=${box.height}`,
+      );
+    });
+    return;
+  }
+
+  if (action === "click-box") {
+    const fxRaw = rest.length >= 2 ? rest[rest.length - 2] : undefined;
+    const fyRaw = rest.length >= 2 ? rest[rest.length - 1] : undefined;
+    const selector = rest.slice(0, -2).join(" ").trim();
+    const fx = Number(fxRaw);
+    const fy = Number(fyRaw);
+    if (!selector || !Number.isFinite(fx) || !Number.isFinite(fy)) {
+      throw new Error("browser click-box <selector> <fx> <fy>");
+    }
+    await withPage(async (page) => {
+      const box = await page.locator(selector).first().boundingBox();
+      if (!box) throw new Error(`no bounding box for ${selector}`);
+      const x = box.x + fx * box.width;
+      const y = box.y + fy * box.height;
+      await page.mouse.click(x, y);
+      console.log(`ok clicked ${selector} box ${fx},${fy} at ${x},${y}`);
+    });
+    return;
+  }
+
+  if (action === "hover") {
+    const selector = rest.join(" ").trim();
+    if (!selector) throw new Error("browser hover <selector>");
+    await withPage(async (page) => {
+      await page.hover(selector);
+      console.log(`ok hovered ${selector}`);
+    });
+    return;
+  }
+
   if (action === "fill") {
     const selector = rest[0];
     const value = rest.slice(1).join(" ");
@@ -485,6 +550,16 @@ async function cmdBrowser(args) {
     return;
   }
 
+  if (action === "wait-attached") {
+    const selector = rest.join(" ").trim();
+    if (!selector) throw new Error("browser wait-attached <selector>");
+    await withPage(async (page) => {
+      await page.waitForSelector(selector, { state: "attached" });
+      console.log(`ok attached ${selector}`);
+    });
+    return;
+  }
+
   if (action === "wait-enabled") {
     const selector = rest.join(" ").trim();
     if (!selector) throw new Error("browser wait-enabled <selector>");
@@ -494,6 +569,17 @@ async function cmdBrowser(args) {
         return Boolean(el) && !el.disabled;
       }, selector);
       console.log(`ok enabled ${selector}`);
+    });
+    return;
+  }
+
+  if (action === "enabled") {
+    const selector = rest.join(" ").trim();
+    if (!selector) throw new Error("browser enabled <selector>");
+    await withPage(async (page) => {
+      const loc = page.locator(selector).first();
+      const disabled = await loc.isDisabled();
+      console.log(disabled ? "disabled" : "enabled");
     });
     return;
   }

@@ -86,9 +86,24 @@ $H browser html items/after-save.html
 $H sqlite "select name from items;"
 ```
 
+Floor-plan drawing needs positioned clicks. `click` hits the element center and does not draw a wall.
+
+```bash
+$H browser click '#tool-wall'
+$H browser click-at '#floor-plan-canvas [data-floor-plan-svg]' 150 220
+$H browser click-at '#floor-plan-canvas [data-floor-plan-svg]' 480 220
+$H browser wait-attached '[data-wall-id]'
+$H browser click '#tool-gap'
+$H browser click-box '[data-wall-id]' 0.3 0.5
+$H browser click-box '[data-wall-id]' 0.7 0.5
+$H browser hover '#location-<id>'
+```
+
 `browser login` opens `/user/log-in`, fills `#user_email` / `#user_password`, submits `#login_form_password`, and waits for `#items-page`.
 
 `goto` paths are origin-relative (`/locations`, `/item`, `/user/settings`). After LiveView clicks, `wait` the destination root id. Do not sleep a fixed number of seconds except for documented debounce (name/filter `phx-debounce="300"`). After those fills, wait 400ms by running `browser wait-enabled` or `browser wait` on the result.
+
+`click-at <selector> <x> <y>` clicks CSS pixels from the element's top-left. Prefer `#floor-plan-canvas [data-floor-plan-svg]` and keep y below the Reset view overlay. `click-box <selector> <fx> <fy>` clicks a 0–1 fraction of the bounding box (use this for existing wall/impassable geometry). `wait-attached` is for SVG nodes such as `[data-wall-id]`; Playwright treats a transparent stroke as not visible. `enabled` prints `enabled` or `disabled` (boolean `attr disabled`/`checked` is ambiguous). `hover` leaves the pointer there so a following `attr class` can see `.is-list-hover`. Flash alerts intercept clicks; dismiss `#flash-error` / `#flash-info` first.
 
 Stable handles:
 
@@ -96,11 +111,14 @@ Stable handles:
 |---|---|
 | Login form | `#login_form_password`, `#user_email`, `#user_password`, `#user_remember_me` |
 | First-account register | `#registration_form` (only when `users` is empty; launch seeds a user, so this path is closed) |
-| Header | `#nav-items`, `#nav-locations`, `#nav-settings`, `#app-nav` |
+| Invite accept | `#invite_registration_form` on `/user/invite/<token>` |
+| Header | `#nav-items`, `#nav-locations`, `#nav-settings`, `#app-nav`, `a[aria-label="Log out"]` |
 | Items list | `#items-page`, `#new-item`, `#items-empty`, `#items-filter-form`, `#q`, `#location`, `#items-<item-id>` |
 | Item editor | `#item-page`, `#item_name`, `#item-save`, `#item-stock-form`, `#quantity-<location-id>`, `#quantity-inc-<location-id>`, `#item-delete` |
 | Locations list | `#locations-page`, `#location-new-form`, `#location-new_name`, `#location-add-button`, `#location-<location-id>` |
+| Locations browse (plan on) | `#locations-workspace`, `#locations-floor-canvas`, `#locations-floor-rail`, `#floor-plan-edit` |
 | Location editor | `#location-page`, `#location_name`, `#location-save`, `#location-delete`, `#location-item-<item-id>` |
+| Floor plan editor | `#floor-plan-page`, `#floor-plan-add`, `#floor-plan-sidebar`, `#floor-plan-canvas`, `#floor-rail`, `#tool-wall`, `#tool-gap`, `#tool-erase`, `#tool-impassable`, `#tool-impassable-erase`, `#polygon-finish`, `#history-undo`, `#history-redo`, `#floor-plan-delete` |
 | Delete modals | `#item-delete-modal`, `#item-delete-confirm`, `#item-delete-confirm-submit`, `#location-delete-modal`, `#location-delete-confirm`, `#location-delete-confirm-submit` |
 | Flash | `#flash-info`, `#flash-error` |
 | Settings | `#settings-page`, `#settings-tab-account`, `#settings-tab-users`, `#settings-tab-activity`, `#generate-invite-form` |
@@ -150,7 +168,15 @@ If a drive fails, run `cleanup` before the next `launch` so `:4010` and `:5010` 
 
 Executable: `.cursor/skills/verify-pinventory/scripts/verify-pinventory`
 
-It wraps `verify-pinventory.mjs`. `npm install --omit=dev` runs automatically when `scripts/node_modules/playwright-core` is missing.
+```bash
+./.cursor/skills/verify-pinventory/scripts/verify-pinventory launch
+./.cursor/skills/verify-pinventory/scripts/verify-pinventory doctor
+./.cursor/skills/verify-pinventory/scripts/verify-pinventory browser login
+./.cursor/skills/verify-pinventory/scripts/verify-pinventory browser click-at '#floor-plan-canvas [data-floor-plan-svg]' 150 220
+./.cursor/skills/verify-pinventory/scripts/verify-pinventory cleanup
+```
+
+It wraps `verify-pinventory.mjs`. `npm install --omit=dev` runs automatically when `scripts/node_modules/playwright-core` is missing. `./.cursor/skills/verify-pinventory/scripts/verify-pinventory` with no args prints the command list.
 
 Chromium binary order: `PINVENTORY_CHROME`, then `~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome`, then `/usr/bin/chromium`.
 
