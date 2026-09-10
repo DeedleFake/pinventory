@@ -401,3 +401,70 @@ export function fitSquareCamera(bounds, padding = 0.08) {
   return {x: cx - size / 2, y: cy - size / 2, size}
 }
 
+/**
+ * Intersection of the infinite angle line through `anchor` with segment ab.
+ * Returns null if parallel or the hit is outside the segment.
+ */
+export function segmentHitOnAngleLine(anchor, angle, a, b) {
+  if (!anchor || !a || !b) return null
+  const abx = b.x - a.x
+  const aby = b.y - a.y
+  const len2 = abx * abx + aby * aby
+  if (len2 < 1e-24) {
+    const dx = a.x - anchor.x
+    const dy = a.y - anchor.y
+    const dist = Math.hypot(dx, dy)
+    if (dist < 1e-12) return copyPoint(a)
+    const ang = Math.atan2(dy, dx)
+    let d = Math.abs(ang - angle) % (Math.PI * 2)
+    if (d > Math.PI) d = Math.PI * 2 - d
+    if (d > 1e-6 && Math.abs(d - Math.PI) > 1e-6) return null
+    return copyPoint(a)
+  }
+  const segAngle = Math.atan2(aby, abx)
+  const hit = lineIntersection(anchor, angle, a, segAngle)
+  if (!hit) return null
+  const u = ((hit.x - a.x) * abx + (hit.y - a.y) * aby) / len2
+  if (u < -1e-9 || u > 1 + 1e-9) return null
+  return hit
+}
+
+/**
+ * Geometry snap that stays on the Shift angle line through `anchor` toward `rayPoint`.
+ * Prefers vertices on that line, then segment∩angle-line hits, within `maxDist` of `rayPoint`.
+ * Returns null when nothing on-line is near enough (caller keeps `rayPoint`).
+ */
+export function snapOnAngleLine(anchor, rayPoint, segments, vertices, maxDist) {
+  if (!anchor || !rayPoint || !(maxDist > 0)) return null
+  const angle = nearestAngleStep(anchor, rayPoint)
+  // Degenerate: no direction
+  if (Math.hypot(rayPoint.x - anchor.x, rayPoint.y - anchor.y) < 1e-12) return null
+
+  const ON_LINE = Math.min(1e-4, maxDist * 0.05)
+  let best = null
+  let bestDist = maxDist
+
+  for (const v of vertices || []) {
+    if (!v) continue
+    if (distanceToLine(v, anchor, rayPoint) > ON_LINE) continue
+    const d = Math.hypot(v.x - rayPoint.x, v.y - rayPoint.y)
+    if (d <= bestDist) {
+      bestDist = d
+      best = {x: v.x, y: v.y}
+    }
+  }
+  if (best) return best
+
+  bestDist = maxDist
+  for (const seg of segments || []) {
+    if (!Array.isArray(seg) || seg.length < 2) continue
+    const hit = segmentHitOnAngleLine(anchor, angle, seg[0], seg[1])
+    if (!hit) continue
+    const d = Math.hypot(hit.x - rayPoint.x, hit.y - rayPoint.y)
+    if (d <= bestDist) {
+      bestDist = d
+      best = hit
+    }
+  }
+  return best
+}

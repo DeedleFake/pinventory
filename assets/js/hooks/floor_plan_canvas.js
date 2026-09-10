@@ -18,7 +18,8 @@
  * Hold Shift while drafting to constrain to 22.5° angles (16 directions). Walls
  * snap from the start point; polygons may also meet a closing H/V through the
  * first vertex when the cursor is near that axis (line-snap style), else
- * newest-edge only. Order: raw → Shift angle → optional geometry snap.
+ * newest-edge only. Order: raw → Shift angle → geometry snap only on that
+ * angle line (vertex on-line or segment∩line). Off-angle line snap never wins.
  * Ctrl/Meta skips geometry snap; Shift still angle-constrains. Shift
  * keydown/keyup refreshes the draft.
  * Draft corners dedupe within SNAP_DISTANCE so near-clicks reuse an existing vertex.
@@ -34,11 +35,11 @@ import {
   angleSnapPoint,
   angleSnapPointDual,
   contentBoundsFromSegments,
-  distanceToLine,
   fitSquareCamera,
   mergeExtension as mergeExtensionGeometry,
   nearestVertexWithin,
   provisionalCloseIndex,
+  snapOnAngleLine,
 } from "./floor_plan_geometry.js"
 
 const MIN_WALL_LENGTH = 0.02
@@ -351,22 +352,16 @@ const FloorPlanCanvas = {
       return {point, snapped: false, raw}
     }
 
-    const snapped = this.snap(point)
-    if (!snapped.snapped) {
-      return {point, snapped: false, raw}
-    }
-
-    // Shift stays primary: accept geometry snap only when still near the angle ray(s).
+    // Shift: angle wins — only snap to geometry that lies on the angle line.
     if (shift && prev) {
-      const onNewest = distanceToLine(snapped.point, prev, point) <= SNAP_DISTANCE
-      const onClosing =
-        !next || distanceToLine(snapped.point, next, point) <= SNAP_DISTANCE
-      if (onNewest && onClosing) {
-        return {point: snapped.point, snapped: true, raw}
-      }
+      const segs = this.collectSnapSegments()
+      const verts = this.collectSnapVertices(segs)
+      const onRay = snapOnAngleLine(prev, point, segs, verts, SNAP_DISTANCE)
+      if (onRay) return {point: onRay, snapped: true, raw}
       return {point, snapped: false, raw}
     }
 
+    const snapped = this.snap(point)
     return {point: snapped.point, snapped: snapped.snapped, raw}
   },
 

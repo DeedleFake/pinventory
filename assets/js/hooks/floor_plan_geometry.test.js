@@ -7,6 +7,8 @@ import {
   lineIntersection,
   nearestAngleStep,
   distanceToLine,
+  segmentHitOnAngleLine,
+  snapOnAngleLine,
   mergeExtension,
   nearestVertexWithin,
   polygonArea,
@@ -350,3 +352,35 @@ describe("fitSquareCamera", () => {
   })
 })
 
+describe("snapOnAngleLine", () => {
+  it("snaps to a segment only at the angle-line intersection", () => {
+    const anchor = {x: 0, y: 0}
+    // Horizontal angle toward (1, 0); nearby diagonal wall from (0.8,-0.2) to (0.8,0.2)
+    const rayPoint = {x: 0.85, y: 0}
+    const segs = [[{x: 0.8, y: -0.2}, {x: 0.8, y: 0.2}]]
+    const hit = snapOnAngleLine(anchor, rayPoint, segs, [], 0.1)
+    assert.ok(hit)
+    assert.ok(Math.abs(hit.x - 0.8) < 1e-9)
+    assert.ok(Math.abs(hit.y - 0) < 1e-9)
+  })
+
+  it("ignores a nearby segment that does not cross the angle line within range", () => {
+    const anchor = {x: 0, y: 0}
+    const rayPoint = {x: 0.5, y: 0}
+    // Parallel horizontal segment above the ray — never intersects y=0 line usefully as a vertical? 
+    // Horizontal segment y=0.05 from x=0.4 to 0.6: angle line is y=0, parallel, no hit
+    const segs = [[{x: 0.4, y: 0.05}, {x: 0.6, y: 0.05}]]
+    const hit = snapOnAngleLine(anchor, rayPoint, segs, [], 0.03)
+    assert.equal(hit, null)
+  })
+
+  it("prefers a vertex that lies on the angle line", () => {
+    const anchor = {x: 0, y: 0}
+    const rayPoint = {x: 0.55, y: 0}
+    const verts = [{x: 0.5, y: 0}, {x: 0.5, y: 0.02}]
+    const hit = snapOnAngleLine(anchor, rayPoint, [], verts, 0.1)
+    assert.ok(hit)
+    assert.ok(Math.abs(hit.y) < 1e-9)
+    assert.ok(Math.abs(hit.x - 0.5) < 1e-9)
+  })
+})
