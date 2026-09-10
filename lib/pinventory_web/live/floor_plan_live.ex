@@ -477,6 +477,19 @@ defmodule PinventoryWeb.FloorPlanLive do
                     <.icon name="hero-check" class="size-4" />
                   </button>
                   <button
+                    :if={@editing_floor_id == floor.id}
+                    type="button"
+                    id={"floor-edit-cancel-#{floor.id}"}
+                    class="inline-flex w-8 shrink-0 items-center justify-center self-stretch rounded-md opacity-60 transition-colors hover:bg-base-200 hover:opacity-100"
+                    phx-click="cancel_edit_floor"
+                    phx-value-id={floor.id}
+                    title="Cancel rename"
+                    aria-label="Cancel rename"
+                  >
+                    <.icon name="hero-x-mark" class="size-4" />
+                  </button>
+                  <button
+                    :if={@editing_floor_id != floor.id}
                     type="button"
                     id={"floor-remove-#{floor.id}"}
                     class={[
@@ -582,16 +595,18 @@ defmodule PinventoryWeb.FloorPlanLive do
 
   def handle_event("edit_floor", %{"id" => id}, socket) do
     if Enum.any?(socket.assigns.floors, &(&1.id == id)) do
-      socket =
-        socket
-        |> assign(:editing_floor_id, id)
-        |> assign(:removing_floor_id, nil)
+      {:noreply,
+       socket
+       |> assign(:editing_floor_id, id)
+       |> assign(:removing_floor_id, nil)}
+    else
+      {:noreply, socket}
+    end
+  end
 
-      if socket.assigns.selected_floor.id == id do
-        {:noreply, socket}
-      else
-        {:noreply, push_patch(socket, to: floor_plan_path(id))}
-      end
+  def handle_event("cancel_edit_floor", %{"id" => id}, socket) do
+    if socket.assigns.editing_floor_id == id do
+      {:noreply, assign(socket, :editing_floor_id, nil)}
     else
       {:noreply, socket}
     end
@@ -925,17 +940,10 @@ defmodule PinventoryWeb.FloorPlanLive do
     socket = assign(socket, :selected_floor, FloorPlans.get_floor!(floor.id))
 
     if changed? do
-      socket =
-        socket
-        |> assign(:selected_placement_id, nil)
-        |> assign(:removing_floor_id, nil)
-
-      # Keep edit mode when edit_floor patched us onto this floor.
-      if socket.assigns.editing_floor_id == floor.id do
-        socket
-      else
-        assign(socket, :editing_floor_id, nil)
-      end
+      socket
+      |> assign(:selected_placement_id, nil)
+      |> assign(:removing_floor_id, nil)
+      |> assign(:editing_floor_id, nil)
     else
       socket
     end

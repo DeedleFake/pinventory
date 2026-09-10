@@ -437,9 +437,17 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
 
     floor1 = Enum.find(FloorPlans.list_floors(), &(&1.name == "Floor 1"))
     view |> element("#floor-edit-#{floor1.id}") |> render_click()
-    assert_patch(view, ~p"/locations/floor-plan/#{floor1.id}")
     assert has_element?(view, "#floor-name-#{floor1.id}")
     assert has_element?(view, "#floor-save-#{floor1.id}")
+    assert has_element?(view, "#floor-edit-cancel-#{floor1.id}")
+    refute has_element?(view, "#floor-remove-#{floor1.id}")
+    assert has_element?(view, "#floor-svg-#{floor2.id}")
+
+    view |> element("#floor-edit-cancel-#{floor1.id}") |> render_click()
+    assert has_element?(view, "#floor-tab-#{floor1.id}", "Floor 1")
+    assert has_element?(view, "#floor-edit-#{floor1.id}")
+    assert has_element?(view, "#floor-remove-#{floor1.id}")
+    refute has_element?(view, "#floor-save-#{floor1.id}")
   end
 
   test "reorders floors via drag-and-drop hook event", %{conn: conn} do
