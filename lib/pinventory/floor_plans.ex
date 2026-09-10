@@ -3,16 +3,18 @@ defmodule Pinventory.FloorPlans do
   Optional multi-floor floor plans for the household.
 
   Absence of any `Floor` row means the feature is off. Locations stay when the
-  plan is deleted; placements and walls are removed with floors via FK cascades.
+  plan is deleted; placements, walls, and impassable areas are removed with
+  floors via FK cascades.
 
   Location placements are closed polygons in unbounded world coords (not pins).
+  Impassable areas are unlabeled closed polygons on one floor (not locations).
   Walls are stored as rows with finite world-coordinate endpoints.
   """
 
   import Ecto.Query, warn: false
 
   alias Ecto.Multi
-  alias Pinventory.FloorPlans.{Floor, Geometry, LocationPlacement, Wall}
+  alias Pinventory.FloorPlans.{Floor, Geometry, ImpassableArea, LocationPlacement, Wall}
   alias Pinventory.Locations.Location
   alias Pinventory.Repo
 
@@ -20,7 +22,8 @@ defmodule Pinventory.FloorPlans do
   @undo_limit 50
 
   @doc """
-  Returns all floors ordered by position, with walls and placements (+ location) preloaded.
+  Returns all floors ordered by position, with walls, impassable areas, and
+  placements (+ location) preloaded.
   """
   def list_floors do
     Floor
@@ -57,7 +60,7 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
-  Deletes every floor (walls and placements cascade). Locations remain.
+  Deletes every floor (walls, placements, and impassable areas cascade). Locations remain.
   """
   def delete_floor_plan do
     if floor_plan_exists?() do
@@ -69,7 +72,8 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
-  Gets a floor by id with walls and placements (+ location) preloaded, or `nil`.
+  Gets a floor by id with walls, impassable areas, and placements (+ location)
+  preloaded, or `nil`.
   """
   def get_floor(id) do
     Floor
@@ -197,7 +201,8 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
-  Deletes a floor and its placements/walls. Refuses when it is the last floor.
+  Deletes a floor and its walls, placements, and impassable areas. Refuses when
+  it is the last floor.
   """
   def delete_floor(%Floor{} = floor) do
     count = Repo.aggregate(Floor, :count)
@@ -279,6 +284,43 @@ defmodule Pinventory.FloorPlans do
           {:ok, get_floor!(floor.id)}
         else
           replace_wall_with_remainders(wall, remainders)
+        end
+    end
+  end
+
+  @doc """
+  Inserts an impassable polygon on a floor.
+
+  `points` is a list of `%{"x" => float, "y" => float}`. Collinear vertices are
+  dropped. Fewer than three points after that is rejected.
+  """
+  def add_impassable_area(%Floor{} = floor, points) when is_list(points) do
+    attrs = %{
+      floor_id: floor.id,
+      points: normalize_points(points)
+    }
+
+    %ImpassableArea{}
+    |> ImpassableArea.changeset(attrs)
+    |> Repo.insert()
+    |> case do
+      {:ok, _} -> {:ok, get_floor!(floor.id)}
+      error -> error
+    end
+  end
+
+  @doc """
+  Removes an impassable area by id. Missing or wrong-floor ids are `:not_found`.
+  """
+  def remove_impassable_area(%Floor{} = floor, area_id) when is_binary(area_id) do
+    case Repo.get_by(ImpassableArea, id: area_id, floor_id: floor.id) do
+      nil ->
+        {:error, :not_found}
+
+      area ->
+        case Repo.delete(area) do
+          {:ok, _} -> {:ok, get_floor!(floor.id)}
+          error -> error
         end
     end
   end
@@ -368,8 +410,9 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
-  Snapshot of plan geometry for undo/redo: floors (id/name/position), walls, and
-  placements. Used to rewind wall/placement edits and floor add/remove.
+  Snapshot of plan geometry for undo/redo: floors (id/name/position), walls,
+  impassable areas, and placements. Used to rewind geometry edits and floor
+  add/remove.
   """
   def plan_geometry_snapshot(floors) when is_list(floors) do
     Enum.map(floors, fn floor ->
@@ -387,6 +430,10 @@ defmodule Pinventory.FloorPlans do
               y2: wall.y2
             }
           end),
+        impassable_areas:
+          Enum.map(floor.impassable_areas, fn area ->
+            %{id: area.id, points: normalize_points(area.points)}
+          end),
         placements:
           Enum.map(floor.location_placements, fn placement ->
             %{location_id: placement.location_id, points: normalize_points(placement.points)}
@@ -396,11 +443,12 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
-  Restores floors, walls, and placements from a `plan_geometry_snapshot/1` value.
+  Restores floors, walls, impassable areas, and placements from a
+  `plan_geometry_snapshot/1` value.
 
   Floors missing from the snapshot are deleted; floors present only in the
   snapshot are re-inserted with their original ids so undo can revive a removed
-  floor (and its walls/placements).
+  floor (and its walls/placements/impassable areas).
   """
   def restore_plan_geometry(snapshot) when is_list(snapshot) do
     if floor_plan_exists?() or snapshot != [] do
@@ -435,6 +483,11 @@ defmodule Pinventory.FloorPlans do
           end
 
           replace_walls_for_floor(floor_id, walls)
+
+          replace_impassable_areas_for_floor(
+            floor_id,
+            snapshot_get(floor_snap, :impassable_areas) || []
+          )
         end
 
         desired =
@@ -553,8 +606,31 @@ defmodule Pinventory.FloorPlans do
     :ok
   end
 
+  # Undo restore: drop current impassable areas and re-insert snapshot rows (including ids).
+  defp replace_impassable_areas_for_floor(floor_id, areas) when is_list(areas) do
+    from(a in ImpassableArea, where: a.floor_id == ^floor_id) |> Repo.delete_all()
+
+    for area_snap <- areas do
+      area_id = snapshot_get(area_snap, :id)
+      points = normalize_points(snapshot_get(area_snap, :points) || [])
+
+      area =
+        if is_binary(area_id) do
+          %ImpassableArea{id: area_id}
+        else
+          %ImpassableArea{}
+        end
+
+      area
+      |> ImpassableArea.changeset(%{floor_id: floor_id, points: points})
+      |> Repo.insert!()
+    end
+
+    :ok
+  end
+
   defp floor_preloads do
-    [:walls, location_placements: :location]
+    [:walls, :impassable_areas, location_placements: :location]
   end
 
   defp maybe_preload_floor(nil), do: nil

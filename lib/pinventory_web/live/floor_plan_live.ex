@@ -143,6 +143,38 @@ defmodule PinventoryWeb.FloorPlanLive do
               </div>
             </section>
 
+            <section id="floor-plan-impassable-tools" class="space-y-2">
+              <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Impassable</h2>
+              <div class="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  id="tool-impassable"
+                  phx-click="set_mode"
+                  phx-value-mode="impassable"
+                  class={[
+                    "btn btn-sm justify-start",
+                    @mode == "impassable" && "btn-primary",
+                    @mode != "impassable" && "btn-ghost border border-base-300"
+                  ]}
+                >
+                  <.icon name="hero-no-symbol" class="size-4" /> Draw area
+                </button>
+                <button
+                  type="button"
+                  id="tool-impassable-erase"
+                  phx-click="set_mode"
+                  phx-value-mode="impassable_erase"
+                  class={[
+                    "btn btn-sm justify-start",
+                    @mode == "impassable_erase" && "btn-primary",
+                    @mode != "impassable_erase" && "btn-ghost border border-base-300"
+                  ]}
+                >
+                  <.icon name="hero-trash" class="size-4" /> Erase
+                </button>
+              </div>
+            </section>
+
             <section id="floor-plan-location-tools" class="flex min-h-0 flex-1 flex-col gap-2">
               <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Locations</h2>
 
@@ -242,7 +274,8 @@ defmodule PinventoryWeb.FloorPlanLive do
               "h-[calc(100vh-12rem)] min-h-[28rem] w-full touch-none select-none outline-none",
               "focus-visible:ring-2 focus-visible:ring-primary/40",
               (@mode == "wall" || @mode == "gap") && "cursor-crosshair",
-              @mode == "erase" && "cursor-pointer",
+              @mode == "impassable" && "cursor-cell",
+              (@mode == "erase" || @mode == "impassable_erase") && "cursor-pointer",
               @mode == "place" && @placing_location_id && "cursor-cell",
               @mode == "place" && !@placing_location_id && "cursor-not-allowed"
             ]}
@@ -287,12 +320,24 @@ defmodule PinventoryWeb.FloorPlanLive do
               preserveAspectRatio="xMidYMid meet"
               class="h-full w-full bg-base-100 text-base-content"
             >
-              <.placement_area
-                :for={placement <- @selected_floor.location_placements}
-                placement={placement}
-                selected?={@selected_placement_id == placement.location_id}
+              <.impassable_hatch_defs id={"floor-impassable-hatch-#{@selected_floor.id}"} />
+
+              <.impassable_area
+                :for={area <- @selected_floor.impassable_areas}
+                area={area}
+                hatch_id={"floor-impassable-hatch-#{@selected_floor.id}"}
                 show_snap?={true}
+                erasable?={@mode == "impassable_erase"}
               />
+
+              <g class={if(@mode == "impassable_erase", do: "pointer-events-none")}>
+                <.placement_area
+                  :for={placement <- @selected_floor.location_placements}
+                  placement={placement}
+                  selected?={@selected_placement_id == placement.location_id}
+                  show_snap?={true}
+                />
+              </g>
 
               <%!-- Opacity on parent so overlapping round caps do not double-composite. --%>
               <g data-walls class="opacity-80">
@@ -327,7 +372,10 @@ defmodule PinventoryWeb.FloorPlanLive do
             </svg>
 
             <p
-              :if={@selected_floor.walls == [] and @selected_floor.location_placements == []}
+              :if={
+                @selected_floor.walls == [] and @selected_floor.location_placements == [] and
+                  @selected_floor.impassable_areas == []
+              }
               class="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm opacity-50"
             >
               <%= cond do %>
@@ -335,6 +383,10 @@ defmodule PinventoryWeb.FloorPlanLive do
                   Click once for the start, again for the end. Snap to walls and location corners. Escape cancels.
                 <% @mode == "erase" -> %>
                   Click a wall segment to erase it.
+                <% @mode == "impassable" -> %>
+                  Click points to draw an impassable area. Close near the first point, double-click, or Done. Escape cancels.
+                <% @mode == "impassable_erase" -> %>
+                  Click an impassable area to erase it.
                 <% @mode == "gap" -> %>
                   Click two points on a wall to cut a gap. Escape cancels.
                 <% @mode == "place" && @placing_location_id && @place_mode == "extend" -> %>
@@ -385,7 +437,7 @@ defmodule PinventoryWeb.FloorPlanLive do
                   class="space-y-2 p-2"
                 >
                   <p class="text-xs leading-snug">
-                    Delete <span class="font-semibold">{floor.name}</span>? Walls and placements on this floor are removed.
+                    Delete <span class="font-semibold">{floor.name}</span>? Walls, locations, and impassable areas on this floor are removed.
                   </p>
                   <div class="flex flex-wrap gap-1">
                     <button
@@ -710,7 +762,8 @@ defmodule PinventoryWeb.FloorPlanLive do
     end
   end
 
-  def handle_event("set_mode", %{"mode" => mode}, socket) when mode in ["wall", "erase", "gap"] do
+  def handle_event("set_mode", %{"mode" => mode}, socket)
+      when mode in ["wall", "erase", "gap", "impassable", "impassable_erase"] do
     {:noreply,
      socket
      |> assign(:mode, mode)
@@ -795,6 +848,37 @@ defmodule PinventoryWeb.FloorPlanLive do
 
   def handle_event("polygon_placed", %{"location_id" => location_id, "points" => points}, socket) do
     place_polygon(socket, location_id, points)
+  end
+
+  def handle_event("impassable_placed", %{"points" => points}, socket) do
+    normalized = normalize_event_points(points)
+
+    if length(normalized) < 3 do
+      {:noreply, socket}
+    else
+      socket = push_undo_snapshot(socket)
+
+      case FloorPlans.add_impassable_area(socket.assigns.selected_floor, normalized) do
+        {:ok, floor} ->
+          {:noreply, refresh_selected_floor(socket, floor)}
+
+        {:error, _} ->
+          {:noreply, pop_failed_undo(socket)}
+      end
+    end
+  end
+
+  def handle_event("impassable_erased", %{"id" => area_id}, socket) when is_binary(area_id) do
+    floor = socket.assigns.selected_floor
+    socket = push_undo_snapshot(socket)
+
+    case FloorPlans.remove_impassable_area(floor, area_id) do
+      {:ok, updated} ->
+        {:noreply, refresh_selected_floor(socket, updated)}
+
+      {:error, _} ->
+        {:noreply, pop_failed_undo(socket)}
+    end
   end
 
   def handle_event("unplace_location", %{"id" => location_id}, socket) do

@@ -16,6 +16,10 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     ]
   end
 
+  defp impassable_dom_count(html) when is_binary(html) do
+    Regex.scan(~r/data-impassable-id="/, html) |> length()
+  end
+
   test "redirects to locations when no plan exists", %{conn: conn} do
     assert {:error, {:live_redirect, %{to: "/locations"}}} =
              live(conn, ~p"/locations/floor-plan")
@@ -100,7 +104,14 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, "#tool-wall")
     assert has_element?(view, "#tool-gap")
     assert has_element?(view, "#tool-erase")
+    assert has_element?(view, "#floor-plan-impassable-tools")
+    assert has_element?(view, "#tool-impassable")
+    assert has_element?(view, "#tool-impassable-erase")
     assert html =~ ~r/id="tool-wall"[\s\S]*id="tool-gap"[\s\S]*id="tool-erase"/
+
+    assert html =~
+             ~r/id="floor-plan-wall-tools"[\s\S]*id="floor-plan-impassable-tools"[\s\S]*id="floor-plan-location-tools"/
+
     refute has_element?(view, "#tool-place")
     assert has_element?(view, "#history-undo")
     assert has_element?(view, "#history-redo")
@@ -341,6 +352,120 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert_in_delta Enum.at(xs, 1), 0.3, 1.0e-6
     assert_in_delta Enum.at(xs, 2), 0.6, 1.0e-6
     assert_in_delta Enum.at(xs, 3), 1.0, 1.0e-6
+  end
+
+  test "impassable tools sit between walls and locations", %{conn: conn} do
+    {:ok, _} = FloorPlans.create_floor_plan()
+    {:ok, view, html} = live(conn, ~p"/locations/floor-plan")
+
+    assert has_element?(view, "#tool-impassable", "Draw area")
+    assert has_element?(view, "#tool-impassable-erase", "Erase")
+
+    assert html =~
+             ~r/id="floor-plan-wall-tools"[\s\S]*id="floor-plan-impassable-tools"[\s\S]*id="floor-plan-location-tools"/
+  end
+
+  test "clicking draw area sets impassable mode", %{conn: conn} do
+    {:ok, _} = FloorPlans.create_floor_plan()
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+
+    view |> element("#tool-impassable") |> render_click()
+
+    assert has_element?(view, "#floor-plan-canvas[data-mode=impassable]")
+  end
+
+  test "places and erases an impassable polygon", %{conn: conn} do
+    {:ok, _} = FloorPlans.create_floor_plan()
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+
+    view
+    |> element("#floor-plan-canvas")
+    |> render_hook("impassable_placed", %{"points" => triangle()})
+
+    html = render(view)
+    assert impassable_dom_count(html) == 1
+    assert has_element?(view, "[data-impassable-id]")
+    [area] = hd(FloorPlans.list_floors()).impassable_areas
+    assert area.points == triangle()
+
+    view
+    |> element("#floor-plan-canvas")
+    |> render_hook("impassable_erased", %{"id" => area.id})
+
+    html = render(view)
+    assert impassable_dom_count(html) == 0
+    assert hd(FloorPlans.list_floors()).impassable_areas == []
+  end
+
+  test "wall erase still only removes walls", %{conn: conn} do
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
+
+    assert {:ok, with_wall} =
+             FloorPlans.add_wall(floor, %{"x1" => 0.1, "y1" => 0.1, "x2" => 0.9, "y2" => 0.1})
+
+    wall_id = hd(with_wall.walls).id
+    assert {:ok, _} = FloorPlans.add_impassable_area(FloorPlans.get_floor!(floor.id), triangle())
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+
+    view
+    |> element("#floor-plan-canvas")
+    |> render_hook("wall_erased", %{"id" => wall_id})
+
+    updated = hd(FloorPlans.list_floors())
+    assert updated.walls == []
+    assert length(updated.impassable_areas) == 1
+    assert impassable_dom_count(render(view)) == 1
+  end
+
+  test "tool-erase does not remove impassable", %{conn: conn} do
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
+    assert {:ok, _} = FloorPlans.add_impassable_area(floor, triangle())
+    area_id = hd(FloorPlans.get_floor!(floor.id).impassable_areas).id
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+    view |> element("#tool-erase") |> render_click()
+
+    assert has_element?(view, "#floor-plan-canvas[data-mode=erase]")
+    assert has_element?(view, ~s|[data-impassable-id].pointer-events-none|)
+
+    view
+    |> element("#floor-plan-canvas")
+    |> render_hook("wall_erased", %{"id" => area_id})
+
+    assert length(hd(FloorPlans.list_floors()).impassable_areas) == 1
+    assert impassable_dom_count(render(view)) == 1
+  end
+
+  test "impassable erase does not remove walls", %{conn: conn} do
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
+
+    assert {:ok, with_wall} =
+             FloorPlans.add_wall(floor, %{"x1" => 0.1, "y1" => 0.1, "x2" => 0.9, "y2" => 0.1})
+
+    wall_id = hd(with_wall.walls).id
+
+    assert {:ok, with_area} =
+             FloorPlans.add_impassable_area(FloorPlans.get_floor!(floor.id), triangle())
+
+    area_id = hd(with_area.impassable_areas).id
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+    view |> element("#tool-impassable-erase") |> render_click()
+
+    assert has_element?(view, "#floor-plan-canvas[data-mode=impassable_erase]")
+    assert has_element?(view, ~s|[data-impassable-id].cursor-pointer|)
+
+    view
+    |> element("#floor-plan-canvas")
+    |> render_hook("impassable_erased", %{"id" => area_id})
+
+    updated = hd(FloorPlans.list_floors())
+    assert Enum.any?(updated.walls, &(&1.id == wall_id))
+    assert updated.impassable_areas == []
   end
 
   test "erases a wall by id", %{conn: conn} do

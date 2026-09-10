@@ -101,6 +101,87 @@ defmodule PinventoryWeb.FloorPlanComponents do
     """
   end
 
+  attr :id, :string, required: true
+
+  def impassable_hatch_defs(assigns) do
+    ~H"""
+    <defs>
+      <pattern
+        id={@id}
+        width="0.04"
+        height="0.04"
+        patternUnits="userSpaceOnUse"
+        patternTransform="rotate(45)"
+      >
+        <line
+          x1="0"
+          y1="0"
+          x2="0"
+          y2="0.04"
+          stroke="currentColor"
+          stroke-width="0.01"
+          stroke-opacity="0.28"
+        />
+      </pattern>
+    </defs>
+    """
+  end
+
+  attr :area, :map, required: true
+  attr :hatch_id, :string, required: true
+  attr :show_snap?, :boolean, default: false
+  attr :erasable?, :boolean, default: false
+
+  def impassable_area(assigns) do
+    area_id = to_string(assigns.area.id)
+
+    assigns =
+      assigns
+      |> assign(:area_id, area_id)
+      |> assign(:group_id, "impassable-group-#{area_id}")
+      |> assign(:edges, placement_edges(assigns.area.points))
+
+    ~H"""
+    <g id={@group_id} class="impassable-group">
+      <polygon
+        id={"impassable-#{@area_id}"}
+        data-impassable-id={@area_id}
+        points={FloorPlans.polygon_points_attr(@area.points)}
+        class={[
+          "impassable-area",
+          not @erasable? && "pointer-events-none",
+          @erasable? && "cursor-pointer"
+        ]}
+      />
+      <polygon
+        points={FloorPlans.polygon_points_attr(@area.points)}
+        fill={"url(##{@hatch_id})"}
+        class="impassable-hatch pointer-events-none"
+      />
+      <g :if={@show_snap?} class="pointer-events-none">
+        <line
+          :for={edge <- @edges}
+          data-snap-edge
+          x1={edge.x1}
+          y1={edge.y1}
+          x2={edge.x2}
+          y2={edge.y2}
+          stroke="transparent"
+          stroke-width="0.001"
+        />
+        <circle
+          :for={vertex <- @area.points}
+          data-snap-vertex
+          cx={point_x(vertex)}
+          cy={point_y(vertex)}
+          r="0.001"
+          class="fill-transparent"
+        />
+      </g>
+    </g>
+    """
+  end
+
   defp label_text(name) when is_binary(name) do
     trimmed = String.trim(name)
 

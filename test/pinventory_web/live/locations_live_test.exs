@@ -164,6 +164,20 @@ defmodule PinventoryWeb.LocationsLiveTest do
     assert has_element?(view, "#placement-group-#{garage.id}")
   end
 
+  test "locations preview draws impassable areas", %{conn: conn} do
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
+    assert {:ok, _} = FloorPlans.add_impassable_area(floor, triangle())
+    area_id = hd(FloorPlans.get_floor!(floor.id).impassable_areas).id
+
+    {:ok, view, html} = live(conn, ~p"/locations")
+
+    assert has_element?(view, ~s|[data-impassable-id="#{area_id}"]|)
+    assert has_element?(view, "#impassable-group-#{area_id}")
+    assert html =~ "impassable-hatch"
+    assert html =~ "url(#locations-impassable-hatch-#{floor.id})"
+  end
+
   test "mount with floor_id selects that floor and reload keeps it", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
     {:ok, floors} = FloorPlans.create_floor_plan()

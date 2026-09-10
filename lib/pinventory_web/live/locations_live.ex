@@ -163,6 +163,14 @@ defmodule PinventoryWeb.LocationsLive do
                 preserveAspectRatio="xMidYMid meet"
                 class="h-full w-full bg-base-100 text-base-content"
               >
+                <.impassable_hatch_defs id={"locations-impassable-hatch-#{@selected_floor.id}"} />
+
+                <.impassable_area
+                  :for={area <- @selected_floor.impassable_areas}
+                  area={area}
+                  hatch_id={"locations-impassable-hatch-#{@selected_floor.id}"}
+                />
+
                 <.placement_area
                   :for={placement <- @selected_floor.location_placements}
                   placement={placement}
@@ -188,7 +196,10 @@ defmodule PinventoryWeb.LocationsLive do
               </svg>
 
               <p
-                :if={@selected_floor.walls == [] and @selected_floor.location_placements == []}
+                :if={
+                  @selected_floor.walls == [] and @selected_floor.location_placements == [] and
+                    @selected_floor.impassable_areas == []
+                }
                 class="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm opacity-50"
               >
                 This floor is empty. Edit the floor plan to draw walls and place locations.

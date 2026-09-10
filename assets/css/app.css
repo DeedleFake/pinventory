@@ -214,6 +214,13 @@
   opacity: 0.75;
 }
 
+/* Floor-plan impassable areas: muted hatch, unlabeled, distinct from placement-area. */
+.impassable-area {
+  fill: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+  stroke: color-mix(in oklab, var(--color-base-content) 34%, transparent);
+  stroke-width: 0.004;
+}
+
 /* Locations list row highlighted from canvas placement hover */
 #locations a.is-canvas-hover,
 #locations-list a.is-canvas-hover {

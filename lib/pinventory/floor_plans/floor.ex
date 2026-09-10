@@ -9,6 +9,10 @@ defmodule Pinventory.FloorPlans.Floor do
     field :position, :integer, default: 0
 
     has_many :walls, Pinventory.FloorPlans.Wall, preload_order: [asc: :inserted_at, asc: :id]
+
+    has_many :impassable_areas, Pinventory.FloorPlans.ImpassableArea,
+      preload_order: [asc: :inserted_at, asc: :id]
+
     has_many :location_placements, Pinventory.FloorPlans.LocationPlacement
 
     timestamps(type: :utc_datetime)
