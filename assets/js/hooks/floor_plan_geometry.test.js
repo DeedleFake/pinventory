@@ -13,6 +13,8 @@ import {
   polygonSelfIntersects,
   replaceRingArc,
   segmentsIntersect,
+  contentBoundsFromSegments,
+  fitSquareCamera,
 } from "./floor_plan_geometry.js"
 
 const triangle = [
@@ -298,3 +300,46 @@ describe("lineIntersection", () => {
     assert.ok(Math.abs(p.y - 0.7) < 1e-9)
   })
 })
+
+describe("contentBoundsFromSegments", () => {
+  it("returns the default unit square when empty", () => {
+    assert.deepEqual(contentBoundsFromSegments([]), {
+      minX: 0,
+      minY: 0,
+      maxX: 1,
+      maxY: 1,
+    })
+  })
+
+  it("unions segment endpoints including outside [0,1]", () => {
+    const bounds = contentBoundsFromSegments([
+      [
+        {x: -0.5, y: 0.2},
+        {x: 1.5, y: 0.8},
+      ],
+      {x1: 0, y1: -1, x2: 0.1, y2: 2},
+    ])
+    assert.equal(bounds.minX, -0.5)
+    assert.equal(bounds.minY, -1)
+    assert.equal(bounds.maxX, 1.5)
+    assert.equal(bounds.maxY, 2)
+  })
+})
+
+describe("fitSquareCamera", () => {
+  it("pads content into a centered square viewBox", () => {
+    const cam = fitSquareCamera({minX: 0, minY: 0, maxX: 1, maxY: 0.5}, 0.08)
+    // span = 1 → size = 1.16; center (0.5, 0.25)
+    assert.ok(Math.abs(cam.size - 1.16) < 1e-9)
+    assert.ok(Math.abs(cam.x - (0.5 - 0.58)) < 1e-9)
+    assert.ok(Math.abs(cam.y - (0.25 - 0.58)) < 1e-9)
+  })
+
+  it("uses size 1 for a degenerate point bound", () => {
+    const cam = fitSquareCamera({minX: 2, minY: 3, maxX: 2, maxY: 3}, 0.08)
+    assert.ok(Math.abs(cam.size - 1.16) < 1e-9)
+    assert.ok(Math.abs(cam.x - (2 - 0.58)) < 1e-9)
+    assert.ok(Math.abs(cam.y - (3 - 0.58)) < 1e-9)
+  })
+})
+

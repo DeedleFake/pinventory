@@ -34,7 +34,7 @@ defmodule Pinventory.FloorPlans.LocationPlacement do
           [points: "must have at least 3 points"]
 
         not Enum.all?(points, &valid_point?/1) ->
-          [points: "each point needs x and y in 0.0–1.0"]
+          [points: "each point needs finite x and y"]
 
         true ->
           []
@@ -46,6 +46,13 @@ defmodule Pinventory.FloorPlans.LocationPlacement do
   defp valid_point?(%{x: x, y: y}), do: unit_coord?(x) and unit_coord?(y)
   defp valid_point?(_), do: false
 
-  defp unit_coord?(n) when is_number(n), do: n >= 0.0 and n <= 1.0
+  defp unit_coord?(n) when is_integer(n), do: true
+
+  defp unit_coord?(n) when is_float(n) do
+    # NaN is not equal to itself; ±Inf have all-ones exponent.
+    <<_sign::1, exp::11, _mant::52>> = <<n::float>>
+    n == n and exp != 0x7FF
+  end
+
   defp unit_coord?(_), do: false
 end

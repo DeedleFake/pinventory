@@ -7,7 +7,7 @@
  * data-existing-points: JSON [{x,y}, ...] when extending an existing polygon
  *
  * Pushes LiveView events:
- *   wall_drawn      — {x1,y1,x2,y2} normalized 0–1
+ *   wall_drawn      — {x1,y1,x2,y2} world coords
  *   wall_erased     — {id}
  *   polygon_placed  — {location_id, points: [{x,y}, ...]} (full polygon)
  *   undo / redo     — keyboard shortcuts
@@ -24,14 +24,17 @@
  * Draft corners dedupe within SNAP_DISTANCE so near-clicks reuse an existing vertex.
  * Polygon finish: close on a different vertex, double-click, or Done (adjacent auto); Escape cancels.
  *
- * Camera: fixed unit-square world (0–1). SVG viewBox is the viewport (zoom/pan).
- * Wheel zooms toward cursor; browse mode primary-drag pans (threshold); editor uses Space+drag or middle-mouse; Reset view restores fit.
- * preserveAspectRatio meet keeps the world square (no window stretch).
+ * Camera: unbounded world (finite floats, no unit-square clamp). SVG viewBox is the viewport (zoom/pan).
+ * Wheel zooms toward cursor; browse mode primary-drag pans (threshold); editor uses Space+drag or middle-mouse.
+ * Reset view / initial mount fit the camera to content bounds (~8% pad, square viewBox).
+ * preserveAspectRatio meet keeps the view square (no window stretch).
  */
 import {
   angleSnapPoint,
   angleSnapPointDual,
+  contentBoundsFromSegments,
   distanceToLine,
+  fitSquareCamera,
   mergeExtension as mergeExtensionGeometry,
   nearestVertexWithin,
   provisionalCloseIndex,
@@ -40,8 +43,6 @@ import {
 const MIN_WALL_LENGTH = 0.02
 const SNAP_DISTANCE = 0.03
 const CLOSE_DISTANCE = 0.025
-const MIN_VIEW_SIZE = 0.12
-const MAX_VIEW_SIZE = 2.5
 const PAN_DRAG_THRESHOLD = 6
 
 const FloorPlanCanvas = {
@@ -60,7 +61,7 @@ const FloorPlanCanvas = {
     this.suppressClickAfterPan = false
     this.camera = {x: 0, y: 0, size: 1}
     this.syncFromEl()
-    this.applyCamera()
+    this.resetCamera()
 
     this.onPointerDown = (event) => this.handlePointerDown(event)
     this.onPointerMove = (event) => this.handlePointerMove(event)
@@ -318,7 +319,7 @@ const FloorPlanCanvas = {
   },
 
   /**
-   * Resolve pointer to unit coords.
+   * Resolve pointer to world coords.
    * Order: raw → (if Shift + anchor) project onto nearest 22.5° ray → then
    * optional geometry snap along that constraint (Ctrl/Meta skips geometry snap;
    * Shift still angle-constrains). Always records lastRawPoint for modifier refresh.
@@ -688,15 +689,14 @@ const FloorPlanCanvas = {
     this.finishBtn.classList.toggle("hidden", !show)
   },
 
+  /** Screen → world (unclamped). Name kept for call sites. */
   eventToUnit(event) {
-    const point = this.clientToWorld(event && event.clientX, event && event.clientY)
-    if (!point) return null
-    return {x: clamp01(point.x), y: clamp01(point.y)}
+    return this.clientToWorld(event && event.clientX, event && event.clientY)
   },
 
   /**
    * Screen → world via SVG CTM (honors viewBox zoom/pan + meet letterboxing).
-   * Unclamped so zoom-toward-cursor math can use points outside 0–1.
+   * Unclamped: world is unbounded.
    */
   clientToWorld(clientX, clientY) {
     if (!this.svg || clientX == null || clientY == null) return null
@@ -717,19 +717,54 @@ const FloorPlanCanvas = {
   },
 
   resetCamera() {
-    this.camera = {x: 0, y: 0, size: 1}
+    this.camera = fitSquareCamera(this.contentBounds())
     this.applyCamera()
   },
 
+  /** Zoom size only — free pan (no world bounds). */
   clampCamera() {
     const cam = this.camera
-    const size = Math.max(MIN_VIEW_SIZE, Math.min(MAX_VIEW_SIZE, cam.size))
-    cam.size = size
-    // Keep some of the unit square visible.
-    const minCoord = -size * 0.85
-    const maxCoord = 1 - size * 0.15
-    cam.x = Math.max(minCoord, Math.min(cam.x, maxCoord))
-    cam.y = Math.max(minCoord, Math.min(cam.y, maxCoord))
+    const bounds = this.contentBounds()
+    const span = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, 1)
+    const minSize = Math.max(0.05, span * 0.05)
+    const maxSize = Math.max(2.5, span * 4)
+    cam.size = Math.max(minSize, Math.min(maxSize, cam.size))
+  },
+
+  /**
+   * Content AABB from live SVG walls + placement polygons (+ draft if any).
+   * Empty → default {0,0,1,1}.
+   */
+  contentBounds() {
+    const segments = []
+    if (this.svg) {
+      this.svg.querySelectorAll("[data-wall-seg]").forEach((line) => {
+        segments.push([
+          {x: Number(line.getAttribute("x1")), y: Number(line.getAttribute("y1"))},
+          {x: Number(line.getAttribute("x2")), y: Number(line.getAttribute("y2"))},
+        ])
+      })
+      this.svg.querySelectorAll("[data-placement-location-id]").forEach((poly) => {
+        const raw = poly.getAttribute("points") || ""
+        const pts = []
+        for (const pair of raw.trim().split(/\s+/)) {
+          if (!pair) continue
+          const [xs, ys] = pair.split(",")
+          pts.push({x: Number(xs), y: Number(ys)})
+        }
+        if (pts.length) segments.push(pts)
+      })
+    }
+    if (this.draftWall) {
+      const {start, current} = this.draftWall
+      if (start) segments.push([start])
+      if (current) segments.push([current])
+    }
+    if (this.draftPolygon && this.draftPolygon.points) {
+      segments.push(this.draftPolygon.points)
+      if (this.draftPolygon.current) segments.push([this.draftPolygon.current])
+    }
+    return contentBoundsFromSegments(segments)
   },
 
   handleWheel(event) {
@@ -744,7 +779,7 @@ const FloorPlanCanvas = {
     const intensity = Math.min(1.5, Math.abs(event.deltaY) / 100)
     const factor = direction < 0 ? Math.pow(0.9, intensity) : Math.pow(1.1, intensity)
     const prev = this.camera.size
-    const next = Math.max(MIN_VIEW_SIZE, Math.min(MAX_VIEW_SIZE, prev * factor))
+    const next = prev * factor
     if (next === prev) return
 
     const tX = (world.x - this.camera.x) / prev
@@ -753,6 +788,10 @@ const FloorPlanCanvas = {
     this.camera.x = world.x - tX * next
     this.camera.y = world.y - tY * next
     this.clampCamera()
+    // Re-anchor after size clamp so the cursor stays under the same world point.
+    const size = this.camera.size
+    this.camera.x = world.x - tX * size
+    this.camera.y = world.y - tY * size
     this.applyCamera()
   },
 
@@ -1022,10 +1061,6 @@ const FloorPlanCanvas = {
     const layer = this.svg.querySelector("[data-polygon-draft-vertices]")
     if (layer) layer.remove()
   },
-}
-
-function clamp01(n) {
-  return Math.max(0, Math.min(1, n))
 }
 
 function closestPointOnSegment(p, a, b) {

@@ -161,10 +161,8 @@ defmodule PinventoryWeb.LocationsLive do
                 id={"locations-floor-svg-#{@selected_floor.id}"}
                 viewBox="0 0 1 1"
                 preserveAspectRatio="xMidYMid meet"
-                class="h-full w-full text-base-content"
+                class="h-full w-full bg-base-100 text-base-content"
               >
-                <rect x="0" y="0" width="1" height="1" class="fill-base-100" stroke="none" />
-
                 <.placement_area
                   :for={placement <- @selected_floor.location_placements}
                   placement={placement}

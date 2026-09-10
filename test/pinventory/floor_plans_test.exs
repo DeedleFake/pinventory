@@ -129,6 +129,27 @@ defmodule Pinventory.FloorPlansTest do
       assert cleared.walls == []
     end
 
+    test "accepts wall and placement coords outside 0..1", %{garage: garage, floor: floor} do
+      assert {:ok, updated} =
+               FloorPlans.add_wall(floor, %{
+                 "x1" => -0.25,
+                 "y1" => 0.1,
+                 "x2" => 1.5,
+                 "y2" => 1.25
+               })
+
+      assert [%Wall{x1: -0.25, y1: 0.1, x2: 1.5, y2: 1.25}] = updated.walls
+
+      points = [
+        %{"x" => -0.1, "y" => -0.1},
+        %{"x" => 1.5, "y" => -0.1},
+        %{"x" => 1.5, "y" => 1.2}
+      ]
+
+      assert {:ok, %LocationPlacement{points: ^points}} =
+               FloorPlans.place_location(updated, garage.id, points)
+    end
+
     test "places a location polygon once and rejects a second floor", %{
       garage: garage,
       floor: floor

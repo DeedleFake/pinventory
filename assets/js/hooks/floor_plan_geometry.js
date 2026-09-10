@@ -342,3 +342,62 @@ export function distanceToLine(point, a, b) {
   if (len < 1e-12) return Math.hypot(point.x - a.x, point.y - a.y)
   return Math.abs(dx * (a.y - point.y) - dy * (a.x - point.x)) / len
 }
+
+/**
+ * Axis-aligned bounds from wall/placement segments (or loose points).
+ * Each entry may be [{x,y},{x,y}], {x1,y1,x2,y2}, or {x,y}.
+ * Empty → default unit square {0,0,1,1}.
+ */
+export function contentBoundsFromSegments(segments) {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  let any = false
+
+  const add = (x, y) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return
+    any = true
+    if (x < minX) minX = x
+    if (y < minY) minY = y
+    if (x > maxX) maxX = x
+    if (y > maxY) maxY = y
+  }
+
+  for (const seg of segments || []) {
+    if (Array.isArray(seg)) {
+      for (const p of seg) {
+        if (p) add(p.x, p.y)
+      }
+    } else if (seg && typeof seg === "object") {
+      if ("x1" in seg || "y1" in seg) {
+        add(Number(seg.x1), Number(seg.y1))
+        add(Number(seg.x2), Number(seg.y2))
+      } else {
+        add(Number(seg.x), Number(seg.y))
+      }
+    }
+  }
+
+  if (!any) return {minX: 0, minY: 0, maxX: 1, maxY: 1}
+  return {minX, minY, maxX, maxY}
+}
+
+/**
+ * Square viewBox that fits `bounds` with `padding` fraction of the content span
+ * on each side (~8% → size = span * 1.16), centered on content.
+ * Degenerate (zero-area) bounds get size 1 centered on the point.
+ */
+export function fitSquareCamera(bounds, padding = 0.08) {
+  const minX = bounds.minX
+  const minY = bounds.minY
+  const maxX = bounds.maxX
+  const maxY = bounds.maxY
+  const cx = (minX + maxX) / 2
+  const cy = (minY + maxY) / 2
+  let span = Math.max(maxX - minX, maxY - minY)
+  if (!(span > 0)) span = 1
+  const size = span * (1 + 2 * padding)
+  return {x: cx - size / 2, y: cy - size / 2, size}
+}
+

@@ -5,8 +5,8 @@ defmodule Pinventory.FloorPlans do
   Absence of any `Floor` row means the feature is off. Locations stay when the
   plan is deleted; placements and walls are removed with floors via FK cascades.
 
-  Location placements are closed polygons in the unit square (not pins).
-  Walls are stored as rows with unit-square endpoints.
+  Location placements are closed polygons in unbounded world coords (not pins).
+  Walls are stored as rows with finite world-coordinate endpoints.
   """
 
   import Ecto.Query, warn: false
@@ -495,11 +495,11 @@ defmodule Pinventory.FloorPlans do
   end
 
   defp point_coord(point, "x") when is_map(point) do
-    clamp_unit(Map.get(point, "x") || Map.get(point, :x))
+    normalize_coord(Map.get(point, "x") || Map.get(point, :x))
   end
 
   defp point_coord(point, "y") when is_map(point) do
-    clamp_unit(Map.get(point, "y") || Map.get(point, :y))
+    normalize_coord(Map.get(point, "y") || Map.get(point, :y))
   end
 
   # Undo restore: drop current walls and re-insert snapshot rows (including ids).
@@ -556,7 +556,7 @@ defmodule Pinventory.FloorPlans do
     |> Geometry.drop_collinear_polygon_vertices()
   end
 
-  defp normalize_point(%{"x" => x, "y" => y}), do: %{"x" => clamp_unit(x), "y" => clamp_unit(y)}
+  defp normalize_point(%{"x" => x, "y" => y}), do: %{"x" => normalize_coord(x), "y" => normalize_coord(y)}
 
   defp normalize_point(%{x: x, y: y}), do: normalize_point(%{"x" => x, "y" => y})
 
@@ -569,10 +569,10 @@ defmodule Pinventory.FloorPlans do
 
   defp wall_coords(wall) when is_map(wall) do
     %{
-      x1: clamp_unit(coord(wall, :x1)),
-      y1: clamp_unit(coord(wall, :y1)),
-      x2: clamp_unit(coord(wall, :x2)),
-      y2: clamp_unit(coord(wall, :y2))
+      x1: normalize_coord(coord(wall, :x1)),
+      y1: normalize_coord(coord(wall, :y1)),
+      x2: normalize_coord(coord(wall, :x2)),
+      y2: normalize_coord(coord(wall, :y2))
     }
   end
 
@@ -580,9 +580,6 @@ defmodule Pinventory.FloorPlans do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
 
-  defp clamp_unit(n) when is_number(n) do
-    n |> max(0.0) |> min(1.0) |> Kernel.*(1.0)
-  end
-
-  defp clamp_unit(_), do: 0.0
+  defp normalize_coord(n) when is_number(n), do: n * 1.0
+  defp normalize_coord(_), do: 0.0
 end

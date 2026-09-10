@@ -131,12 +131,7 @@ defmodule PinventoryWeb.FloorPlanLive do
             </section>
 
             <section id="floor-plan-location-tools" class="flex min-h-0 flex-1 flex-col gap-2">
-              <div class="space-y-1">
-                <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Locations</h2>
-                <p class="text-xs opacity-60">
-                  Click an unplaced location to draw its area. Locations already on the plan cannot be drawn again; click one to open its floor.
-                </p>
-              </div>
+              <h2 class="text-xs font-semibold uppercase tracking-wide opacity-50">Locations</h2>
 
               <ul
                 id="placeable-locations"
@@ -276,17 +271,8 @@ defmodule PinventoryWeb.FloorPlanLive do
               id={"floor-svg-#{@selected_floor.id}"}
               viewBox="0 0 1 1"
               preserveAspectRatio="xMidYMid meet"
-              class="h-full w-full text-base-content"
+              class="h-full w-full bg-base-100 text-base-content"
             >
-              <rect
-                x="0"
-                y="0"
-                width="1"
-                height="1"
-                class="fill-base-100"
-                stroke="none"
-              />
-
               <.placement_area
                 :for={placement <- @selected_floor.location_placements}
                 placement={placement}
