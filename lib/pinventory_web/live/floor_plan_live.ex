@@ -116,6 +116,19 @@ defmodule PinventoryWeb.FloorPlanLive do
                 </button>
                 <button
                   type="button"
+                  id="tool-gap"
+                  phx-click="set_mode"
+                  phx-value-mode="gap"
+                  class={[
+                    "btn btn-sm justify-start",
+                    @mode == "gap" && "btn-primary",
+                    @mode != "gap" && "btn-ghost border border-base-300"
+                  ]}
+                >
+                  <.icon name="hero-minus" class="size-4" /> Cut gap
+                </button>
+                <button
+                  type="button"
                   id="tool-erase"
                   phx-click="set_mode"
                   phx-value-mode="erase"
@@ -228,7 +241,7 @@ defmodule PinventoryWeb.FloorPlanLive do
               "relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-base-300 bg-base-200/40",
               "h-[calc(100vh-12rem)] min-h-[28rem] w-full touch-none select-none outline-none",
               "focus-visible:ring-2 focus-visible:ring-primary/40",
-              @mode == "wall" && "cursor-crosshair",
+              (@mode == "wall" || @mode == "gap") && "cursor-crosshair",
               @mode == "erase" && "cursor-pointer",
               @mode == "place" && @placing_location_id && "cursor-cell",
               @mode == "place" && !@placing_location_id && "cursor-not-allowed"
@@ -305,8 +318,8 @@ defmodule PinventoryWeb.FloorPlanLive do
                     stroke-width="0.045"
                     stroke-linecap="round"
                     class={[
-                      @mode == "erase" && "cursor-pointer",
-                      @mode != "erase" && "pointer-events-none"
+                      (@mode == "erase" || @mode == "gap") && "cursor-pointer",
+                      @mode != "erase" && @mode != "gap" && "pointer-events-none"
                     ]}
                   />
                 </g>
@@ -322,6 +335,8 @@ defmodule PinventoryWeb.FloorPlanLive do
                   Click once for the start, again for the end. Snap to walls and location corners. Escape cancels.
                 <% @mode == "erase" -> %>
                   Click a wall segment to erase it.
+                <% @mode == "gap" -> %>
+                  Click two points on a wall to cut a gap. Escape cancels.
                 <% @mode == "place" && @placing_location_id && @place_mode == "extend" -> %>
                   Click a corner to attach, add points, then click a different corner to close, or Done to close on an adjacent edge. Escape cancels.
                 <% @mode == "place" && @placing_location_id -> %>
@@ -695,7 +710,7 @@ defmodule PinventoryWeb.FloorPlanLive do
     end
   end
 
-  def handle_event("set_mode", %{"mode" => mode}, socket) when mode in ["wall", "erase"] do
+  def handle_event("set_mode", %{"mode" => mode}, socket) when mode in ["wall", "erase", "gap"] do
     {:noreply,
      socket
      |> assign(:mode, mode)
@@ -749,6 +764,32 @@ defmodule PinventoryWeb.FloorPlanLive do
 
       {:error, _} ->
         {:noreply, pop_failed_undo(socket)}
+    end
+  end
+
+  def handle_event(
+        "wall_gapped",
+        %{"id" => wall_id, "ax" => ax, "ay" => ay, "bx" => bx, "by" => by},
+        socket
+      )
+      when is_binary(wall_id) do
+    floor = socket.assigns.selected_floor
+    point_a = {to_float(ax), to_float(ay)}
+    point_b = {to_float(bx), to_float(by)}
+
+    case FloorPlans.cut_wall_gap(floor, wall_id, point_a, point_b) do
+      {:ok, updated} ->
+        socket =
+          if walls_unchanged?(floor, updated) do
+            socket
+          else
+            push_undo_snapshot(socket)
+          end
+
+        {:noreply, refresh_selected_floor(socket, updated)}
+
+      {:error, _} ->
+        {:noreply, socket}
     end
   end
 
@@ -950,6 +991,14 @@ defmodule PinventoryWeb.FloorPlanLive do
 
   defp trim_stack(stack) do
     Enum.take(stack, FloorPlans.undo_limit())
+  end
+
+  defp walls_unchanged?(%Floor{walls: before}, %Floor{walls: afterw}) do
+    to_set = fn walls ->
+      MapSet.new(Enum.map(walls, &{&1.id, &1.x1, &1.y1, &1.x2, &1.y2}))
+    end
+
+    to_set.(before) == to_set.(afterw)
   end
 
   defp refresh_selected_floor(socket, %Floor{} = floor) do

@@ -199,6 +199,54 @@ export function mergeExtension(draft) {
 
 
 /**
+ * Closest point on segment ab to `p`, with clamped parameter `t` in [0, 1].
+ */
+export function closestPointOnSegment(p, a, b) {
+  if (!p || !a || !b) return p ? {x: p.x, y: p.y, t: 0} : p
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len2 = dx * dx + dy * dy
+  if (len2 === 0) return {x: a.x, y: a.y, t: 0}
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2
+  t = Math.max(0, Math.min(1, t))
+  return {x: a.x + t * dx, y: a.y + t * dy, t}
+}
+
+export function pointOnSegment(p, a, b, eps = 1e-5) {
+  if (!p || !a || !b) return false
+  const hit = closestPointOnSegment(p, a, b)
+  return Math.hypot(hit.x - p.x, hit.y - p.y) <= eps
+}
+
+/**
+ * Walls whose open segment contains `point` (within `eps`).
+ * Each wall is `{id, a: {x,y}, b: {x,y}}`.
+ */
+export function wallsContainingPoint(walls, point, eps = 1e-5) {
+  if (!point || !Array.isArray(walls)) return []
+  return walls.filter((w) => w && pointOnSegment(point, w.a, w.b, eps))
+}
+
+/**
+ * Wall whose segment is closest to `point`, or null.
+ */
+export function nearestWall(walls, point) {
+  if (!point || !Array.isArray(walls) || walls.length === 0) return null
+  let best = null
+  let bestDist = Infinity
+  for (const w of walls) {
+    if (!w || !w.a || !w.b) continue
+    const hit = closestPointOnSegment(point, w.a, w.b)
+    const d = Math.hypot(hit.x - point.x, hit.y - point.y)
+    if (d < bestDist) {
+      bestDist = d
+      best = w
+    }
+  }
+  return best
+}
+
+/**
  * Nearest vertex within maxDist, or null.
  * Returns {index, point} with a copied point.
  */

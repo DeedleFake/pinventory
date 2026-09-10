@@ -256,6 +256,34 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
+  Removes the span between two world points on one wall.
+
+  Projects both points onto the stored segment, replaces the row with the
+  remainder segments (new ids), or deletes the wall when nothing remains.
+  No-ops without rewriting when the two points project to the same place.
+  """
+  def cut_wall_gap(%Floor{} = floor, wall_id, {ax, ay} = point_a, {bx, by} = point_b)
+      when is_binary(wall_id) and is_number(ax) and is_number(ay) and is_number(bx) and
+             is_number(by) do
+    case Repo.get_by(Wall, id: wall_id, floor_id: floor.id) do
+      nil ->
+        {:error, :not_found}
+
+      wall ->
+        seg = %{x1: wall.x1, y1: wall.y1, x2: wall.x2, y2: wall.y2}
+        {t0, _} = Geometry.project_point_on_segment(seg, point_a)
+        {t1, _} = Geometry.project_point_on_segment(seg, point_b)
+        remainders = Geometry.cut_segment(seg, t0, t1)
+
+        if unchanged_cut?(remainders, seg) do
+          {:ok, get_floor!(floor.id)}
+        else
+          replace_wall_with_remainders(wall, remainders)
+        end
+    end
+  end
+
+  @doc """
   Places or replaces a location polygon on a floor. A location may sit on only one floor.
 
   `points` is a list of `%{"x" => float, "y" => float}` with at least three vertices.
@@ -566,6 +594,31 @@ defmodule Pinventory.FloorPlans do
       "x" => Map.get(other, "x") || Map.get(other, :x),
       "y" => Map.get(other, "y") || Map.get(other, :y)
     })
+  end
+
+  defp unchanged_cut?([rem], original) do
+    Geometry.points_equal?({rem.x1, rem.y1}, {original.x1, original.y1}) and
+      Geometry.points_equal?({rem.x2, rem.y2}, {original.x2, original.y2})
+  end
+
+  defp unchanged_cut?(_, _), do: false
+
+  defp replace_wall_with_remainders(%Wall{} = wall, remainders) when is_list(remainders) do
+    multi =
+      remainders
+      |> Enum.with_index()
+      |> Enum.reduce(Multi.delete(Multi.new(), :original, wall), fn {coords, i}, multi ->
+        Multi.insert(
+          multi,
+          {:remainder, i},
+          Wall.changeset(%Wall{}, Map.put(coords, :floor_id, wall.floor_id))
+        )
+      end)
+
+    case Repo.transaction(multi) do
+      {:ok, _} -> {:ok, get_floor!(wall.floor_id)}
+      {:error, _step, reason, _} -> {:error, reason}
+    end
   end
 
   defp wall_coords(wall) when is_map(wall) do
