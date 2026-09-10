@@ -40,6 +40,7 @@ import {
   fitSquareCamera,
   formatFeet,
   lengthInFeet,
+  distanceLineToRect,
   measurementFontSize,
   measurementLabelPose,
   mergeExtension as mergeExtensionGeometry,
@@ -1109,13 +1110,59 @@ const FloorPlanCanvas = {
       label.setAttribute("dominant-baseline", "central")
       label.setAttribute("font-size", String(fontSize))
       label.setAttribute("class", "fill-primary font-sans")
-      label.setAttribute(
-        "transform",
-        `translate(${pose.x} ${pose.y}) rotate(${pose.angleDeg})`,
-      )
       label.textContent = formatFeet(lengthInFeet(a, b, scale))
+      this.applyMeasureLabelTransform(label, pose.x, pose.y, pose.angleDeg)
       layer.appendChild(label)
+      this.nudgeMeasureLabelToGap(label, a, b, pose)
     }
+  },
+
+  applyMeasureLabelTransform(label, x, y, angleDeg) {
+    label.setAttribute("transform", `translate(${x} ${y}) rotate(${angleDeg})`)
+  },
+
+  /**
+   * Move the label along the pose normal so the on-screen ink-to-line gap
+   * equals pose.edgeGap (same for top/bottom and beginning/end).
+   */
+  nudgeMeasureLabelToGap(label, a, b, pose) {
+    if (!label || !pose || !this.svg) return
+    const target = pose.edgeGap
+    if (!(target > 0)) return
+    const ctm = this.svg.getScreenCTM()
+    if (!ctm) return
+    const toScreen = (x, y) => {
+      const pt = this.svg.createSVGPoint()
+      pt.x = x
+      pt.y = y
+      return pt.matrixTransform(ctm)
+    }
+    const aS = toScreen(a.x, a.y)
+    const bS = toScreen(b.x, b.y)
+    const nS = toScreen(a.x + pose.nx, a.y + pose.ny)
+    const nLen = Math.hypot(nS.x - aS.x, nS.y - aS.y) || 1
+    // World length of one screen pixel along the outward normal.
+    const worldPerScreen = 1 / nLen
+
+    let x = pose.x
+    let y = pose.y
+    for (let i = 0; i < 3; i++) {
+      this.applyMeasureLabelTransform(label, x, y, pose.angleDeg)
+      const rect = label.getBoundingClientRect()
+      if (!(rect.width > 0 && rect.height > 0)) break
+      const gapPx = distanceLineToRect(
+        {x: aS.x, y: aS.y},
+        {x: bS.x, y: bS.y},
+        {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
+      )
+      const targetPx = target / worldPerScreen
+      const deltaPx = targetPx - gapPx
+      if (Math.abs(deltaPx) < 0.25) break
+      const deltaWorld = deltaPx * worldPerScreen
+      x += pose.nx * deltaWorld
+      y += pose.ny * deltaWorld
+    }
+    this.applyMeasureLabelTransform(label, x, y, pose.angleDeg)
   },
 
   clearDraftMeasures() {
