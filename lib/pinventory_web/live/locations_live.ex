@@ -171,8 +171,10 @@ defmodule PinventoryWeb.LocationsLive do
                   navigate={~p"/location/#{placement.location_id}"}
                 />
 
-                <g :for={wall <- @selected_floor.walls}>
+                <%!-- Opacity on parent so overlapping round caps do not double-composite. --%>
+                <g data-walls class="opacity-80">
                   <line
+                    :for={wall <- @selected_floor.walls}
                     data-wall-seg
                     data-wall-id={wall.id}
                     x1={wall.x1}
@@ -182,7 +184,7 @@ defmodule PinventoryWeb.LocationsLive do
                     stroke="currentColor"
                     stroke-width="0.014"
                     stroke-linecap="round"
-                    class="opacity-80 pointer-events-none"
+                    class="pointer-events-none"
                   />
                 </g>
               </svg>

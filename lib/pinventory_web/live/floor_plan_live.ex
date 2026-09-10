@@ -294,32 +294,35 @@ defmodule PinventoryWeb.FloorPlanLive do
                 show_snap?={true}
               />
 
-              <g :for={wall <- @selected_floor.walls}>
-                <line
-                  data-wall-seg
-                  x1={wall.x1}
-                  y1={wall.y1}
-                  x2={wall.x2}
-                  y2={wall.y2}
-                  stroke="currentColor"
-                  stroke-width="0.014"
-                  stroke-linecap="round"
-                  class="opacity-80 pointer-events-none"
-                />
-                <line
-                  data-wall-id={wall.id}
-                  x1={wall.x1}
-                  y1={wall.y1}
-                  x2={wall.x2}
-                  y2={wall.y2}
-                  stroke="transparent"
-                  stroke-width="0.045"
-                  stroke-linecap="round"
-                  class={[
-                    @mode == "erase" && "cursor-pointer",
-                    @mode != "erase" && "pointer-events-none"
-                  ]}
-                />
+              <%!-- Opacity on parent so overlapping round caps do not double-composite. --%>
+              <g data-walls class="opacity-80">
+                <g :for={wall <- @selected_floor.walls}>
+                  <line
+                    data-wall-seg
+                    x1={wall.x1}
+                    y1={wall.y1}
+                    x2={wall.x2}
+                    y2={wall.y2}
+                    stroke="currentColor"
+                    stroke-width="0.014"
+                    stroke-linecap="round"
+                    class="pointer-events-none"
+                  />
+                  <line
+                    data-wall-id={wall.id}
+                    x1={wall.x1}
+                    y1={wall.y1}
+                    x2={wall.x2}
+                    y2={wall.y2}
+                    stroke="transparent"
+                    stroke-width="0.045"
+                    stroke-linecap="round"
+                    class={[
+                      @mode == "erase" && "cursor-pointer",
+                      @mode != "erase" && "pointer-events-none"
+                    ]}
+                  />
+                </g>
               </g>
             </svg>
 

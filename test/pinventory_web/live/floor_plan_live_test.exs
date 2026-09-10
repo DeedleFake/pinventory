@@ -279,6 +279,13 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
 
     [floor] = FloorPlans.list_floors()
     assert [%{x1: 0.1, y1: 0.2, x2: 0.8, y2: 0.2}] = floor.walls
+
+    # Wall strokes are opaque inside a parent group that owns opacity-80
+    # so overlapping round caps do not double-composite.
+    assert has_element?(view, ~s|g[data-walls].opacity-80|)
+    html = render(view)
+    assert html =~ ~s|data-wall-seg|
+    refute html =~ ~s|data-wall-seg" class="opacity-80|
   end
 
   test "erases a wall by id", %{conn: conn} do
