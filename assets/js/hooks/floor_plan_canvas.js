@@ -14,17 +14,20 @@
  *   undo / redo     — keyboard shortcuts
  *
  * Walls: first click sets start (snap), second click commits; Escape cancels.
- * Gap: first click pins a point on a wall, second click on that wall cuts the
- * span; Escape cancels the pin. Remainders are computed on the server.
+ * Gap: first click pins a point. Second click cuts along the incident wall
+ * nearest the cursor (any wall that contains the pin, including a shared
+ * vertex). Escape cancels the pin. Remainders are computed on the server.
+ * Shift does nothing in gap. Ctrl/Meta skips vertex snap and still snaps to
+ * wall segments (a gap has to lie on a wall).
  * Snap: wall endpoints/segments + placement vertices/edges (data-snap-*).
  * Hold Ctrl/Meta to place at raw canvas coords (no geometry snap); preview follows.
- * Hold Shift while drafting to constrain to 22.5° angles (16 directions). Walls
- * snap from the start point; polygons may also meet a closing H/V through the
- * first vertex when the cursor is near that axis (line-snap style), else
- * newest-edge only. Order: raw → Shift angle → geometry snap only on that
- * angle line (vertex on-line or segment∩line). Off-angle line snap never wins.
- * Ctrl/Meta skips geometry snap; Shift still angle-constrains. Shift
- * keydown/keyup refreshes the draft.
+ * Hold Shift while drafting walls/polygons to constrain to 22.5° angles (16
+ * directions). Walls snap from the start point; polygons may also meet a
+ * closing H/V through the first vertex when the cursor is near that axis
+ * (line-snap style), else newest-edge only. Order: raw → Shift angle →
+ * geometry snap only on that angle line (vertex on-line or segment∩line).
+ * Off-angle line snap never wins. Ctrl/Meta skips geometry snap; Shift still
+ * angle-constrains. Shift keydown/keyup refreshes the draft.
  * Draft corners dedupe within SNAP_DISTANCE so near-clicks reuse an existing vertex.
  * Draft length labels (feet) sit along the active segment(s); polygons show newest + closing.
  * Polygon finish: close on a different vertex, double-click, or Done (adjacent auto); Escape cancels.
@@ -48,9 +51,11 @@ import {
   measurementLabelPose,
   mergeExtension as mergeExtensionGeometry,
   nearestVertexWithin,
+  nearestWall,
   pointOnSegment,
   provisionalCloseIndex,
   snapOnAngleLine,
+  wallsContainingPoint,
 } from "./floor_plan_geometry.js"
 
 const MIN_WALL_LENGTH = 0.02
@@ -331,11 +336,9 @@ const FloorPlanCanvas = {
    * (closing H/V, only if cursor is near that axis). Prefer newest edge.
    */
   draftAngleAnchors() {
+    if (this.mode === "gap") return {prev: null, next: null}
     if (this.draftWall && this.draftWall.start) {
       return {prev: this.draftWall.start, next: null}
-    }
-    if (this.draftGap && this.draftGap.start) {
-      return {prev: this.draftGap.start, next: null}
     }
     if (this.draftPolygon && this.draftPolygon.points && this.draftPolygon.points.length >= 1) {
       const pts = this.draftPolygon.points
@@ -379,6 +382,11 @@ const FloorPlanCanvas = {
     const {prev, next} = this.draftAngleAnchors()
 
     let point = raw
+    if (this.mode === "gap") {
+      const snapped = this.snap(point, {vertices: !skipGeom, wallsOnly: true})
+      return {point: snapped.point, snapped: snapped.snapped, raw}
+    }
+
     if (shift && prev) {
       point = next ? angleSnapPointDual(prev, next, raw) : angleSnapPoint(prev, raw)
     }
@@ -413,17 +421,7 @@ const FloorPlanCanvas = {
     }
     const resolved = this.resolveFromRaw(this.lastRawPoint, event)
     if (this.mode === "gap" && this.draftGap && resolved.point) {
-      const pinned = this.projectOntoWall(
-        resolved.point,
-        this.draftGap.a,
-        this.draftGap.b,
-        this.skipSnapFromEvent(event),
-      )
-      this.draftGap.current = {x: pinned.x, y: pinned.y}
-      this.snapPoint =
-        pinned.snapped || resolved.snapped ? {x: pinned.x, y: pinned.y} : null
-      this.drawSnapIndicator()
-      this.drawGapDraft()
+      this.updateGapDraft(resolved.point, this.skipSnapFromEvent(event), resolved.snapped)
       return
     }
     this.snapPoint = resolved.snapped ? resolved.point : null
@@ -680,17 +678,11 @@ const FloorPlanCanvas = {
       const resolved = this.resolvePointer(event)
       if (!resolved.point) return
       if (this.draftGap) {
-        const pinned = this.projectOntoWall(
+        this.updateGapDraft(
           resolved.point,
-          this.draftGap.a,
-          this.draftGap.b,
           this.skipSnapFromEvent(event),
+          resolved.snapped,
         )
-        this.draftGap.current = {x: pinned.x, y: pinned.y}
-        this.snapPoint =
-          pinned.snapped || resolved.snapped ? {x: pinned.x, y: pinned.y} : null
-        this.drawSnapIndicator()
-        this.drawGapDraft()
         return
       }
       this.snapPoint = resolved.snapped ? resolved.point : null
@@ -936,22 +928,24 @@ const FloorPlanCanvas = {
    * then nearest point along wall/placement segments within SNAP_DISTANCE.
    * Callers skip this while Ctrl/Meta is held (see resolvePointer).
    */
-  snap(point) {
+  snap(point, {vertices = true, wallsOnly = false} = {}) {
     if (!point) return {point: null, snapped: false}
 
-    const segs = this.collectSnapSegments()
-    const vertices = this.collectSnapVertices(segs)
+    const segs = this.collectSnapSegments({wallsOnly})
+    const verts = this.collectSnapVertices(segs, {wallsOnly})
 
     let best = null
     let bestDist = SNAP_DISTANCE
-    for (const ep of vertices) {
-      const d = Math.hypot(ep.x - point.x, ep.y - point.y)
-      if (d <= bestDist) {
-        bestDist = d
-        best = ep
+    if (vertices) {
+      for (const ep of verts) {
+        const d = Math.hypot(ep.x - point.x, ep.y - point.y)
+        if (d <= bestDist) {
+          bestDist = d
+          best = ep
+        }
       }
+      if (best) return {point: {x: best.x, y: best.y}, snapped: true}
     }
-    if (best) return {point: {x: best.x, y: best.y}, snapped: true}
 
     bestDist = SNAP_DISTANCE
     for (const [a, b] of segs) {
@@ -967,7 +961,7 @@ const FloorPlanCanvas = {
     return {point, snapped: false}
   },
 
-  collectSnapSegments() {
+  collectSnapSegments({wallsOnly = false} = {}) {
     const segs = []
     if (!this.svg) return segs
 
@@ -978,17 +972,19 @@ const FloorPlanCanvas = {
       ])
     })
 
-    this.svg.querySelectorAll("[data-snap-edge]").forEach((line) => {
-      segs.push([
-        {x: Number(line.getAttribute("x1")), y: Number(line.getAttribute("y1"))},
-        {x: Number(line.getAttribute("x2")), y: Number(line.getAttribute("y2"))},
-      ])
-    })
+    if (!wallsOnly) {
+      this.svg.querySelectorAll("[data-snap-edge]").forEach((line) => {
+        segs.push([
+          {x: Number(line.getAttribute("x1")), y: Number(line.getAttribute("y1"))},
+          {x: Number(line.getAttribute("x2")), y: Number(line.getAttribute("y2"))},
+        ])
+      })
+    }
 
     return segs
   },
 
-  collectSnapVertices(segs) {
+  collectSnapVertices(segs, {wallsOnly = false} = {}) {
     const vertices = []
     const seen = new Set()
     const add = (p) => {
@@ -1003,7 +999,7 @@ const FloorPlanCanvas = {
       add(b)
     }
 
-    if (this.svg) {
+    if (!wallsOnly && this.svg) {
       this.svg.querySelectorAll("[data-snap-vertex]").forEach((el) => {
         const x = Number(el.getAttribute("cx") ?? el.getAttribute("x"))
         const y = Number(el.getAttribute("cy") ?? el.getAttribute("y"))
@@ -1040,65 +1036,83 @@ const FloorPlanCanvas = {
   },
 
   handleGapClick(event) {
+    const resolved = this.resolvePointer(event)
+    if (!resolved.point) return
+    const skipAlong = this.skipSnapFromEvent(event)
+
     if (!this.draftGap) {
-      const wallEl = event.target.closest("[data-wall-id]")
-      if (!wallEl) return
-      const a = {
-        x: Number(wallEl.getAttribute("x1")),
-        y: Number(wallEl.getAttribute("y1")),
-      }
-      const b = {
-        x: Number(wallEl.getAttribute("x2")),
-        y: Number(wallEl.getAttribute("y2")),
-      }
-      const resolved = this.resolvePointer(event)
-      if (!resolved.point) return
-      const pinned = this.projectOntoWall(
-        resolved.point,
-        a,
-        b,
-        this.skipSnapFromEvent(event),
-      )
-      this.draftGap = {
-        wallId: wallEl.dataset.wallId,
-        a,
-        b,
-        start: {x: pinned.x, y: pinned.y},
-        current: {x: pinned.x, y: pinned.y},
-      }
-      this.snapPoint =
-        pinned.snapped || resolved.snapped ? {x: pinned.x, y: pinned.y} : null
-      this.drawSnapIndicator()
-      this.drawGapDraft()
+      if (!this.pinGapAt(resolved.point, skipAlong)) return
+      this.updateGapDraft(resolved.point, skipAlong, resolved.snapped)
       return
     }
 
-    const resolved = this.resolvePointer(event)
-    if (!resolved.point) return
-    const end = this.projectOntoWall(
-      resolved.point,
-      this.draftGap.a,
-      this.draftGap.b,
-      this.skipSnapFromEvent(event),
-    )
-    const dist = Math.hypot(end.x - this.draftGap.start.x, end.y - this.draftGap.start.y)
-    if (dist < MIN_WALL_LENGTH) {
-      this.draftGap.current = {x: end.x, y: end.y}
-      this.snapPoint = end.snapped || resolved.snapped ? {x: end.x, y: end.y} : null
-      this.drawSnapIndicator()
-      this.drawGapDraft()
-      return
-    }
-    const {wallId, start} = this.draftGap
+    this.updateGapDraft(resolved.point, skipAlong, resolved.snapped)
+    const {wallId, start, current} = this.draftGap
+    if (!wallId || !current) return
+    const dist = Math.hypot(current.x - start.x, current.y - start.y)
+    if (dist < MIN_WALL_LENGTH) return
     this.clearGapDraft()
     this.clearSnapIndicator()
     this.pushEvent("wall_gapped", {
       id: wallId,
       ax: start.x,
       ay: start.y,
-      bx: end.x,
-      by: end.y,
+      bx: current.x,
+      by: current.y,
     })
+  },
+
+  collectGapWalls() {
+    const walls = []
+    if (!this.svg) return walls
+    this.svg.querySelectorAll("[data-wall-id]").forEach((el) => {
+      walls.push({
+        id: el.dataset.wallId,
+        a: {x: Number(el.getAttribute("x1")), y: Number(el.getAttribute("y1"))},
+        b: {x: Number(el.getAttribute("x2")), y: Number(el.getAttribute("y2"))},
+      })
+    })
+    return walls
+  },
+
+  pinGapAt(point, skipAlongSnap) {
+    const all = this.collectGapWalls()
+    if (all.length === 0) return false
+    let start = {x: point.x, y: point.y}
+    let incident = wallsContainingPoint(all, start)
+    if (incident.length === 0) {
+      const near = nearestWall(all, start)
+      if (!near) return false
+      const hit = this.projectOntoWall(start, near.a, near.b, skipAlongSnap)
+      if (Math.hypot(hit.x - start.x, hit.y - start.y) > SNAP_DISTANCE) return false
+      start = {x: hit.x, y: hit.y}
+      incident = wallsContainingPoint(all, start)
+      if (incident.length === 0) incident = [near]
+    }
+    this.draftGap = {
+      start,
+      walls: incident,
+      current: {x: start.x, y: start.y},
+      wallId: incident[0].id,
+      a: incident[0].a,
+      b: incident[0].b,
+    }
+    return true
+  },
+
+  updateGapDraft(point, skipAlongSnap, resolvedSnapped) {
+    if (!this.draftGap) return
+    const wall = nearestWall(this.draftGap.walls, point)
+    if (!wall) return
+    const pinned = this.projectOntoWall(point, wall.a, wall.b, skipAlongSnap)
+    this.draftGap.wallId = wall.id
+    this.draftGap.a = wall.a
+    this.draftGap.b = wall.b
+    this.draftGap.current = {x: pinned.x, y: pinned.y}
+    this.snapPoint =
+      pinned.snapped || resolvedSnapped ? {x: pinned.x, y: pinned.y} : null
+    this.drawSnapIndicator()
+    this.drawGapDraft()
   },
 
   projectOntoWall(point, a, b, skipAlongSnap) {

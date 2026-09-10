@@ -219,6 +219,34 @@ export function pointOnSegment(p, a, b, eps = 1e-5) {
 }
 
 /**
+ * Walls whose open segment contains `point` (within `eps`).
+ * Each wall is `{id, a: {x,y}, b: {x,y}}`.
+ */
+export function wallsContainingPoint(walls, point, eps = 1e-5) {
+  if (!point || !Array.isArray(walls)) return []
+  return walls.filter((w) => w && pointOnSegment(point, w.a, w.b, eps))
+}
+
+/**
+ * Wall whose segment is closest to `point`, or null.
+ */
+export function nearestWall(walls, point) {
+  if (!point || !Array.isArray(walls) || walls.length === 0) return null
+  let best = null
+  let bestDist = Infinity
+  for (const w of walls) {
+    if (!w || !w.a || !w.b) continue
+    const hit = closestPointOnSegment(point, w.a, w.b)
+    const d = Math.hypot(hit.x - point.x, hit.y - point.y)
+    if (d < bestDist) {
+      bestDist = d
+      best = w
+    }
+  }
+  return best
+}
+
+/**
  * Nearest vertex within maxDist, or null.
  * Returns {index, point} with a copied point.
  */

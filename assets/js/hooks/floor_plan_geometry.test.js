@@ -3,7 +3,9 @@ import {describe, it} from "node:test"
 import {
   ANGLE_SNAP_STEP,
   closestPointOnSegment,
+  nearestWall,
   pointOnSegment,
+  wallsContainingPoint,
   angleSnapPoint,
   angleSnapPointDual,
   lineIntersection,
@@ -212,6 +214,36 @@ describe("pointOnSegment", () => {
 
   it("is false off the span", () => {
     assert.equal(pointOnSegment({x: 0.5, y: 0.6}, {x: 0, y: 0.5}, {x: 1, y: 0.5}), false)
+  })
+})
+
+describe("wallsContainingPoint / nearestWall", () => {
+  const h = {id: "h", a: {x: 0.2, y: 0.5}, b: {x: 0.8, y: 0.5}}
+  const v = {id: "v", a: {x: 0.8, y: 0.5}, b: {x: 0.8, y: 0.85}}
+  const walls = [h, v]
+
+  it("returns both walls at a shared vertex", () => {
+    const hit = wallsContainingPoint(walls, {x: 0.8, y: 0.5})
+    assert.deepEqual(
+      hit.map((w) => w.id).sort(),
+      ["h", "v"],
+    )
+  })
+
+  it("returns only the span that contains a mid-wall point", () => {
+    const hit = wallsContainingPoint(walls, {x: 0.5, y: 0.5})
+    assert.deepEqual(
+      hit.map((w) => w.id),
+      ["h"],
+    )
+  })
+
+  it("picks the vertical wall when the cursor is along it", () => {
+    assert.equal(nearestWall(walls, {x: 0.8, y: 0.7}).id, "v")
+  })
+
+  it("picks the horizontal wall when the cursor is along it", () => {
+    assert.equal(nearestWall(walls, {x: 0.4, y: 0.5}).id, "h")
   })
 })
 
