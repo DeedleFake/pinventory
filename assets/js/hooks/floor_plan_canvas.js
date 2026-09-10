@@ -1,17 +1,19 @@
 /**
  * SVG floor-plan canvas: draw/erase walls and draw/extend location polygons.
  *
- * data-mode: "wall" | "erase" | "gap" | "place" | "browse"
+ * data-mode: "wall" | "erase" | "gap" | "impassable" | "impassable_erase" | "place" | "browse"
  * data-location-id: when mode is "place", the location for the polygon
  * data-place-mode: "new" | "extend"
  * data-existing-points: JSON [{x,y}, ...] when extending an existing polygon
  *
  * Pushes LiveView events:
- *   wall_drawn      — {x1,y1,x2,y2} world coords
- *   wall_erased     — {id}
- *   wall_gapped     — {id, ax, ay, bx, by} two projected points on one wall
- *   polygon_placed  — {location_id, points: [{x,y}, ...]} (full polygon)
- *   undo / redo     — keyboard shortcuts
+ *   wall_drawn           — {x1,y1,x2,y2} world coords
+ *   wall_erased          — {id}
+ *   wall_gapped          — {id, ax, ay, bx, by} two projected points on one wall
+ *   polygon_placed       — {location_id, points: [{x,y}, ...]} (full polygon)
+ *   impassable_placed    — {points: [{x,y}, ...]} (closed polygon, no location)
+ *   impassable_erased    — {id}
+ *   undo / redo          — keyboard shortcuts
  *
  * Walls: first click sets start (snap), second click commits; Escape cancels.
  * Gap: first click pins a point. Second click cuts along the incident wall
@@ -266,7 +268,7 @@ const FloorPlanCanvas = {
           this.clearSnapIndicator()
           return
         }
-        if (this.mode === "place" && this.draftPolygon) {
+        if (this.draftPolygon) {
           event.preventDefault()
           this.clearPolygonDraft()
           this.clearSnapIndicator()
@@ -275,7 +277,7 @@ const FloorPlanCanvas = {
         }
       }
 
-      if (this.mode === "place" && this.draftPolygon) {
+      if (this.draftPolygon) {
         if (event.key === "Enter") {
           event.preventDefault()
           this.finishPolygon()
@@ -411,11 +413,7 @@ const FloorPlanCanvas = {
   refreshPointerFromModifiers(event) {
     if (!this.lastRawPoint) return
     if (
-      !(
-        this.mode === "wall" ||
-        this.mode === "gap" ||
-        (this.mode === "place" && this.locationId)
-      )
+      !(this.mode === "wall" || this.mode === "gap" || this.polygonDrawActive())
     ) {
       return
     }
@@ -481,6 +479,15 @@ const FloorPlanCanvas = {
       return
     }
 
+    if (this.mode === "impassable_erase") {
+      const areaEl = event.target.closest("[data-impassable-id]")
+      if (areaEl) {
+        event.preventDefault()
+        this.pushEvent("impassable_erased", {id: areaEl.dataset.impassableId})
+      }
+      return
+    }
+
     if (this.mode === "gap") {
       event.preventDefault()
       this.el.focus({preventScroll: true})
@@ -520,16 +527,23 @@ const FloorPlanCanvas = {
       return
     }
 
-    if (this.mode === "place" && this.locationId) {
+    if (this.polygonDrawActive()) {
       event.preventDefault()
       this.el.focus({preventScroll: true})
       this.handlePlaceClick(point)
     }
   },
 
+  polygonDrawActive() {
+    return (this.mode === "place" && this.locationId) || this.mode === "impassable"
+  },
+
   handlePlaceClick(point) {
     const extending =
-      this.placeMode === "extend" && this.existingPoints && this.existingPoints.length >= 3
+      this.mode !== "impassable" &&
+      this.placeMode === "extend" &&
+      this.existingPoints &&
+      this.existingPoints.length >= 3
 
     if (!this.draftPolygon) {
       if (extending) {
@@ -690,7 +704,7 @@ const FloorPlanCanvas = {
       return
     }
 
-    if (!(this.mode === "wall" || (this.mode === "place" && this.locationId))) {
+    if (!(this.mode === "wall" || this.polygonDrawActive())) {
       this.clearSnapIndicator()
       return
     }
@@ -714,13 +728,15 @@ const FloorPlanCanvas = {
   },
 
   handleDblClick(event) {
-    if (this.mode !== "place" || !this.draftPolygon) return
+    if (!this.draftPolygon) return
     event.preventDefault()
     this.finishPolygon()
   },
 
   finishPolygon() {
-    if (!this.draftPolygon || !this.locationId) return
+    if (!this.draftPolygon) return
+    const impassable = this.mode === "impassable"
+    if (!impassable && !this.locationId) return
 
     let points
     if (this.draftPolygon.mode === "extend") {
@@ -734,9 +750,15 @@ const FloorPlanCanvas = {
     this.updateFinishButton()
     if (!points || points.length < 3) return
 
+    const payload = points.map((p) => ({x: p.x, y: p.y}))
+    if (impassable) {
+      this.pushEvent("impassable_placed", {points: payload})
+      return
+    }
+
     this.pushEvent("polygon_placed", {
       location_id: this.locationId,
-      points: points.map((p) => ({x: p.x, y: p.y})),
+      points: payload,
     })
   },
 
@@ -810,7 +832,7 @@ const FloorPlanCanvas = {
   },
 
   /**
-   * Content AABB from live SVG walls + placement polygons (+ draft if any).
+   * Content AABB from live SVG walls + placement/impassable polygons (+ draft).
    * Empty → default {0,0,1,1}.
    */
   contentBounds() {
@@ -822,16 +844,12 @@ const FloorPlanCanvas = {
           {x: Number(line.getAttribute("x2")), y: Number(line.getAttribute("y2"))},
         ])
       })
-      this.svg.querySelectorAll("[data-placement-location-id]").forEach((poly) => {
-        const raw = poly.getAttribute("points") || ""
-        const pts = []
-        for (const pair of raw.trim().split(/\s+/)) {
-          if (!pair) continue
-          const [xs, ys] = pair.split(",")
-          pts.push({x: Number(xs), y: Number(ys)})
-        }
-        if (pts.length) segments.push(pts)
-      })
+      this.svg
+        .querySelectorAll("[data-placement-location-id], [data-impassable-id]")
+        .forEach((poly) => {
+          const pts = this.polygonPointsFromEl(poly)
+          if (pts.length) segments.push(pts)
+        })
     }
     if (this.draftWall) {
       const {start, current} = this.draftWall
@@ -847,6 +865,19 @@ const FloorPlanCanvas = {
       if (this.draftGap.current) segments.push([this.draftGap.current])
     }
     return contentBoundsFromSegments(segments)
+  },
+
+  polygonPointsFromEl(poly) {
+    const raw = (poly && poly.getAttribute && poly.getAttribute("points")) || ""
+    const pts = []
+    for (const pair of raw.trim().split(/\s+/)) {
+      if (!pair) continue
+      const [xs, ys] = pair.split(",")
+      const x = Number(xs)
+      const y = Number(ys)
+      if (Number.isFinite(x) && Number.isFinite(y)) pts.push({x, y})
+    }
+    return pts
   },
 
   handleWheel(event) {
