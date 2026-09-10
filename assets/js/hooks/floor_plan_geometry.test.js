@@ -341,5 +341,12 @@ describe("fitSquareCamera", () => {
     assert.ok(Math.abs(cam.x - (2 - 0.58)) < 1e-9)
     assert.ok(Math.abs(cam.y - (3 - 0.58)) < 1e-9)
   })
+
+  it("roomier padding leaves empty world outside unit content", () => {
+    const cam = fitSquareCamera({minX: 0, minY: 0, maxX: 1, maxY: 1}, 0.5)
+    assert.ok(Math.abs(cam.size - 2) < 1e-9)
+    assert.ok(cam.x < 0 && cam.y < 0)
+    assert.ok(cam.x + cam.size > 1 && cam.y + cam.size > 1)
+  })
 })
 

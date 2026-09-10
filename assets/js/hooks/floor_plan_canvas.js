@@ -24,9 +24,10 @@
  * Draft corners dedupe within SNAP_DISTANCE so near-clicks reuse an existing vertex.
  * Polygon finish: close on a different vertex, double-click, or Done (adjacent auto); Escape cancels.
  *
- * Camera: unbounded world (finite floats, no unit-square clamp). SVG viewBox is the viewport (zoom/pan).
- * Wheel zooms toward cursor; browse mode primary-drag pans (threshold); editor uses Space+drag or middle-mouse.
- * Reset view / initial mount fit the camera to content bounds (~8% pad, square viewBox).
+ * Camera: unbounded world (finite floats). SVG viewBox is the viewport (zoom/pan).
+ * Wheel zooms toward cursor; browse primary-drag pans; editor uses Space+drag or middle-mouse.
+ * Browse Reset/mount fits content tightly (~8% pad). Edit Reset/mount uses a roomier pad so
+ * empty world around content is clickable (screen edge is not the old unit-square edge).
  * preserveAspectRatio meet keeps the view square (no window stretch).
  */
 import {
@@ -716,8 +717,10 @@ const FloorPlanCanvas = {
     this.svg.setAttribute("viewBox", `${x} ${y} ${size} ${size}`)
   },
 
+  /** Browse fits content; edit leaves empty world around so you can draw outside. */
   resetCamera() {
-    this.camera = fitSquareCamera(this.contentBounds())
+    const padding = this.mode === "browse" ? 0.08 : 0.5
+    this.camera = fitSquareCamera(this.contentBounds(), padding)
     this.applyCamera()
   },
 
