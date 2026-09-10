@@ -260,6 +260,74 @@ defmodule Pinventory.FloorPlansTest do
     end
   end
 
+  describe "collinear wall merge" do
+    setup do
+      {:ok, floors} = FloorPlans.create_floor_plan()
+      %{floor: hd(floors)}
+    end
+
+    test "merges two horizontal walls that meet into one", %{floor: floor} do
+      assert {:ok, floor} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.1, "y1" => 0.5, "x2" => 0.4, "y2" => 0.5})
+
+      assert {:ok, floor} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.4, "y1" => 0.5, "x2" => 0.9, "y2" => 0.5})
+
+      assert [%Wall{x1: 0.1, y1: 0.5, x2: 0.9, y2: 0.5}] = floor.walls
+    end
+
+    test "does not merge a T-junction / non-collinear wall", %{floor: floor} do
+      # Stem meets at an endpoint of the crossbar but is not collinear.
+      assert {:ok, floor} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.1, "y1" => 0.5, "x2" => 0.5, "y2" => 0.5})
+
+      assert {:ok, floor} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.5, "y1" => 0.5, "x2" => 0.5, "y2" => 0.9})
+
+      assert length(floor.walls) == 2
+      horizontal = Enum.find(floor.walls, &(&1.y1 == 0.5 and &1.y2 == 0.5))
+      vertical = Enum.find(floor.walls, &(&1.x1 == 0.5 and &1.x2 == 0.5))
+      assert horizontal
+      assert vertical
+    end
+
+    test "does not merge parallel non-touching walls", %{floor: floor} do
+      assert {:ok, floor} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.1, "y1" => 0.2, "x2" => 0.4, "y2" => 0.2})
+
+      assert {:ok, floor} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.5, "y1" => 0.2, "x2" => 0.9, "y2" => 0.2})
+
+      assert length(floor.walls) == 2
+    end
+  end
+
+  describe "collinear polygon vertices" do
+    setup %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, floors} = FloorPlans.create_floor_plan()
+      %{garage: garage, floor: hd(floors)}
+    end
+
+    test "drops a collinear middle vertex on place", %{garage: garage, floor: floor} do
+      # Quad with an extra point on the top edge between (0.1,0.1) and (0.4,0.1)
+      points = [
+        %{"x" => 0.1, "y" => 0.1},
+        %{"x" => 0.25, "y" => 0.1},
+        %{"x" => 0.4, "y" => 0.1},
+        %{"x" => 0.4, "y" => 0.4}
+      ]
+
+      assert {:ok, placement} = FloorPlans.place_location(floor, garage.id, points)
+
+      assert placement.points == [
+               %{"x" => 0.1, "y" => 0.1},
+               %{"x" => 0.4, "y" => 0.1},
+               %{"x" => 0.4, "y" => 0.4}
+             ]
+    end
+  end
+
   describe "polygon helpers" do
     test "builds svg points and centroid" do
       points = triangle()

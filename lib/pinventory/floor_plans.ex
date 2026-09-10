@@ -12,7 +12,7 @@ defmodule Pinventory.FloorPlans do
   import Ecto.Query, warn: false
 
   alias Ecto.Multi
-  alias Pinventory.FloorPlans.{Floor, LocationPlacement, Wall}
+  alias Pinventory.FloorPlans.{Floor, Geometry, LocationPlacement, Wall}
   alias Pinventory.Locations.Location
   alias Pinventory.Repo
 
@@ -211,19 +211,28 @@ defmodule Pinventory.FloorPlans do
 
   @doc """
   Inserts one wall segment for a floor.
+
+  When the new segment shares an endpoint with an existing wall and the two are
+  collinear (same line within a small epsilon), they are merged into a single
+  wall spanning the outermost endpoints. Multiple connecting collinear walls
+  may be absorbed in one insert.
   """
   def add_wall(%Floor{} = floor, wall) do
-    attrs =
-      wall
-      |> wall_coords()
-      |> Map.put(:floor_id, floor.id)
+    coords = wall_coords(wall)
+    floor = preload_floor(floor)
+    {merged_coords, walls_to_delete} = Geometry.merge_wall_into_existing(floor.walls, coords)
+    attrs = Map.put(merged_coords, :floor_id, floor.id)
 
-    %Wall{}
-    |> Wall.changeset(attrs)
-    |> Repo.insert()
+    Multi.new()
+    |> Multi.run(:delete_merged, fn _repo, _ ->
+      Enum.each(walls_to_delete, &Repo.delete!/1)
+      {:ok, length(walls_to_delete)}
+    end)
+    |> Multi.insert(:wall, Wall.changeset(%Wall{}, attrs))
+    |> Repo.transaction()
     |> case do
       {:ok, _} -> {:ok, get_floor!(floor.id)}
-      error -> error
+      {:error, _step, reason, _} -> {:error, reason}
     end
   end
 
@@ -542,7 +551,9 @@ defmodule Pinventory.FloorPlans do
   end
 
   defp normalize_points(points) when is_list(points) do
-    Enum.map(points, &normalize_point/1)
+    points
+    |> Enum.map(&normalize_point/1)
+    |> Geometry.drop_collinear_polygon_vertices()
   end
 
   defp normalize_point(%{"x" => x, "y" => y}), do: %{"x" => clamp_unit(x), "y" => clamp_unit(y)}
