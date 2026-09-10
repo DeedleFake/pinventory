@@ -62,6 +62,7 @@ const FloorPlanCanvas = {
     this.browsePanCandidate = null
     this.suppressClickAfterPan = false
     this.camera = {x: 0, y: 0, size: 1}
+    this.floorSvgId = this.svg ? this.svg.id : null
     this.syncFromEl()
     this.resetCamera()
 
@@ -103,10 +104,12 @@ const FloorPlanCanvas = {
   },
 
   updated() {
-    // Floor switches change the SVG id (floor-svg-<id>), so morphdom replaces
-    // the node. Rebind listeners — mounted() only runs once on the stable
-    // #floor-plan-canvas wrapper.
+    // Floor switches change the SVG id (floor-svg-<id> / locations-floor-svg-<id>),
+    // so morphdom replaces the node. Rebind listeners — mounted() only runs once
+    // on the stable canvas wrapper. Fit the new floor's content (don't keep pan/zoom).
     const nextSvg = this.el.querySelector("[data-floor-plan-svg]")
+    const nextId = nextSvg ? nextSvg.id : null
+    const floorChanged = nextSvg !== this.svg || nextId !== this.floorSvgId
     if (nextSvg !== this.svg) {
       if (this.svg) {
         this.svg.removeEventListener("pointerdown", this.onPointerDown)
@@ -121,7 +124,11 @@ const FloorPlanCanvas = {
       this.draftWall = null
       this.draftPolygon = null
       this.snapPoint = null
-      this.applyCamera()
+    }
+    if (floorChanged) {
+      this.floorSvgId = nextId
+      this.syncFromEl()
+      this.resetCamera()
     }
 
     const nextFinish = this.el.querySelector("[data-polygon-finish]")
