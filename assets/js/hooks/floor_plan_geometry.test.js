@@ -253,13 +253,12 @@ describe("distanceToLine", () => {
 })
 
 describe("angleSnapPointDual", () => {
-  it("places a rectangle corner on both axis edges", () => {
-    // A(0.2,0.2) → B(0.8,0.2) → C(0.8,0.7), drafting D toward A(0.2,0.2)
+  it("places a rectangle corner when near the closing axis", () => {
+    // A(0.2,0.2) → … → C(0.8,0.7), drafting near vertical through A
     const prev = {x: 0.8, y: 0.7}
     const next = {x: 0.2, y: 0.2}
-    const raw = {x: 0.25, y: 0.65}
+    const raw = {x: 0.22, y: 0.68}
     const p = angleSnapPointDual(prev, next, raw)
-    // Horizontal from C and vertical to A → (0.2, 0.7)
     assert.ok(Math.abs(p.x - 0.2) < 1e-9)
     assert.ok(Math.abs(p.y - 0.7) < 1e-9)
   })
@@ -271,15 +270,24 @@ describe("angleSnapPointDual", () => {
     assert.ok(Math.abs(p.y - 0.5) < 1e-9)
   })
 
-  it("biases the newest edge when many dual intersections exist", () => {
-    const prev = {x: 0.5, y: 0.5}
+  it("ignores closing axis when the cursor is too far", () => {
+    const prev = {x: 0.8, y: 0.7}
     const next = {x: 0.2, y: 0.2}
-    // Nearly horizontal from prev — prefer 0° newest ray
-    const raw = {x: 0.75, y: 0.52}
+    // Far from both x=0.2 and y=0.2 — newest-edge only (horizontal from prev)
+    const raw = {x: 0.5, y: 0.71}
     const p = angleSnapPointDual(prev, next, raw)
-    const newestAngle = Math.atan2(p.y - prev.y, p.x - prev.x)
-    // Should stay near 0° (horizontal), not jump to a far dual corner
-    assert.ok(Math.abs(newestAngle) < 0.2 || Math.abs(Math.abs(newestAngle) - Math.PI) < 0.2)
+    assert.ok(Math.abs(p.y - 0.7) < 1e-9)
+    assert.ok(Math.abs(p.x - 0.2) > 0.05)
+  })
+
+  it("secondary snap is horizontal/vertical only", () => {
+    const prev = {x: 0.5, y: 0.5}
+    const next = {x: 0.2, y: 0.35}
+    // Near vertical through next; newest prefers ~0°
+    const raw = {x: 0.215, y: 0.5}
+    const p = angleSnapPointDual(prev, next, raw)
+    assert.ok(Math.abs(p.x - 0.2) < 1e-9)
+    assert.ok(Math.abs(p.y - 0.5) < 1e-9)
   })
 })
 

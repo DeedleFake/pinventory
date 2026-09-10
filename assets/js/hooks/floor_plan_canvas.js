@@ -16,10 +16,11 @@
  * Snap: wall endpoints/segments + placement vertices/edges (data-snap-*).
  * Hold Ctrl/Meta to place at raw canvas coords (no geometry snap); preview follows.
  * Hold Shift while drafting to constrain to 22.5° angles (16 directions). Walls
- * snap from the start point; polygons prefer a dual-edge snap (newest + closing
- * edge) when those angle lines meet, else newest-edge only. Order: raw → Shift
- * angle → optional geometry snap along the constraint. Ctrl/Meta skips geometry
- * snap; Shift still angle-constrains. Shift keydown/keyup refreshes the draft.
+ * snap from the start point; polygons may also meet a closing H/V through the
+ * first vertex when the cursor is near that axis (line-snap style), else
+ * newest-edge only. Order: raw → Shift angle → optional geometry snap.
+ * Ctrl/Meta skips geometry snap; Shift still angle-constrains. Shift
+ * keydown/keyup refreshes the draft.
  * Draft corners dedupe within SNAP_DISTANCE so near-clicks reuse an existing vertex.
  * Polygon finish: close on a different vertex, double-click, or Done (adjacent auto); Escape cancels.
  *
@@ -292,7 +293,7 @@ const FloorPlanCanvas = {
    * Shift angle-snap anchors.
    * Wall: {prev: start, next: null}.
    * Polygon: prev = last committed point; next = first point when ≥2 points
-   * (closing edge) so Shift can straighten both edges, preferring the newest.
+   * (closing H/V, only if cursor is near that axis). Prefer newest edge.
    */
   draftAngleAnchors() {
     if (this.draftWall && this.draftWall.start) {
