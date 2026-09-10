@@ -111,7 +111,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, "#floor-rail-list[phx-hook=FloorRailSort]")
     refute has_element?(view, ~s|#floor-drag-#{floor.id}[draggable]|)
     assert has_element?(view, "#floor-rail-item-#{floor.id}")
-    assert has_element?(view, "#floor-tab-#{floor.id}", "Floor 1")
+    assert has_element?(view, "#floor-name-#{floor.id}[value=\"Floor 1\"]")
     assert has_element?(view, "#floor-add")
     assert has_element?(view, "#floor-remove-#{floor.id}")
     refute has_element?(view, "#floor-remove")
@@ -409,6 +409,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, "#floor-rail")
     refute has_element?(view, "#floor-tabs")
     refute has_element?(view, "#floor-rename-row")
+    refute has_element?(view, "#floor-rename-save")
     assert render(view) =~ ~r/id="floor-add"[\s\S]*id="floor-rail-list"/
 
     view |> element("#floor-add") |> render_click()
@@ -417,11 +418,11 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert render(view) =~ "Floor 2"
 
     view
-    |> form("#floor-rename-form", %{name: "Basement"})
+    |> form("#floor-rename-form-#{floor2.id}", %{name: "Basement"})
     |> render_submit()
 
-    assert has_element?(view, "#floor-rail", "Basement")
-    assert render(view) =~ "Basement"
+    assert has_element?(view, "#floor-name-#{floor2.id}[value=\"Basement\"]")
+    assert Enum.find(FloorPlans.list_floors(), &(&1.id == floor2.id)).name == "Basement"
   end
 
   test "reorders floors via drag-and-drop hook event", %{conn: conn} do

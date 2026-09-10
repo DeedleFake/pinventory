@@ -359,25 +359,6 @@ defmodule PinventoryWeb.FloorPlanLive do
               </button>
             </div>
 
-            <form id="floor-rename-form" phx-submit="rename_floor" class="flex flex-col gap-1.5">
-              <label class="sr-only" for="floor-name">Floor name</label>
-              <input
-                type="text"
-                id="floor-name"
-                name="name"
-                value={@selected_floor.name}
-                autocomplete="off"
-                class="input input-sm w-full min-w-0"
-              />
-              <button
-                type="submit"
-                id="floor-rename-save"
-                class="btn btn-sm btn-ghost border border-base-300"
-              >
-                Rename
-              </button>
-            </form>
-
             <ul
               id="floor-rail-list"
               phx-hook="FloorRailSort"
@@ -435,16 +416,34 @@ defmodule PinventoryWeb.FloorPlanLive do
                   >
                     <.icon name="hero-bars-2" class="size-4" />
                   </button>
+                  <form
+                    :if={floor.id == @selected_floor.id}
+                    id={"floor-rename-form-#{floor.id}"}
+                    phx-submit="rename_floor"
+                    class="min-w-0 flex-1"
+                  >
+                    <label class="sr-only" for={"floor-name-#{floor.id}"}>Floor name</label>
+                    <input
+                      type="text"
+                      id={"floor-name-#{floor.id}"}
+                      name="name"
+                      value={floor.name}
+                      autocomplete="off"
+                      phx-blur={JS.dispatch("submit", to: "#floor-rename-form-#{floor.id}")}
+                      class={[
+                        "input input-sm h-auto min-h-0 w-full min-w-0 border-0 bg-transparent px-1.5 py-2",
+                        "text-sm font-medium text-primary shadow-none",
+                        "focus:border-0 focus:outline-none focus:ring-0"
+                      ]}
+                    />
+                  </form>
                   <button
+                    :if={floor.id != @selected_floor.id}
                     type="button"
                     id={"floor-tab-#{floor.id}"}
                     phx-click="select_floor"
                     phx-value-id={floor.id}
-                    class={[
-                      "min-w-0 flex-1 truncate rounded-md px-1.5 py-2 text-left text-sm font-medium",
-                      floor.id == @selected_floor.id && "text-primary",
-                      floor.id != @selected_floor.id && "opacity-80 hover:opacity-100"
-                    ]}
+                    class="min-w-0 flex-1 truncate rounded-md px-1.5 py-2 text-left text-sm font-medium opacity-80 hover:opacity-100"
                   >
                     {floor.name}
                   </button>
