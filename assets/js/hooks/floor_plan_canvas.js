@@ -1105,7 +1105,7 @@ const FloorPlanCanvas = {
       const pose = measurementLabelPose(a, b, fontSize)
       if (!pose) continue
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text")
-      label.setAttribute("text-anchor", "middle")
+      label.setAttribute("text-anchor", pose.anchor || "middle")
       label.setAttribute("dominant-baseline", "central")
       label.setAttribute("font-size", String(fontSize))
       label.setAttribute("class", "fill-primary font-sans")

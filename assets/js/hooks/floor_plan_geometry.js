@@ -483,10 +483,10 @@ export function lengthInFeet(a, b, feetPerUnit = DEFAULT_FEET_PER_UNIT) {
 
 /**
  * Midpoint label pose along ab.
- * Text stays tied to the segment: try all four sides of the text box against
- * the line (parallel ±180°, or perpendicular ±90°) and keep the rotation
- * closest to upright. Offset clears the stroke using `fontSize` (parallel:
- * ~half glyph height; perpendicular: ~half label width so ends don't cross).
+ * Try all four text sides against the line; keep the upright-most rotation.
+ * Same edge gap for every side: parallel uses middle anchor (top/bottom toward
+ * the line); perpendicular uses start/end so the facing end sits on that gap
+ * and the label grows away from the stroke.
  */
 export function measurementLabelPose(a, b, fontSize = 0.032) {
   if (!a || !b) return null
@@ -498,6 +498,7 @@ export function measurementLabelPose(a, b, fontSize = 0.032) {
   const my = (a.y + b.y) / 2
   const lineDeg = (Math.atan2(dy, dx) * 180) / Math.PI
   const fs = Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 0.032
+  const edgeGap = fs * 0.2
 
   const normalize = (deg) => {
     let d = ((deg + 180) % 360) - 180
@@ -526,9 +527,29 @@ export function measurementLabelPose(a, b, fontSize = 0.032) {
 
   const parallel =
     Math.abs(sideTurns) < 45 || Math.abs(Math.abs(sideTurns) - 180) < 45
-  // Keep the chosen side against the line without the glyph body crossing it.
-  const clearance = parallel ? fs * 0.95 : fs * 2.6
-  return {x: mx + nx * clearance, y: my + ny * clearance, angleDeg: best}
+
+  if (parallel) {
+    // Center sits half an em off the line so top/bottom clear by edgeGap.
+    const clearance = fs * 0.5 + edgeGap
+    return {
+      x: mx + nx * clearance,
+      y: my + ny * clearance,
+      angleDeg: best,
+      anchor: "middle",
+    }
+  }
+
+  // Perpendicular: put the facing end on the same edgeGap, grow away from the line.
+  const rad = (best * Math.PI) / 180
+  const growX = Math.cos(rad)
+  const growY = Math.sin(rad)
+  const growsAway = growX * nx + growY * ny >= 0
+  return {
+    x: mx + nx * edgeGap,
+    y: my + ny * edgeGap,
+    angleDeg: best,
+    anchor: growsAway ? "start" : "end",
+  }
 }
 
 /** World font size that tracks zoom: ~constant on screen, clamped. */

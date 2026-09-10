@@ -417,17 +417,17 @@ describe("measurement labels", () => {
     assert.ok(Math.abs(shallow.angleDeg) > 1 && Math.abs(shallow.angleDeg) <= 45)
   })
 
-  it("offsets the label off the segment", () => {
-    const a = {x: 0, y: 0}
-    const b = {x: 1, y: 0}
+  it("uses the same edge gap for parallel and perpendicular sides", () => {
     const fs = 0.04
-    const pose = measurementLabelPose(a, b, fs)
-    const dist = Math.abs(pose.y - 0)
-    assert.ok(dist >= fs * 0.9, `expected clearance, got ${dist}`)
+    const edgeGap = fs * 0.2
+    const flat = measurementLabelPose({x: 0, y: 0}, {x: 1, y: 0}, fs)
+    assert.equal(flat.anchor, "middle")
+    assert.ok(Math.abs(Math.abs(flat.y) - (fs * 0.5 + edgeGap)) < 1e-9)
     const steep = measurementLabelPose({x: 0, y: 0}, {x: 0.2, y: 1}, fs)
+    assert.ok(steep.anchor === "start" || steep.anchor === "end")
     const mid = {x: 0.1, y: 0.5}
     const d = Math.hypot(steep.x - mid.x, steep.y - mid.y)
-    assert.ok(d >= fs * 2.0, `steep clearance ${d}`)
+    assert.ok(Math.abs(d - edgeGap) < 1e-6, `edge gap ${d} vs ${edgeGap}`)
   })
 
   it("scales font size with view size and clamps", () => {
