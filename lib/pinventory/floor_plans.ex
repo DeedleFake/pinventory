@@ -2,91 +2,74 @@ defmodule Pinventory.FloorPlans do
   @moduledoc """
   Optional multi-floor floor plans for the household.
 
-  Absence of a `FloorPlan` row means the feature is off. At most one plan exists
-  per install (`singleton_key`). Locations stay when the plan is deleted;
-  placements are removed with the plan/floors via FK cascades.
+  Absence of any `Floor` row means the feature is off. Locations stay when the
+  plan is deleted; placements and walls are removed with floors via FK cascades.
 
   Location placements are closed polygons in the unit square (not pins).
+  Walls are stored as rows with unit-square endpoints.
   """
 
   import Ecto.Query, warn: false
 
   alias Ecto.Multi
-  alias Pinventory.FloorPlans.{Floor, FloorPlan, LocationPlacement}
+  alias Pinventory.FloorPlans.{Floor, LocationPlacement, Wall}
   alias Pinventory.Locations.Location
   alias Pinventory.Repo
 
-  @singleton_key "default"
   @default_floor_name "Floor 1"
   @undo_limit 50
 
   @doc """
-  Returns the household floor plan with floors (and their placements) preloaded,
-  or `nil` when the feature is off.
+  Returns all floors ordered by position, with walls and placements (+ location) preloaded.
   """
-  def get_floor_plan do
-    FloorPlan
-    |> Repo.one()
-    |> maybe_preload_plan()
+  def list_floors do
+    Floor
+    |> order_by([f], asc: f.position)
+    |> Repo.all()
+    |> Repo.preload(floor_preloads())
   end
 
   @doc """
-  Returns true when a floor plan document exists.
+  Returns true when at least one floor exists (feature on).
   """
   def floor_plan_exists? do
-    Repo.exists?(from(fp in FloorPlan))
+    Repo.exists?(from(f in Floor))
   end
 
   @doc """
-  Creates the singleton floor plan with an initial floor named "#{@default_floor_name}".
+  Creates the first floor named "#{@default_floor_name}" when none exist.
 
-  Returns `{:error, :already_exists}` when a plan is already present.
+  Returns `{:error, :already_exists}` when any floor is already present.
+  On success returns `{:ok, floors}` (same shape as `list_floors/0`).
   """
   def create_floor_plan do
     if floor_plan_exists?() do
       {:error, :already_exists}
     else
-      Multi.new()
-      |> Multi.insert(
-        :floor_plan,
-        FloorPlan.changeset(%FloorPlan{}, %{singleton_key: @singleton_key})
-      )
-      |> Multi.insert(:floor, fn %{floor_plan: plan} ->
-        Floor.changeset(%Floor{}, %{
-          name: @default_floor_name,
-          position: 0,
-          walls: [],
-          floor_plan_id: plan.id
-        })
-      end)
-      |> Repo.transaction()
+      %Floor{}
+      |> Floor.changeset(%{name: @default_floor_name, position: 0})
+      |> Repo.insert()
       |> case do
-        {:ok, %{floor_plan: plan}} -> {:ok, get_floor_plan_by_id!(plan.id)}
-        {:error, :floor_plan, changeset, _} -> {:error, changeset}
-        {:error, _step, reason, _} -> {:error, reason}
+        {:ok, _floor} -> {:ok, list_floors()}
+        {:error, changeset} -> {:error, changeset}
       end
     end
   end
 
   @doc """
-  Deletes the entire floor plan (floors and placements cascade). Locations remain.
+  Deletes every floor (walls and placements cascade). Locations remain.
   """
-  def delete_floor_plan(%FloorPlan{} = plan) do
-    case Repo.delete(plan) do
-      {:ok, deleted} -> {:ok, deleted}
-      {:error, changeset} -> {:error, changeset}
-    end
-  end
-
   def delete_floor_plan do
-    case get_floor_plan() do
-      nil -> {:error, :not_found}
-      plan -> delete_floor_plan(plan)
+    if floor_plan_exists?() do
+      {_count, _} = Repo.delete_all(Floor)
+      {:ok, :deleted}
+    else
+      {:error, :not_found}
     end
   end
 
   @doc """
-  Gets a floor by id with placements (+ location) preloaded, or `nil`.
+  Gets a floor by id with walls and placements (+ location) preloaded, or `nil`.
   """
   def get_floor(id) do
     Floor
@@ -101,15 +84,11 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
-  Adds a floor to the plan. Name defaults to "Floor N".
+  Adds a floor. Name defaults to "Floor N".
   """
-  def add_floor(%FloorPlan{} = plan, attrs \\ %{}) do
+  def add_floor(attrs \\ %{}) do
     next_position =
-      Repo.one(
-        from f in Floor,
-          where: f.floor_plan_id == ^plan.id,
-          select: coalesce(max(f.position), -1)
-      )
+      Repo.one(from f in Floor, select: coalesce(max(f.position), -1))
       |> Kernel.+(1)
 
     name =
@@ -118,12 +97,7 @@ defmodule Pinventory.FloorPlans do
         "Floor #{next_position + 1}"
 
     %Floor{}
-    |> Floor.changeset(%{
-      name: name,
-      position: next_position,
-      walls: [],
-      floor_plan_id: plan.id
-    })
+    |> Floor.changeset(%{name: name, position: next_position})
     |> Repo.insert()
     |> case do
       {:ok, floor} -> {:ok, preload_floor(floor)}
@@ -156,7 +130,7 @@ defmodule Pinventory.FloorPlans do
         :higher ->
           Repo.one(
             from f in Floor,
-              where: f.floor_plan_id == ^floor.floor_plan_id and f.position > ^floor.position,
+              where: f.position > ^floor.position,
               order_by: [asc: f.position],
               limit: 1
           )
@@ -164,7 +138,7 @@ defmodule Pinventory.FloorPlans do
         :lower ->
           Repo.one(
             from f in Floor,
-              where: f.floor_plan_id == ^floor.floor_plan_id and f.position < ^floor.position,
+              where: f.position < ^floor.position,
               order_by: [desc: f.position],
               limit: 1
           )
@@ -184,11 +158,8 @@ defmodule Pinventory.FloorPlans do
 
   Position `length-1` is the top of the building; `0` is the bottom.
   """
-  def reorder_floors(%FloorPlan{} = plan, floor_ids) when is_list(floor_ids) do
-    floors =
-      from(f in Floor, where: f.floor_plan_id == ^plan.id)
-      |> Repo.all()
-
+  def reorder_floors(floor_ids) when is_list(floor_ids) do
+    floors = Repo.all(Floor)
     floor_by_id = Map.new(floors, &{&1.id, &1})
     known_ids = MapSet.new(Map.keys(floor_by_id))
     given_ids = Enum.uniq(floor_ids)
@@ -201,7 +172,6 @@ defmodule Pinventory.FloorPlans do
         {:error, :invalid_order}
 
       true ->
-        # Highest-first → positions length-1 .. 0
         max_pos = length(given_ids) - 1
 
         Multi.new()
@@ -220,21 +190,17 @@ defmodule Pinventory.FloorPlans do
         end)
         |> Repo.transaction()
         |> case do
-          {:ok, _} -> {:ok, get_floor_plan_by_id!(plan.id)}
+          {:ok, _} -> {:ok, list_floors()}
           {:error, _step, reason, _} -> {:error, reason}
         end
     end
   end
 
   @doc """
-  Deletes a floor and its placements. Refuses when it is the last floor on the plan.
+  Deletes a floor and its placements/walls. Refuses when it is the last floor.
   """
   def delete_floor(%Floor{} = floor) do
-    count =
-      Repo.aggregate(
-        from(f in Floor, where: f.floor_plan_id == ^floor.floor_plan_id),
-        :count
-      )
+    count = Repo.aggregate(Floor, :count)
 
     if count <= 1 do
       {:error, :last_floor}
@@ -244,35 +210,39 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
-  Replaces the wall segment list for a floor.
+  Inserts one wall segment for a floor.
   """
-  def set_walls(%Floor{} = floor, walls) when is_list(walls) do
-    normalized = Enum.map(walls, &normalize_wall/1)
+  def add_wall(%Floor{} = floor, wall) do
+    attrs =
+      wall
+      |> wall_coords()
+      |> Map.put(:floor_id, floor.id)
 
-    floor
-    |> Floor.walls_changeset(normalized)
-    |> Repo.update()
+    %Wall{}
+    |> Wall.changeset(attrs)
+    |> Repo.insert()
     |> case do
-      {:ok, updated} -> {:ok, preload_floor(updated)}
+      {:ok, _} -> {:ok, get_floor!(floor.id)}
       error -> error
     end
   end
 
   @doc """
-  Appends one wall segment to a floor.
+  Removes a wall by id. Accepts a floor struct or floor id.
   """
-  def add_wall(%Floor{} = floor, wall) do
-    set_walls(floor, floor.walls ++ [normalize_wall(wall)])
-  end
+  def remove_wall(%Floor{} = floor, wall_id), do: remove_wall(floor.id, wall_id)
 
-  @doc """
-  Removes the wall segment at `index` (0-based).
-  """
-  def remove_wall(%Floor{} = floor, index) when is_integer(index) and index >= 0 do
-    if index < length(floor.walls) do
-      set_walls(floor, List.delete_at(floor.walls, index))
-    else
-      {:error, :invalid_index}
+  def remove_wall(floor_id, wall_id)
+      when is_binary(floor_id) and is_binary(wall_id) do
+    case Repo.get_by(Wall, id: wall_id, floor_id: floor_id) do
+      nil ->
+        {:error, :not_found}
+
+      wall ->
+        case Repo.delete(wall) do
+          {:ok, _} -> {:ok, get_floor!(floor_id)}
+          error -> error
+        end
     end
   end
 
@@ -364,13 +334,22 @@ defmodule Pinventory.FloorPlans do
   Snapshot of plan geometry for undo/redo: floors (id/name/position), walls, and
   placements. Used to rewind wall/placement edits and floor add/remove.
   """
-  def plan_geometry_snapshot(%FloorPlan{} = plan) do
-    Enum.map(plan.floors, fn floor ->
+  def plan_geometry_snapshot(floors) when is_list(floors) do
+    Enum.map(floors, fn floor ->
       %{
         id: floor.id,
         name: floor.name,
         position: floor.position,
-        walls: Enum.map(floor.walls, &normalize_wall/1),
+        walls:
+          Enum.map(floor.walls, fn wall ->
+            %{
+              id: wall.id,
+              x1: wall.x1,
+              y1: wall.y1,
+              x2: wall.x2,
+              y2: wall.y2
+            }
+          end),
         placements:
           Enum.map(floor.location_placements, fn placement ->
             %{location_id: placement.location_id, points: normalize_points(placement.points)}
@@ -387,89 +366,82 @@ defmodule Pinventory.FloorPlans do
   floor (and its walls/placements).
   """
   def restore_plan_geometry(snapshot) when is_list(snapshot) do
-    case get_floor_plan() do
-      nil ->
-        {:error, :not_found}
+    if floor_plan_exists?() or snapshot != [] do
+      Repo.transaction(fn ->
+        snapshot_ids =
+          snapshot
+          |> Enum.map(&snapshot_get(&1, :id))
+          |> MapSet.new()
 
-      plan ->
-        Repo.transaction(fn ->
-          snapshot_ids =
-            snapshot
-            |> Enum.map(&snapshot_get(&1, :id))
-            |> MapSet.new()
+        existing = Repo.all(Floor)
 
-          existing =
-            from(f in Floor, where: f.floor_plan_id == ^plan.id)
-            |> Repo.all()
-
-          for floor <- existing, not MapSet.member?(snapshot_ids, floor.id) do
-            Repo.delete!(floor)
-          end
-
-          for floor_snap <- snapshot do
-            floor_id = snapshot_get(floor_snap, :id)
-            walls = Enum.map(snapshot_get(floor_snap, :walls) || [], &normalize_wall/1)
-            name = snapshot_get(floor_snap, :name) || "Floor"
-            position = snapshot_get(floor_snap, :position) || 0
-
-            case Repo.get(Floor, floor_id) do
-              nil ->
-                %Floor{id: floor_id}
-                |> Floor.changeset(%{
-                  name: name,
-                  position: position,
-                  walls: walls,
-                  floor_plan_id: plan.id
-                })
-                |> Repo.insert!()
-
-              floor ->
-                floor
-                |> Floor.changeset(%{name: name, position: position, walls: walls})
-                |> Repo.update!()
-            end
-          end
-
-          desired =
-            Enum.flat_map(snapshot, fn floor_snap ->
-              floor_id = snapshot_get(floor_snap, :id)
-              placements = snapshot_get(floor_snap, :placements) || []
-
-              Enum.map(placements, fn placement ->
-                %{
-                  location_id: placement_get(placement, :location_id),
-                  floor_id: floor_id,
-                  points: normalize_points(placement_get(placement, :points))
-                }
-              end)
-            end)
-
-          desired_by_loc = Map.new(desired, &{&1.location_id, &1})
-          desired_ids = Map.keys(desired_by_loc)
-
-          from(p in LocationPlacement, where: p.location_id not in ^desired_ids)
-          |> Repo.delete_all()
-
-          for {location_id, attrs} <- desired_by_loc do
-            case Repo.get_by(LocationPlacement, location_id: location_id) do
-              nil ->
-                %LocationPlacement{}
-                |> LocationPlacement.changeset(attrs)
-                |> Repo.insert!()
-
-              placement ->
-                placement
-                |> LocationPlacement.changeset(attrs)
-                |> Repo.update!()
-            end
-          end
-
-          :ok
-        end)
-        |> case do
-          {:ok, :ok} -> {:ok, get_floor_plan()}
-          {:error, reason} -> {:error, reason}
+        for floor <- existing, not MapSet.member?(snapshot_ids, floor.id) do
+          Repo.delete!(floor)
         end
+
+        for floor_snap <- snapshot do
+          floor_id = snapshot_get(floor_snap, :id)
+          walls = snapshot_get(floor_snap, :walls) || []
+          name = snapshot_get(floor_snap, :name) || "Floor"
+          position = snapshot_get(floor_snap, :position) || 0
+
+          case Repo.get(Floor, floor_id) do
+            nil ->
+              %Floor{id: floor_id}
+              |> Floor.changeset(%{name: name, position: position})
+              |> Repo.insert!()
+
+            floor ->
+              floor
+              |> Floor.changeset(%{name: name, position: position})
+              |> Repo.update!()
+          end
+
+          replace_walls_for_floor(floor_id, walls)
+        end
+
+        desired =
+          Enum.flat_map(snapshot, fn floor_snap ->
+            floor_id = snapshot_get(floor_snap, :id)
+            placements = snapshot_get(floor_snap, :placements) || []
+
+            Enum.map(placements, fn placement ->
+              %{
+                location_id: placement_get(placement, :location_id),
+                floor_id: floor_id,
+                points: normalize_points(placement_get(placement, :points))
+              }
+            end)
+          end)
+
+        desired_by_loc = Map.new(desired, &{&1.location_id, &1})
+        desired_ids = Map.keys(desired_by_loc)
+
+        from(p in LocationPlacement, where: p.location_id not in ^desired_ids)
+        |> Repo.delete_all()
+
+        for {location_id, attrs} <- desired_by_loc do
+          case Repo.get_by(LocationPlacement, location_id: location_id) do
+            nil ->
+              %LocationPlacement{}
+              |> LocationPlacement.changeset(attrs)
+              |> Repo.insert!()
+
+            placement ->
+              placement
+              |> LocationPlacement.changeset(attrs)
+              |> Repo.update!()
+          end
+        end
+
+        :ok
+      end)
+      |> case do
+        {:ok, :ok} -> {:ok, list_floors()}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :not_found}
     end
   end
 
@@ -521,37 +493,44 @@ defmodule Pinventory.FloorPlans do
     clamp_unit(Map.get(point, "y") || Map.get(point, :y))
   end
 
-  defp get_floor_plan_by_id!(id) do
-    FloorPlan
-    |> Repo.get!(id)
-    |> preload_plan()
+  # Undo restore: drop current walls and re-insert snapshot rows (including ids).
+  defp replace_walls_for_floor(floor_id, walls) when is_list(walls) do
+    from(w in Wall, where: w.floor_id == ^floor_id) |> Repo.delete_all()
+
+    for wall_snap <- walls do
+      coords = wall_coords(wall_snap)
+      wall_id = snapshot_get(wall_snap, :id)
+
+      wall =
+        if is_binary(wall_id) do
+          %Wall{id: wall_id}
+        else
+          %Wall{}
+        end
+
+      wall
+      |> Wall.changeset(Map.put(coords, :floor_id, floor_id))
+      |> Repo.insert!()
+    end
+
+    :ok
   end
 
-  defp maybe_preload_plan(nil), do: nil
-  defp maybe_preload_plan(plan), do: preload_plan(plan)
-
-  defp preload_plan(plan) do
-    Repo.preload(plan,
-      floors:
-        from(f in Floor,
-          order_by: [asc: f.position],
-          preload: [location_placements: :location]
-        )
-    )
+  defp floor_preloads do
+    [:walls, location_placements: :location]
   end
 
   defp maybe_preload_floor(nil), do: nil
   defp maybe_preload_floor(floor), do: preload_floor(floor)
 
   defp preload_floor(floor) do
-    Repo.preload(floor, location_placements: :location)
+    Repo.preload(floor, floor_preloads())
   end
 
   defp swap_floor_positions(%Floor{} = a, %Floor{} = b) do
     pos_a = a.position
     pos_b = b.position
 
-    # No unique constraint on position, so a direct swap is safe.
     Multi.new()
     |> Multi.update(:a, Floor.changeset(a, %{position: pos_b}))
     |> Multi.update(:b, Floor.changeset(b, %{position: pos_a}))
@@ -577,26 +556,17 @@ defmodule Pinventory.FloorPlans do
     })
   end
 
-  defp normalize_wall(%{"x1" => x1, "y1" => y1, "x2" => x2, "y2" => y2}) do
+  defp wall_coords(wall) when is_map(wall) do
     %{
-      "x1" => clamp_unit(x1),
-      "y1" => clamp_unit(y1),
-      "x2" => clamp_unit(x2),
-      "y2" => clamp_unit(y2)
+      x1: clamp_unit(coord(wall, :x1)),
+      y1: clamp_unit(coord(wall, :y1)),
+      x2: clamp_unit(coord(wall, :x2)),
+      y2: clamp_unit(coord(wall, :y2))
     }
   end
 
-  defp normalize_wall(%{x1: x1, y1: y1, x2: x2, y2: y2}) do
-    normalize_wall(%{"x1" => x1, "y1" => y1, "x2" => x2, "y2" => y2})
-  end
-
-  defp normalize_wall(other) when is_map(other) do
-    normalize_wall(%{
-      "x1" => Map.get(other, "x1") || Map.get(other, :x1),
-      "y1" => Map.get(other, "y1") || Map.get(other, :y1),
-      "x2" => Map.get(other, "x2") || Map.get(other, :x2),
-      "y2" => Map.get(other, "y2") || Map.get(other, :y2)
-    })
+  defp coord(map, key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
 
   defp clamp_unit(n) when is_number(n) do

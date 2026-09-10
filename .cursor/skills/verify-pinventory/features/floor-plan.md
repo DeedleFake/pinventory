@@ -47,9 +47,9 @@ Preconditions:
 
 ## Gotchas
 
-- The plan is optional and singleton. Deleting it does not delete locations.
+- The plan is optional (any floors ⇒ feature on). Deleting it does not delete locations.
 - Placement is one floor per location. Drawing again on another floor moves the polygon.
-- Coordinates are normalized 0.0–1.0. Placements store `points` JSON (≥3 `{x,y}`), not pin x/y.
+- Coordinates are normalized 0.0–1.0. Walls are rows (`x1,y1,x2,y2`); placements store `points` JSON (≥3 `{x,y}`), not pin x/y.
 - Keep at least one floor; `#floor-remove` is disabled for the last floor.
 - Editor canvas should be wide and tall (`flex-1` beside the sidebar, `h-[calc(100vh-12rem)]`). List preview stays tall within the locations column.
 - There is no separate Place area palette button; location rows are the place tool.

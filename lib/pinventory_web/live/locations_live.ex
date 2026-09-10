@@ -14,7 +14,7 @@ defmodule PinventoryWeb.LocationsLive do
       flash={@flash}
       current_scope={@current_scope}
       nav={:locations}
-      wide={not is_nil(@floor_plan)}
+      wide={@floors != []}
     >
       <div
         id="locations-page"
@@ -27,7 +27,7 @@ defmodule PinventoryWeb.LocationsLive do
 
           <div class="ml-auto flex flex-wrap items-center gap-1">
             <.link
-              :if={@floor_plan && @selected_floor}
+              :if={@floors != [] && @selected_floor}
               navigate={~p"/locations/floor-plan/#{@selected_floor.id}"}
               id="floor-plan-edit"
               class="btn btn-ghost btn-sm border border-base-300"
@@ -36,7 +36,7 @@ defmodule PinventoryWeb.LocationsLive do
             </.link>
 
             <.link
-              :if={@floor_plan && is_nil(@selected_floor)}
+              :if={@floors != [] && is_nil(@selected_floor)}
               navigate={~p"/locations/floor-plan"}
               id="floor-plan-edit"
               class="btn btn-ghost btn-sm border border-base-300"
@@ -45,7 +45,7 @@ defmodule PinventoryWeb.LocationsLive do
             </.link>
 
             <button
-              :if={is_nil(@floor_plan)}
+              :if={@floors == []}
               type="button"
               id="floor-plan-add"
               class="btn btn-primary btn-sm"
@@ -57,7 +57,7 @@ defmodule PinventoryWeb.LocationsLive do
         </div>
 
         <div
-          :if={@floor_plan && @selected_floor}
+          :if={@floors != [] && @selected_floor}
           id="locations-workspace"
           class="flex min-h-0 flex-col gap-3 lg:flex-row lg:items-stretch"
         >
@@ -109,7 +109,7 @@ defmodule PinventoryWeb.LocationsLive do
 
             <.locations_list
               streams={@streams}
-              floor_plan={@floor_plan}
+              show_plan_badges={true}
               selected_floor={@selected_floor}
               placement_by_location={@placement_by_location}
             />
@@ -174,10 +174,11 @@ defmodule PinventoryWeb.LocationsLive do
                 <g :for={wall <- @selected_floor.walls}>
                   <line
                     data-wall-seg
-                    x1={wall["x1"]}
-                    y1={wall["y1"]}
-                    x2={wall["x2"]}
-                    y2={wall["y2"]}
+                    data-wall-id={wall.id}
+                    x1={wall.x1}
+                    y1={wall.y1}
+                    x2={wall.x2}
+                    y2={wall.y2}
                     stroke="currentColor"
                     stroke-width="0.014"
                     stroke-linecap="round"
@@ -235,7 +236,7 @@ defmodule PinventoryWeb.LocationsLive do
           </aside>
         </div>
 
-        <div :if={is_nil(@floor_plan)} id="locations-no-plan" class="flex flex-col gap-3">
+        <div :if={@floors == []} id="locations-no-plan" class="flex flex-col gap-3">
           <.form
             for={@new_form}
             id="location-new-form"
@@ -280,7 +281,7 @@ defmodule PinventoryWeb.LocationsLive do
 
           <.locations_list
             streams={@streams}
-            floor_plan={nil}
+            show_plan_badges={false}
             selected_floor={nil}
             placement_by_location={%{}}
           />
@@ -291,7 +292,7 @@ defmodule PinventoryWeb.LocationsLive do
   end
 
   attr :streams, :map, required: true
-  attr :floor_plan, :any, default: nil
+  attr :show_plan_badges, :boolean, default: false
   attr :selected_floor, :any, default: nil
   attr :placement_by_location, :map, default: %{}
 
@@ -318,7 +319,7 @@ defmodule PinventoryWeb.LocationsLive do
         >
           <div class="min-w-0 flex-1">
             <div class="truncate font-medium">{location.name}</div>
-            <div :if={@floor_plan} class="mt-0.5 flex flex-wrap items-center gap-1.5">
+            <div :if={@show_plan_badges} class="mt-0.5 flex flex-wrap items-center gap-1.5">
               <span
                 :if={location.on_plan?}
                 id={"#{id}-floor"}
@@ -348,8 +349,7 @@ defmodule PinventoryWeb.LocationsLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    floor_plan = FloorPlans.get_floor_plan()
-    floors = if(floor_plan, do: floor_plan.floors, else: [])
+    floors = FloorPlans.list_floors()
     selected = List.first(floors)
     locations = Locations.list_with_item_counts_and_placements()
 
@@ -358,12 +358,11 @@ defmodule PinventoryWeb.LocationsLive do
       |> assign(:page_title, "Locations")
       |> assign(:new_form, empty_new_form())
       |> assign(:dirty?, false)
-      |> assign(:floor_plan, floor_plan)
       |> assign(:floors, floors)
       |> assign(:selected_floor, selected && FloorPlans.get_floor!(selected.id))
       |> assign(
         :placement_by_location,
-        if(floor_plan, do: FloorPlans.placement_index(), else: %{})
+        if(floors != [], do: FloorPlans.placement_index(), else: %{})
       )
       |> stream_configure(:locations, dom_id: &"location-#{&1.id}")
       |> stream(:locations, locations)
@@ -374,7 +373,7 @@ defmodule PinventoryWeb.LocationsLive do
   @impl true
   def handle_params(%{"floor_id" => floor_id}, _uri, socket) do
     cond do
-      is_nil(socket.assigns.floor_plan) ->
+      socket.assigns.floors == [] ->
         {:noreply, push_patch(socket, to: ~p"/locations")}
 
       true ->
@@ -390,7 +389,7 @@ defmodule PinventoryWeb.LocationsLive do
   end
 
   def handle_params(_params, _uri, socket) do
-    case socket.assigns.floor_plan && List.first(socket.assigns.floors) do
+    case List.first(socket.assigns.floors) do
       nil ->
         {:noreply, socket}
 
@@ -415,13 +414,12 @@ defmodule PinventoryWeb.LocationsLive do
 
   def handle_event("add_floor_plan", _params, socket) do
     case FloorPlans.create_floor_plan() do
-      {:ok, plan} ->
-        floor = hd(plan.floors)
+      {:ok, floors} ->
+        floor = hd(floors)
         {:noreply, push_navigate(socket, to: ~p"/locations/floor-plan/#{floor.id}")}
 
       {:error, :already_exists} ->
-        plan = FloorPlans.get_floor_plan()
-        floor = plan && List.first(plan.floors)
+        floor = List.first(FloorPlans.list_floors())
 
         path =
           if(floor, do: ~p"/locations/floor-plan/#{floor.id}", else: ~p"/locations/floor-plan")

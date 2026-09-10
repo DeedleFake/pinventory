@@ -294,24 +294,24 @@ defmodule PinventoryWeb.FloorPlanLive do
                 show_snap?={true}
               />
 
-              <g :for={{wall, index} <- Enum.with_index(@selected_floor.walls)}>
+              <g :for={wall <- @selected_floor.walls}>
                 <line
                   data-wall-seg
-                  x1={wall["x1"]}
-                  y1={wall["y1"]}
-                  x2={wall["x2"]}
-                  y2={wall["y2"]}
+                  x1={wall.x1}
+                  y1={wall.y1}
+                  x2={wall.x2}
+                  y2={wall.y2}
                   stroke="currentColor"
                   stroke-width="0.014"
                   stroke-linecap="round"
                   class="opacity-80 pointer-events-none"
                 />
                 <line
-                  data-wall-index={index}
-                  x1={wall["x1"]}
-                  y1={wall["y1"]}
-                  x2={wall["x2"]}
-                  y2={wall["y2"]}
+                  data-wall-id={wall.id}
+                  x1={wall.x1}
+                  y1={wall.y1}
+                  x2={wall.x2}
+                  y2={wall.y2}
                   stroke="transparent"
                   stroke-width="0.045"
                   stroke-linecap="round"
@@ -480,18 +480,16 @@ defmodule PinventoryWeb.FloorPlanLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    case FloorPlans.get_floor_plan() do
-      nil ->
+    case FloorPlans.list_floors() do
+      [] ->
         {:ok, push_navigate(socket, to: ~p"/locations")}
 
-      plan ->
-        floors = plan.floors
+      floors ->
         selected = List.first(floors)
 
         {:ok,
          socket
          |> assign(:page_title, "Floor plan")
-         |> assign(:floor_plan, plan)
          |> assign(:floors, floors)
          |> assign(:selected_floor, selected)
          |> assign(:mode, "wall")
@@ -536,14 +534,13 @@ defmodule PinventoryWeb.FloorPlanLive do
   def handle_event("add_floor", _params, socket) do
     socket = push_undo_snapshot(socket)
 
-    case FloorPlans.add_floor(socket.assigns.floor_plan) do
+    case FloorPlans.add_floor() do
       {:ok, floor} ->
-        plan = FloorPlans.get_floor_plan()
+        floors = FloorPlans.list_floors()
 
         {:noreply,
          socket
-         |> assign(:floor_plan, plan)
-         |> assign(:floors, plan.floors)
+         |> assign(:floors, floors)
          |> assign(:selected_placement_id, nil)
          |> assign(:removing_floor_id, nil)
          |> push_patch(to: floor_plan_path(floor.id))}
@@ -556,12 +553,11 @@ defmodule PinventoryWeb.FloorPlanLive do
   def handle_event("rename_floor", %{"name" => name}, socket) do
     case FloorPlans.rename_floor(socket.assigns.selected_floor, name) do
       {:ok, floor} ->
-        plan = FloorPlans.get_floor_plan()
+        floors = FloorPlans.list_floors()
 
         {:noreply,
          socket
-         |> assign(:floor_plan, plan)
-         |> assign(:floors, plan.floors)
+         |> assign(:floors, floors)
          |> assign(:selected_floor, floor)}
 
       {:error, _changeset} ->
@@ -573,15 +569,14 @@ defmodule PinventoryWeb.FloorPlanLive do
       when is_list(floor_ids) do
     socket = push_undo_snapshot(socket)
 
-    case FloorPlans.reorder_floors(socket.assigns.floor_plan, floor_ids) do
-      {:ok, plan} ->
+    case FloorPlans.reorder_floors(floor_ids) do
+      {:ok, floors} ->
         selected_id = socket.assigns.selected_floor.id
-        selected = Enum.find(plan.floors, &(&1.id == selected_id)) || List.first(plan.floors)
+        selected = Enum.find(floors, &(&1.id == selected_id)) || List.first(floors)
 
         {:noreply,
          socket
-         |> assign(:floor_plan, plan)
-         |> assign(:floors, plan.floors)
+         |> assign(:floors, floors)
          |> assign(:selected_floor, FloorPlans.get_floor!(selected.id))
          |> assign(:removing_floor_id, nil)}
 
@@ -617,16 +612,15 @@ defmodule PinventoryWeb.FloorPlanLive do
 
         case FloorPlans.delete_floor(floor) do
           {:ok, _} ->
-            plan = FloorPlans.get_floor_plan()
+            floors = FloorPlans.list_floors()
 
             selected =
-              Enum.find(plan.floors, &(&1.id == socket.assigns.selected_floor.id)) ||
-                List.first(plan.floors)
+              Enum.find(floors, &(&1.id == socket.assigns.selected_floor.id)) ||
+                List.first(floors)
 
             {:noreply,
              socket
-             |> assign(:floor_plan, plan)
-             |> assign(:floors, plan.floors)
+             |> assign(:floors, floors)
              |> assign(:selected_placement_id, nil)
              |> assign(:removing_floor_id, nil)
              |> assign_location_lists()
@@ -685,12 +679,11 @@ defmodule PinventoryWeb.FloorPlanLive do
     end
   end
 
-  def handle_event("wall_erased", %{"index" => index}, socket) do
-    index = parse_index(index)
+  def handle_event("wall_erased", %{"id" => wall_id}, socket) when is_binary(wall_id) do
     floor = socket.assigns.selected_floor
     socket = push_undo_snapshot(socket)
 
-    case FloorPlans.remove_wall(floor, index) do
+    case FloorPlans.remove_wall(floor, wall_id) do
       {:ok, updated} ->
         {:noreply, refresh_selected_floor(socket, updated)}
 
@@ -741,14 +734,13 @@ defmodule PinventoryWeb.FloorPlanLive do
         current = history_entry(socket, entry.floor_id)
 
         case FloorPlans.restore_plan_geometry(entry.snapshot) do
-          {:ok, plan} ->
+          {:ok, floors} ->
             {:noreply,
              socket
-             |> assign(:floor_plan, plan)
-             |> assign(:floors, plan.floors)
+             |> assign(:floors, floors)
              |> assign(:undo_stack, rest)
              |> assign(:redo_stack, trim_stack([current | socket.assigns.redo_stack]))
-             |> select_history_floor(plan, entry.floor_id)
+             |> select_history_floor(floors, entry.floor_id)
              |> assign_location_lists()}
 
           {:error, _} ->
@@ -766,14 +758,13 @@ defmodule PinventoryWeb.FloorPlanLive do
         current = history_entry(socket, entry.floor_id)
 
         case FloorPlans.restore_plan_geometry(entry.snapshot) do
-          {:ok, plan} ->
+          {:ok, floors} ->
             {:noreply,
              socket
-             |> assign(:floor_plan, plan)
-             |> assign(:floors, plan.floors)
+             |> assign(:floors, floors)
              |> assign(:redo_stack, rest)
              |> assign(:undo_stack, trim_stack([current | socket.assigns.undo_stack]))
-             |> select_history_floor(plan, entry.floor_id)
+             |> select_history_floor(floors, entry.floor_id)
              |> assign_location_lists()}
 
           {:error, _} ->
@@ -791,7 +782,7 @@ defmodule PinventoryWeb.FloorPlanLive do
   end
 
   def handle_event("confirm_delete_plan", _params, socket) do
-    case FloorPlans.delete_floor_plan(socket.assigns.floor_plan) do
+    case FloorPlans.delete_floor_plan() do
       {:ok, _} ->
         {:noreply, push_navigate(socket, to: ~p"/locations")}
 
@@ -837,15 +828,15 @@ defmodule PinventoryWeb.FloorPlanLive do
   defp history_entry(socket, floor_id \\ nil) do
     %{
       floor_id: floor_id || socket.assigns.selected_floor.id,
-      snapshot: FloorPlans.plan_geometry_snapshot(socket.assigns.floor_plan)
+      snapshot: FloorPlans.plan_geometry_snapshot(socket.assigns.floors)
     }
   end
 
-  defp select_history_floor(socket, plan, floor_id) do
+  defp select_history_floor(socket, floors, floor_id) do
     selected =
-      Enum.find(plan.floors, &(&1.id == floor_id)) ||
-        Enum.find(plan.floors, &(&1.id == socket.assigns.selected_floor.id)) ||
-        List.first(plan.floors)
+      Enum.find(floors, &(&1.id == floor_id)) ||
+        Enum.find(floors, &(&1.id == socket.assigns.selected_floor.id)) ||
+        List.first(floors)
 
     socket
     |> assign(:selected_floor, FloorPlans.get_floor!(selected.id))
@@ -901,11 +892,10 @@ defmodule PinventoryWeb.FloorPlanLive do
   end
 
   defp refresh_selected_floor(socket, %Floor{} = floor) do
-    plan = FloorPlans.get_floor_plan()
+    floors = FloorPlans.list_floors()
 
     socket
-    |> assign(:floor_plan, plan)
-    |> assign(:floors, plan.floors)
+    |> assign(:floors, floors)
     |> assign(:selected_floor, floor)
   end
 
@@ -949,17 +939,6 @@ defmodule PinventoryWeb.FloorPlanLive do
   end
 
   defp normalize_event_points(_), do: []
-
-  defp parse_index(index) when is_integer(index), do: index
-
-  defp parse_index(index) when is_binary(index) do
-    case Integer.parse(index) do
-      {n, _} -> n
-      :error -> -1
-    end
-  end
-
-  defp parse_index(_), do: -1
 
   defp place_mode_for(socket, location_id) do
     floor = socket.assigns.selected_floor

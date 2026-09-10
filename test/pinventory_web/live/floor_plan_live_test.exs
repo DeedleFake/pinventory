@@ -22,8 +22,8 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
   end
 
   test "bare floor-plan path patches to the first floor", %{conn: conn} do
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor = hd(plan.floors)
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
 
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
 
@@ -32,9 +32,9 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
   end
 
   test "mount with floor_id in the URL selects that floor", %{conn: conn} do
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor1 = hd(plan.floors)
-    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor1 = hd(floors)
+    {:ok, floor2} = FloorPlans.add_floor()
 
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan/#{floor2.id}")
 
@@ -43,9 +43,9 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
   end
 
   test "select_floor patches the URL to the chosen floor", %{conn: conn} do
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor1 = hd(plan.floors)
-    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor1 = hd(floors)
+    {:ok, floor2} = FloorPlans.add_floor()
 
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
     assert_patch(view, ~p"/locations/floor-plan/#{floor1.id}")
@@ -57,9 +57,9 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
   end
 
   test "reload-equivalent mount keeps the floor from the URL", %{conn: conn} do
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor1 = hd(plan.floors)
-    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor1 = hd(floors)
+    {:ok, floor2} = FloorPlans.add_floor()
 
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan/#{floor2.id}")
     assert has_element?(view, "#floor-svg-#{floor2.id}")
@@ -72,8 +72,8 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
   end
 
   test "invalid floor_id falls back to the first floor and patches", %{conn: conn} do
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor = hd(plan.floors)
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
 
     {:ok, view, _html} =
       live(conn, ~p"/locations/floor-plan/00000000-0000-0000-0000-000000000000")
@@ -84,8 +84,8 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
 
   test "renders the editor when a plan exists", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor = hd(plan.floors)
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
 
     {:ok, view, html} = live(conn, ~p"/locations/floor-plan")
 
@@ -153,8 +153,8 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     scope: scope
   } do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor = hd(plan.floors)
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
     assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
 
     {:ok, view, html} = live(conn, ~p"/locations/floor-plan")
@@ -187,9 +187,9 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     scope: scope
   } do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor1 = hd(plan.floors)
-    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor1 = hd(floors)
+    {:ok, floor2} = FloorPlans.add_floor()
     assert {:ok, _} = FloorPlans.place_location(floor1, garage.id, triangle())
 
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
@@ -218,9 +218,9 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     scope: scope
   } do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor1 = hd(plan.floors)
-    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor1 = hd(floors)
+    {:ok, floor2} = FloorPlans.add_floor()
     assert {:ok, _} = FloorPlans.place_location(floor1, garage.id, triangle())
 
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
@@ -244,8 +244,8 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     scope: scope
   } do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor = hd(plan.floors)
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
     assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
 
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
@@ -276,16 +276,18 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     |> element("#floor-plan-canvas")
     |> render_hook("wall_drawn", %{"x1" => 0.1, "y1" => 0.2, "x2" => 0.8, "y2" => 0.2})
 
-    plan = FloorPlans.get_floor_plan()
-    assert [%{"x1" => 0.1, "y1" => 0.2, "x2" => 0.8, "y2" => 0.2}] = hd(plan.floors).walls
+    [floor] = FloorPlans.list_floors()
+    assert [%{x1: 0.1, y1: 0.2, x2: 0.8, y2: 0.2}] = floor.walls
   end
 
-  test "erases a wall by index", %{conn: conn} do
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor = hd(plan.floors)
+  test "erases a wall by id", %{conn: conn} do
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
 
-    assert {:ok, _} =
+    assert {:ok, with_first} =
              FloorPlans.add_wall(floor, %{"x1" => 0.1, "y1" => 0.1, "x2" => 0.9, "y2" => 0.1})
+
+    first_id = hd(with_first.walls).id
 
     assert {:ok, _} =
              FloorPlans.add_wall(FloorPlans.get_floor!(floor.id), %{
@@ -299,11 +301,11 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
 
     view
     |> element("#floor-plan-canvas")
-    |> render_hook("wall_erased", %{"index" => 0})
+    |> render_hook("wall_erased", %{"id" => first_id})
 
-    walls = hd(FloorPlans.get_floor_plan().floors).walls
+    walls = hd(FloorPlans.list_floors()).walls
     assert length(walls) == 1
-    assert hd(walls)["y1"] == 0.9
+    assert hd(walls).y1 == 0.9
   end
 
   test "places a location polygon", %{conn: conn, scope: scope} do
@@ -345,19 +347,19 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     |> element("#floor-plan-canvas")
     |> render_hook("wall_drawn", %{"x1" => 0.1, "y1" => 0.2, "x2" => 0.8, "y2" => 0.2})
 
-    assert length(hd(FloorPlans.get_floor_plan().floors).walls) == 1
+    assert length(hd(FloorPlans.list_floors()).walls) == 1
 
     view |> element("#history-undo") |> render_click()
-    assert hd(FloorPlans.get_floor_plan().floors).walls == []
+    assert hd(FloorPlans.list_floors()).walls == []
 
     view |> element("#history-redo") |> render_click()
-    assert length(hd(FloorPlans.get_floor_plan().floors).walls) == 1
+    assert length(hd(FloorPlans.list_floors()).walls) == 1
   end
 
   test "undo and redo switch to the floor that changed", %{conn: conn} do
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor1 = hd(plan.floors)
-    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor1 = hd(floors)
+    {:ok, floor2} = FloorPlans.add_floor()
 
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
 
@@ -386,8 +388,8 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
 
   test "undo restores a removed placement", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor = hd(plan.floors)
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
     assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
 
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
@@ -410,7 +412,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert render(view) =~ ~r/id="floor-add"[\s\S]*id="floor-rail-list"/
 
     view |> element("#floor-add") |> render_click()
-    floor2 = Enum.find(FloorPlans.get_floor_plan().floors, &(&1.name == "Floor 2"))
+    floor2 = Enum.find(FloorPlans.list_floors(), &(&1.name == "Floor 2"))
     assert_patch(view, ~p"/locations/floor-plan/#{floor2.id}")
     assert render(view) =~ "Floor 2"
 
@@ -423,9 +425,9 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
   end
 
   test "reorders floors via drag-and-drop hook event", %{conn: conn} do
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor1 = hd(plan.floors)
-    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor1 = hd(floors)
+    {:ok, floor2} = FloorPlans.add_floor()
 
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
 
@@ -441,8 +443,8 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     |> element("#floor-rail-list")
     |> render_hook("reorder_floors", %{"floor_ids" => [floor1.id, floor2.id]})
 
-    plan = FloorPlans.get_floor_plan()
-    assert Enum.map(plan.floors, &{&1.name, &1.position}) == [{"Floor 2", 0}, {"Floor 1", 1}]
+    floors = FloorPlans.list_floors()
+    assert Enum.map(floors, &{&1.name, &1.position}) == [{"Floor 2", 0}, {"Floor 1", 1}]
 
     html = render(view)
     assert html =~ ~r/floor-rail-item-#{floor1.id}[\s\S]*floor-rail-item-#{floor2.id}/
@@ -451,14 +453,14 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     |> element("#floor-rail-list")
     |> render_hook("reorder_floors", %{"floor_ids" => [floor2.id, floor1.id]})
 
-    plan = FloorPlans.get_floor_plan()
-    assert Enum.map(plan.floors, &{&1.name, &1.position}) == [{"Floor 1", 0}, {"Floor 2", 1}]
+    floors = FloorPlans.list_floors()
+    assert Enum.map(floors, &{&1.name, &1.position}) == [{"Floor 1", 0}, {"Floor 2", 1}]
   end
 
   test "removes a floor with confirm and undo restores it", %{conn: conn} do
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor1 = hd(plan.floors)
-    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor1 = hd(floors)
+    {:ok, floor2} = FloorPlans.add_floor()
 
     assert {:ok, _} =
              FloorPlans.add_wall(FloorPlans.get_floor!(floor2.id), %{
@@ -485,7 +487,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     view |> element("#floor-remove-confirm-button-#{floor2.id}") |> render_click()
 
     refute has_element?(view, "#floor-rail-item-#{floor2.id}")
-    assert Enum.map(FloorPlans.get_floor_plan().floors, & &1.id) == [floor1.id]
+    assert Enum.map(FloorPlans.list_floors(), & &1.id) == [floor1.id]
     assert has_element?(view, "#floor-remove-#{floor1.id}[disabled]")
 
     view |> element("#history-undo") |> render_click()
@@ -497,9 +499,9 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
   end
 
   test "accepts wall_drawn after switching floors", %{conn: conn} do
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor1 = hd(plan.floors)
-    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor1 = hd(floors)
+    {:ok, floor2} = FloorPlans.add_floor()
 
     {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
 
@@ -522,7 +524,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     |> render_hook("wall_drawn", %{"x1" => 0.2, "y1" => 0.2, "x2" => 0.8, "y2" => 0.8})
 
     walls2 = FloorPlans.get_floor!(floor2.id).walls
-    assert [%{"x1" => 0.2, "y1" => 0.2, "x2" => 0.8, "y2" => 0.8}] = walls2
+    assert [%{x1: 0.2, y1: 0.2, x2: 0.8, y2: 0.8}] = walls2
     assert length(FloorPlans.get_floor!(floor1.id).walls) == 1
   end
 

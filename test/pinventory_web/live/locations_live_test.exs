@@ -130,15 +130,15 @@ defmodule PinventoryWeb.LocationsLiveTest do
 
     view |> element("#floor-plan-add") |> render_click()
 
-    floor = hd(FloorPlans.get_floor_plan().floors)
+    floor = hd(FloorPlans.list_floors())
     assert_redirect(view, "/locations/floor-plan/#{floor.id}")
   end
 
   test "shows editor-like browse layout with placement badges", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
     {:ok, shed} = Locations.create(scope, %{name: "Shed"})
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor = hd(plan.floors)
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
 
     assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
 
@@ -166,9 +166,9 @@ defmodule PinventoryWeb.LocationsLiveTest do
 
   test "mount with floor_id selects that floor and reload keeps it", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor1 = hd(plan.floors)
-    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor1 = hd(floors)
+    {:ok, floor2} = FloorPlans.add_floor()
     assert {:ok, _} = FloorPlans.place_location(floor2, garage.id, triangle())
 
     {:ok, view, _html} = live(conn, ~p"/locations/#{floor2.id}")
@@ -182,9 +182,9 @@ defmodule PinventoryWeb.LocationsLiveTest do
   end
 
   test "select_floor patches the locations URL", %{conn: conn} do
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor1 = hd(plan.floors)
-    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor1 = hd(floors)
+    {:ok, floor2} = FloorPlans.add_floor()
 
     {:ok, view, _html} = live(conn, ~p"/locations")
     assert_patch(view, ~p"/locations/#{floor1.id}")
@@ -197,9 +197,9 @@ defmodule PinventoryWeb.LocationsLiveTest do
 
   test "list rows link to location edit, not floors", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor1 = hd(plan.floors)
-    {:ok, floor2} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor1 = hd(floors)
+    {:ok, floor2} = FloorPlans.add_floor()
     assert {:ok, _} = FloorPlans.place_location(floor1, garage.id, triangle())
 
     {:ok, view, _html} = live(conn, ~p"/locations/#{floor2.id}")
@@ -217,8 +217,8 @@ defmodule PinventoryWeb.LocationsLiveTest do
 
   test "clicking a canvas placement opens the location page", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor = hd(plan.floors)
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
     assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
 
     {:ok, view, _html} = live(conn, ~p"/locations/#{floor.id}")
@@ -245,8 +245,8 @@ defmodule PinventoryWeb.LocationsLiveTest do
 
   test "list hover targets placement on the current floor only", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-    {:ok, plan} = FloorPlans.create_floor_plan()
-    floor = hd(plan.floors)
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
     assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
 
     {:ok, view, html} = live(conn, ~p"/locations/#{floor.id}")

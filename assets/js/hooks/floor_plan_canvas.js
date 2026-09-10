@@ -8,7 +8,7 @@
  *
  * Pushes LiveView events:
  *   wall_drawn      — {x1,y1,x2,y2} normalized 0–1
- *   wall_erased     — {index}
+ *   wall_erased     — {id}
  *   polygon_placed  — {location_id, points: [{x,y}, ...]} (full polygon)
  *   undo / redo     — keyboard shortcuts
  *
@@ -353,10 +353,10 @@ const FloorPlanCanvas = {
     }
 
     if (this.mode === "erase") {
-      const wallEl = event.target.closest("[data-wall-index]")
+      const wallEl = event.target.closest("[data-wall-id]")
       if (wallEl) {
         event.preventDefault()
-        this.pushEvent("wall_erased", {index: Number(wallEl.dataset.wallIndex)})
+        this.pushEvent("wall_erased", {id: wallEl.dataset.wallId})
       }
       return
     }

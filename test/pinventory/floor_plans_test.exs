@@ -2,7 +2,7 @@ defmodule Pinventory.FloorPlansTest do
   use Pinventory.DataCase, async: false
 
   alias Pinventory.FloorPlans
-  alias Pinventory.FloorPlans.{Floor, FloorPlan, LocationPlacement}
+  alias Pinventory.FloorPlans.{Floor, LocationPlacement, Wall}
   alias Pinventory.Locations
 
   import Pinventory.AccountsFixtures
@@ -19,18 +19,19 @@ defmodule Pinventory.FloorPlansTest do
     ]
   end
 
-  describe "get_floor_plan/0" do
-    test "returns nil when no plan exists" do
-      assert FloorPlans.get_floor_plan() == nil
+  describe "list_floors/0" do
+    test "returns empty when no floors exist" do
+      assert FloorPlans.list_floors() == []
       refute FloorPlans.floor_plan_exists?()
     end
   end
 
   describe "create_floor_plan/0" do
-    test "creates a singleton plan with Floor 1" do
-      assert {:ok, %FloorPlan{} = plan} = FloorPlans.create_floor_plan()
+    test "creates Floor 1 when none exist" do
+      assert {:ok, [%Floor{name: "Floor 1", position: 0, walls: []}]} =
+               FloorPlans.create_floor_plan()
+
       assert FloorPlans.floor_plan_exists?()
-      assert [%Floor{name: "Floor 1", position: 0, walls: []}] = plan.floors
     end
 
     test "refuses a second plan" do
@@ -40,10 +41,10 @@ defmodule Pinventory.FloorPlansTest do
   end
 
   describe "delete_floor_plan/0" do
-    test "removes the plan and keeps locations", %{scope: scope} do
+    test "removes all floors and keeps locations", %{scope: scope} do
       {:ok, location} = Locations.create(scope, %{name: "Garage"})
-      {:ok, plan} = FloorPlans.create_floor_plan()
-      floor = hd(plan.floors)
+      {:ok, floors} = FloorPlans.create_floor_plan()
+      floor = hd(floors)
 
       assert {:ok, _} = FloorPlans.place_location(floor, location.id, triangle())
       assert {:ok, _} = FloorPlans.delete_floor_plan()
@@ -56,32 +57,31 @@ defmodule Pinventory.FloorPlansTest do
 
   describe "floors" do
     setup do
-      {:ok, _plan} = FloorPlans.create_floor_plan()
-      %{plan: FloorPlans.get_floor_plan()}
+      {:ok, _} = FloorPlans.create_floor_plan()
+      :ok
     end
 
-    test "adds, renames, and removes floors", %{plan: plan} do
-      assert {:ok, %Floor{name: "Floor 2"} = floor2} = FloorPlans.add_floor(plan)
+    test "adds, renames, and removes floors" do
+      assert {:ok, %Floor{name: "Floor 2"} = floor2} = FloorPlans.add_floor()
       assert {:ok, %Floor{name: "Basement"}} = FloorPlans.rename_floor(floor2, "Basement")
 
-      plan = FloorPlans.get_floor_plan()
-      assert Enum.map(plan.floors, & &1.name) == ["Floor 1", "Basement"]
+      assert Enum.map(FloorPlans.list_floors(), & &1.name) == ["Floor 1", "Basement"]
 
-      basement = Enum.find(plan.floors, &(&1.name == "Basement"))
+      basement = Enum.find(FloorPlans.list_floors(), &(&1.name == "Basement"))
       assert {:ok, _} = FloorPlans.delete_floor(basement)
-      assert [%Floor{name: "Floor 1"}] = FloorPlans.get_floor_plan().floors
+      assert [%Floor{name: "Floor 1"}] = FloorPlans.list_floors()
     end
 
-    test "refuses to delete the last floor", %{plan: plan} do
-      [floor] = plan.floors
+    test "refuses to delete the last floor" do
+      [floor] = FloorPlans.list_floors()
       assert {:error, :last_floor} = FloorPlans.delete_floor(floor)
     end
 
-    test "moves and reorders floors by position", %{plan: plan} do
-      assert {:ok, floor2} = FloorPlans.add_floor(plan)
-      assert {:ok, _floor3} = FloorPlans.add_floor(FloorPlans.get_floor_plan())
+    test "moves and reorders floors by position" do
+      assert {:ok, floor2} = FloorPlans.add_floor()
+      assert {:ok, _floor3} = FloorPlans.add_floor()
 
-      assert Enum.map(FloorPlans.get_floor_plan().floors, & &1.name) == [
+      assert Enum.map(FloorPlans.list_floors(), & &1.name) == [
                "Floor 1",
                "Floor 2",
                "Floor 3"
@@ -90,25 +90,24 @@ defmodule Pinventory.FloorPlansTest do
       # Raise Floor 2 above Floor 3.
       assert {:ok, _} = FloorPlans.move_floor(floor2, :higher)
 
-      assert Enum.map(FloorPlans.get_floor_plan().floors, &{&1.name, &1.position}) == [
+      assert Enum.map(FloorPlans.list_floors(), &{&1.name, &1.position}) == [
                {"Floor 1", 0},
                {"Floor 3", 1},
                {"Floor 2", 2}
              ]
 
-      plan = FloorPlans.get_floor_plan()
-      [f1, f3, f2] = plan.floors
+      [f1, f3, f2] = FloorPlans.list_floors()
 
       # Highest-first list → positions 2,1,0
-      assert {:ok, _} = FloorPlans.reorder_floors(plan, [f1.id, f3.id, f2.id])
+      assert {:ok, _} = FloorPlans.reorder_floors([f1.id, f3.id, f2.id])
 
-      assert Enum.map(FloorPlans.get_floor_plan().floors, &{&1.name, &1.position}) == [
+      assert Enum.map(FloorPlans.list_floors(), &{&1.name, &1.position}) == [
                {"Floor 2", 0},
                {"Floor 3", 1},
                {"Floor 1", 2}
              ]
 
-      assert {:error, :invalid_order} = FloorPlans.reorder_floors(plan, [f1.id])
+      assert {:error, :invalid_order} = FloorPlans.reorder_floors([f1.id])
     end
   end
 
@@ -116,24 +115,23 @@ defmodule Pinventory.FloorPlansTest do
     setup %{scope: scope} do
       {:ok, garage} = Locations.create(scope, %{name: "Garage"})
       {:ok, attic} = Locations.create(scope, %{name: "Attic"})
-      {:ok, plan} = FloorPlans.create_floor_plan()
-      floor = hd(plan.floors)
-      %{garage: garage, attic: attic, floor: floor, plan: plan}
+      {:ok, floors} = FloorPlans.create_floor_plan()
+      floor = hd(floors)
+      %{garage: garage, attic: attic, floor: floor}
     end
 
-    test "stores wall segments", %{floor: floor} do
+    test "stores wall segments as rows", %{floor: floor} do
       wall = %{"x1" => 0.1, "y1" => 0.1, "x2" => 0.9, "y2" => 0.1}
       assert {:ok, updated} = FloorPlans.add_wall(floor, wall)
-      assert updated.walls == [wall]
+      assert [%Wall{x1: 0.1, y1: 0.1, x2: 0.9, y2: 0.1} = saved] = updated.walls
 
-      assert {:ok, cleared} = FloorPlans.remove_wall(updated, 0)
+      assert {:ok, cleared} = FloorPlans.remove_wall(updated, saved.id)
       assert cleared.walls == []
     end
 
     test "places a location polygon once and rejects a second floor", %{
       garage: garage,
-      floor: floor,
-      plan: plan
+      floor: floor
     } do
       points = triangle()
 
@@ -145,7 +143,7 @@ defmodule Pinventory.FloorPlansTest do
       assert %{^garage_id => %{floor_name: "Floor 1", points: ^points}} =
                FloorPlans.placement_index()
 
-      assert {:ok, floor2} = FloorPlans.add_floor(plan)
+      assert {:ok, floor2} = FloorPlans.add_floor()
 
       assert {:error, :already_placed} =
                FloorPlans.place_location(floor2, garage.id, triangle(0.2, 0.2))
@@ -196,8 +194,7 @@ defmodule Pinventory.FloorPlansTest do
       assert {:ok, _} =
                FloorPlans.add_wall(floor, %{"x1" => 0.0, "y1" => 0.0, "x2" => 1.0, "y2" => 0.0})
 
-      plan = FloorPlans.get_floor_plan()
-      before = FloorPlans.plan_geometry_snapshot(plan)
+      before = FloorPlans.plan_geometry_snapshot(FloorPlans.list_floors())
 
       floor = FloorPlans.get_floor!(floor.id)
       assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
@@ -211,15 +208,14 @@ defmodule Pinventory.FloorPlansTest do
                })
 
       assert {:ok, restored} = FloorPlans.restore_plan_geometry(before)
-      restored_floor = hd(restored.floors)
+      restored_floor = hd(restored)
       assert length(restored_floor.walls) == 1
       assert restored_floor.location_placements == []
       assert FloorPlans.placement_index() == %{}
     end
 
     test "restore_plan_geometry recreates a deleted floor", %{floor: floor} do
-      plan = FloorPlans.get_floor_plan()
-      {:ok, extra} = FloorPlans.add_floor(plan)
+      {:ok, extra} = FloorPlans.add_floor()
 
       assert {:ok, _} =
                FloorPlans.add_wall(FloorPlans.get_floor!(extra.id), %{
@@ -229,15 +225,15 @@ defmodule Pinventory.FloorPlansTest do
                  "y2" => 0.2
                })
 
-      before = FloorPlans.plan_geometry_snapshot(FloorPlans.get_floor_plan())
+      before = FloorPlans.plan_geometry_snapshot(FloorPlans.list_floors())
       assert length(before) == 2
       assert Enum.any?(before, &(&1.id == extra.id and &1.name == "Floor 2"))
 
       assert {:ok, _} = FloorPlans.delete_floor(FloorPlans.get_floor!(extra.id))
-      assert Enum.map(FloorPlans.get_floor_plan().floors, & &1.id) == [floor.id]
+      assert Enum.map(FloorPlans.list_floors(), & &1.id) == [floor.id]
 
       assert {:ok, restored} = FloorPlans.restore_plan_geometry(before)
-      ids = Enum.map(restored.floors, & &1.id)
+      ids = Enum.map(restored, & &1.id)
       assert floor.id in ids
       assert extra.id in ids
       assert length(FloorPlans.get_floor!(extra.id).walls) == 1
@@ -248,8 +244,8 @@ defmodule Pinventory.FloorPlansTest do
     test "annotates placed and unplaced locations when a plan exists", %{scope: scope} do
       {:ok, garage} = Locations.create(scope, %{name: "Garage"})
       {:ok, shed} = Locations.create(scope, %{name: "Shed"})
-      {:ok, plan} = FloorPlans.create_floor_plan()
-      floor = hd(plan.floors)
+      {:ok, floors} = FloorPlans.create_floor_plan()
+      floor = hd(floors)
       assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
 
       by_name =
