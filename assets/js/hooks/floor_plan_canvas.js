@@ -15,12 +15,11 @@
  * Walls: first click sets start (snap), second click commits; Escape cancels.
  * Snap: wall endpoints/segments + placement vertices/edges (data-snap-*).
  * Hold Ctrl/Meta to place at raw canvas coords (no geometry snap); preview follows.
- * Hold Shift while drafting a wall (or a polygon edge with a previous point) to
- * constrain the free endpoint to the nearest 22.5° angle from the last fixed
- * point (16 directions). Order: raw pointer → (if Shift) angle ray from anchor →
- * then optional geometry snap along that ray (endpoint snap when near a vertex
- * on the ray). Ctrl/Meta still disables geometry snap; Shift can still angle-constrain.
- * Shift keydown/keyup refreshes the draft preview live.
+ * Hold Shift while drafting to constrain to 22.5° angles (16 directions). Walls
+ * snap from the start point; polygons prefer a dual-edge snap (newest + closing
+ * edge) when those angle lines meet, else newest-edge only. Order: raw → Shift
+ * angle → optional geometry snap along the constraint. Ctrl/Meta skips geometry
+ * snap; Shift still angle-constrains. Shift keydown/keyup refreshes the draft.
  * Draft corners dedupe within SNAP_DISTANCE so near-clicks reuse an existing vertex.
  * Polygon finish: close on a different vertex, double-click, or Done (adjacent auto); Escape cancels.
  *
@@ -30,6 +29,7 @@
  */
 import {
   angleSnapPoint,
+  angleSnapPointDual,
   distanceToLine,
   mergeExtension as mergeExtensionGeometry,
   nearestVertexWithin,
@@ -289,16 +289,31 @@ const FloorPlanCanvas = {
   },
 
   /**
-   * Last fixed draft vertex used as the Shift angle-snap anchor, or null.
-   * Wall: draft start. Polygon: last committed point when at least one exists.
+   * Shift angle-snap anchors.
+   * Wall: {prev: start, next: null}.
+   * Polygon: prev = last committed point; next = first point when ≥2 points
+   * (closing edge) so Shift can straighten both edges, preferring the newest.
    */
-  draftAnchor() {
-    if (this.draftWall && this.draftWall.start) return this.draftWall.start
+  draftAngleAnchors() {
+    if (this.draftWall && this.draftWall.start) {
+      return {prev: this.draftWall.start, next: null}
+    }
     if (this.draftPolygon && this.draftPolygon.points && this.draftPolygon.points.length >= 1) {
       const pts = this.draftPolygon.points
-      return pts[pts.length - 1]
+      const prev = pts[pts.length - 1]
+      const next = pts.length >= 2 ? pts[0] : null
+      // Avoid dual snap when prev and next are the same vertex.
+      if (next && Math.hypot(prev.x - next.x, prev.y - next.y) < 1e-12) {
+        return {prev, next: null}
+      }
+      return {prev, next}
     }
-    return null
+    return {prev: null, next: null}
+  },
+
+  /** @deprecated use draftAngleAnchors */
+  draftAnchor() {
+    return this.draftAngleAnchors().prev
   },
 
   /**
@@ -322,11 +337,11 @@ const FloorPlanCanvas = {
     if (!raw) return {point: null, snapped: false, raw: null}
     const skipGeom = this.skipSnapFromEvent(mods)
     const shift = !!(mods && mods.shiftKey)
-    const anchor = this.draftAnchor()
+    const {prev, next} = this.draftAngleAnchors()
 
     let point = raw
-    if (shift && anchor) {
-      point = angleSnapPoint(anchor, raw)
+    if (shift && prev) {
+      point = next ? angleSnapPointDual(prev, next, raw) : angleSnapPoint(prev, raw)
     }
 
     if (skipGeom) {
@@ -338,9 +353,12 @@ const FloorPlanCanvas = {
       return {point, snapped: false, raw}
     }
 
-    // Shift stays primary: accept geometry snap only when still near the angle ray.
-    if (shift && anchor) {
-      if (distanceToLine(snapped.point, anchor, point) <= SNAP_DISTANCE) {
+    // Shift stays primary: accept geometry snap only when still near the angle ray(s).
+    if (shift && prev) {
+      const onNewest = distanceToLine(snapped.point, prev, point) <= SNAP_DISTANCE
+      const onClosing =
+        !next || distanceToLine(snapped.point, next, point) <= SNAP_DISTANCE
+      if (onNewest && onClosing) {
         return {point: snapped.point, snapped: true, raw}
       }
       return {point, snapped: false, raw}

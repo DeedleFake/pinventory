@@ -3,12 +3,10 @@
  *
  * Polygon extend / merge: replace a boundary arc a ⇝ c with a → midPoints → c.
  *
- * Angle snap: while drafting a wall (or a polygon edge with a previous point),
- * Shift constrains the free endpoint to the nearest 22.5° ray from the last
- * fixed point (16 directions: 0°, 22.5°, …, 337.5° — horizontal, vertical, and
- * three evenly spaced angles per quadrant). Compose after the raw pointer and
- * before/with geometry snap so Shift stays primary for “make it straight”
- * while nearby vertices on that ray can still snap.
+ * Angle snap: while drafting, Shift constrains the free endpoint to the nearest
+ * 22.5° ray from the last fixed point (16 directions). For polygons with a
+ * closing anchor (first vertex), Shift can satisfy both edges when those angle
+ * lines intersect, preferring the newest edge’s ray.
  */
 
 function copyPoint(p) {
@@ -260,6 +258,102 @@ export function angleSnapPoint(anchor, point) {
     x: anchor.x + Math.cos(snapped) * dist,
     y: anchor.y + Math.sin(snapped) * dist,
   }
+}
+
+/** Angle on the 22.5° grid nearest the vector from `anchor` toward `point`. */
+export function nearestAngleStep(anchor, point) {
+  if (!anchor || !point) return 0
+  const dx = point.x - anchor.x
+  const dy = point.y - anchor.y
+  if (Math.hypot(dx, dy) < 1e-12) return 0
+  const angle = Math.atan2(dy, dx)
+  return Math.round(angle / ANGLE_SNAP_STEP) * ANGLE_SNAP_STEP
+}
+
+/**
+ * Intersection of two infinite lines through points with given directions.
+ * Returns null when parallel (or nearly).
+ */
+export function lineIntersection(a, angleA, b, angleB) {
+  if (!a || !b) return null
+  const dax = Math.cos(angleA)
+  const day = Math.sin(angleA)
+  const dbx = Math.cos(angleB)
+  const dby = Math.sin(angleB)
+  const det = dax * dby - day * dbx
+  if (Math.abs(det) < 1e-12) return null
+  const ox = b.x - a.x
+  const oy = b.y - a.y
+  const t = (ox * dby - oy * dbx) / det
+  return {x: a.x + dax * t, y: a.y + day * t}
+}
+
+/**
+ * Shift-snap a free polygon vertex so both edges can be axis/angle-aligned.
+ * `prev` is the newest fixed vertex (preferred). `next` is the other end
+ * (usually the first ring vertex when closing). Falls back to single-edge
+ * snap from `prev` when `next` is missing or lines never meet usefully.
+ */
+export function angleSnapPointDual(prev, next, point) {
+  if (!prev || !point) return point ? copyPoint(point) : point
+  if (!next) return angleSnapPoint(prev, point)
+
+  const preferAngle = nearestAngleStep(prev, point)
+  const preferred = []
+  const others = []
+
+  for (let i = 0; i < 16; i++) {
+    const angleNext = i * ANGLE_SNAP_STEP
+    const hit = lineIntersection(prev, preferAngle, next, angleNext)
+    if (hit) preferred.push(hit)
+  }
+
+  // Also consider other newest-edge angles if preferred ray is a poor fit.
+  for (let i = 0; i < 16; i++) {
+    const anglePrev = i * ANGLE_SNAP_STEP
+    if (Math.abs(anglePrev - preferAngle) < 1e-12) continue
+    for (let j = 0; j < 16; j++) {
+      const hit = lineIntersection(prev, anglePrev, next, j * ANGLE_SNAP_STEP)
+      if (hit) others.push(hit)
+    }
+  }
+
+  const score = (candidate) => {
+    const dCursor = Math.hypot(candidate.x - point.x, candidate.y - point.y)
+    // Soft unit-square preference without hard reject (draft may go slightly out).
+    const out =
+      Math.max(0, -candidate.x) +
+      Math.max(0, candidate.x - 1) +
+      Math.max(0, -candidate.y) +
+      Math.max(0, candidate.y - 1)
+    return dCursor + out * 2
+  }
+
+  let best = null
+  let bestScore = Infinity
+  for (const c of preferred) {
+    const s = score(c)
+    if (s < bestScore) {
+      best = c
+      bestScore = s
+    }
+  }
+
+  // Prefer dual snap on the newest ray when a candidate is reasonably near the cursor.
+  // Otherwise try other angle pairs, then single-edge snap.
+  const NEAR = 0.2
+  if (best && bestScore <= NEAR) return best
+
+  for (const c of others) {
+    const s = score(c) + 0.05 // bias against non-preferred newest angle
+    if (s < bestScore) {
+      best = c
+      bestScore = s
+    }
+  }
+
+  if (best && bestScore <= NEAR * 1.5) return best
+  return angleSnapPoint(prev, point)
 }
 
 /**

@@ -3,6 +3,9 @@ import {describe, it} from "node:test"
 import {
   ANGLE_SNAP_STEP,
   angleSnapPoint,
+  angleSnapPointDual,
+  lineIntersection,
+  nearestAngleStep,
   distanceToLine,
   mergeExtension,
   nearestVertexWithin,
@@ -246,5 +249,44 @@ describe("distanceToLine", () => {
     const b = {x: 1, y: 0}
     assert.equal(distanceToLine({x: 0.5, y: 0}, a, b), 0)
     assert.ok(Math.abs(distanceToLine({x: 0.5, y: 0.1}, a, b) - 0.1) < 1e-9)
+  })
+})
+
+describe("angleSnapPointDual", () => {
+  it("places a rectangle corner on both axis edges", () => {
+    // A(0.2,0.2) → B(0.8,0.2) → C(0.8,0.7), drafting D toward A(0.2,0.2)
+    const prev = {x: 0.8, y: 0.7}
+    const next = {x: 0.2, y: 0.2}
+    const raw = {x: 0.25, y: 0.65}
+    const p = angleSnapPointDual(prev, next, raw)
+    // Horizontal from C and vertical to A → (0.2, 0.7)
+    assert.ok(Math.abs(p.x - 0.2) < 1e-9)
+    assert.ok(Math.abs(p.y - 0.7) < 1e-9)
+  })
+
+  it("falls back to newest-edge snap when next is null", () => {
+    const prev = {x: 0.5, y: 0.5}
+    const raw = {x: 0.8, y: 0.51}
+    const p = angleSnapPointDual(prev, null, raw)
+    assert.ok(Math.abs(p.y - 0.5) < 1e-9)
+  })
+
+  it("biases the newest edge when many dual intersections exist", () => {
+    const prev = {x: 0.5, y: 0.5}
+    const next = {x: 0.2, y: 0.2}
+    // Nearly horizontal from prev — prefer 0° newest ray
+    const raw = {x: 0.75, y: 0.52}
+    const p = angleSnapPointDual(prev, next, raw)
+    const newestAngle = Math.atan2(p.y - prev.y, p.x - prev.x)
+    // Should stay near 0° (horizontal), not jump to a far dual corner
+    assert.ok(Math.abs(newestAngle) < 0.2 || Math.abs(Math.abs(newestAngle) - Math.PI) < 0.2)
+  })
+})
+
+describe("lineIntersection", () => {
+  it("finds axis crossing", () => {
+    const p = lineIntersection({x: 0, y: 0.7}, 0, {x: 0.2, y: 0}, Math.PI / 2)
+    assert.ok(Math.abs(p.x - 0.2) < 1e-9)
+    assert.ok(Math.abs(p.y - 0.7) < 1e-9)
   })
 })
