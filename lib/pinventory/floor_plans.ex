@@ -556,7 +556,8 @@ defmodule Pinventory.FloorPlans do
     |> Geometry.drop_collinear_polygon_vertices()
   end
 
-  defp normalize_point(%{"x" => x, "y" => y}), do: %{"x" => normalize_coord(x), "y" => normalize_coord(y)}
+  defp normalize_point(%{"x" => x, "y" => y}),
+    do: %{"x" => normalize_coord(x), "y" => normalize_coord(y)}
 
   defp normalize_point(%{x: x, y: y}), do: normalize_point(%{"x" => x, "y" => y})
 
