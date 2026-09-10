@@ -10,6 +10,7 @@ import {
   segmentHitOnAngleLine,
   snapOnAngleLine,
   measurementLabelPose,
+  measurementFontSize,
   lengthInFeet,
   formatFeet,
   DEFAULT_FEET_PER_UNIT,
@@ -403,8 +404,22 @@ describe("measurement labels", () => {
     const left = measurementLabelPose({x: 1, y: 0}, {x: 0, y: 0}, 0.03)
     assert.ok(Math.abs(left.angleDeg) < 1e-6)
     const up = measurementLabelPose({x: 0, y: 1}, {x: 0, y: 0}, 0.03)
-    assert.ok(up.angleDeg > -90 && up.angleDeg <= 90)
+    assert.equal(up.angleDeg, 0)
     const steep = measurementLabelPose({x: 0, y: 0}, {x: -1, y: 0.1}, 0.03)
     assert.ok(steep.angleDeg > -90 && steep.angleDeg <= 90)
+  })
+
+  it("keeps steep labels upright and shallow ones parallel", () => {
+    const shallow = measurementLabelPose({x: 0, y: 0}, {x: 1, y: 0.2}, 0.03)
+    assert.ok(Math.abs(shallow.angleDeg) > 1 && Math.abs(shallow.angleDeg) <= 45)
+    const vertical = measurementLabelPose({x: 0, y: 0}, {x: 0.1, y: 1}, 0.03)
+    assert.equal(vertical.angleDeg, 0)
+  })
+
+  it("scales font size with view size and clamps", () => {
+    assert.ok(Math.abs(measurementFontSize(1) - 0.038) < 1e-9)
+    assert.ok(measurementFontSize(0.1) > measurementFontSize(1) * 0.3)
+    assert.ok(measurementFontSize(10) < measurementFontSize(1) * 2.6)
+    assert.ok(measurementFontSize(0.05) <= measurementFontSize(0.2))
   })
 })

@@ -40,6 +40,7 @@ import {
   fitSquareCamera,
   formatFeet,
   lengthInFeet,
+  measurementFontSize,
   measurementLabelPose,
   mergeExtension as mergeExtensionGeometry,
   nearestVertexWithin,
@@ -725,6 +726,9 @@ const FloorPlanCanvas = {
     if (!this.svg || !this.camera) return
     const {x, y, size} = this.camera
     this.svg.setAttribute("viewBox", `${x} ${y} ${size} ${size}`)
+    // Keep draft length labels screen-sized as zoom changes.
+    if (this.draftWall) this.drawWallDraft()
+    else if (this.draftPolygon) this.drawPolygonDraft()
   },
 
   /** Browse fits content; edit leaves empty world around so you can draw outside. */
@@ -1091,17 +1095,20 @@ const FloorPlanCanvas = {
     while (layer.firstChild) layer.removeChild(layer.firstChild)
 
     const scale = this.feetPerUnit || DEFAULT_FEET_PER_UNIT
+    const viewSize = (this.camera && this.camera.size) || 1
+    const fontSize = measurementFontSize(viewSize)
+    const offset = Math.max(0.012, fontSize * 0.75)
     for (const pair of segments || []) {
       if (!pair || pair.length < 2) continue
       const [a, b] = pair
       if (!a || !b) continue
       if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-6) continue
-      const pose = measurementLabelPose(a, b, 0.028)
+      const pose = measurementLabelPose(a, b, offset)
       if (!pose) continue
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text")
       label.setAttribute("text-anchor", "middle")
       label.setAttribute("dominant-baseline", "central")
-      label.setAttribute("font-size", "0.045")
+      label.setAttribute("font-size", String(fontSize))
       label.setAttribute("class", "fill-primary font-sans")
       label.setAttribute(
         "transform",

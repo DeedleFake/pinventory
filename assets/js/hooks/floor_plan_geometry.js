@@ -482,8 +482,11 @@ export function lengthInFeet(a, b, feetPerUnit = DEFAULT_FEET_PER_UNIT) {
 }
 
 /**
- * Midpoint label pose along ab. Angle kept in (-90, 90] so text is never upside-down.
- * `offset` is world-space distance to the left of a→b (flips with the readable angle).
+ * Midpoint label pose along ab.
+ * Horizontal-ish segments: text runs parallel to the line (top/bottom toward the line).
+ * Vertical-ish (|angle| > 45° after upright fold): text stays upright so beginning/end
+ * face the line, staying closer to readable.
+ * `offset` is world-space distance off the segment (along the outward normal).
  */
 export function measurementLabelPose(a, b, offset = 0.03) {
   if (!a || !b) return null
@@ -493,16 +496,30 @@ export function measurementLabelPose(a, b, offset = 0.03) {
   if (len < 1e-12) return null
   const mx = (a.x + b.x) / 2
   const my = (a.y + b.y) / 2
-  let angle = Math.atan2(dy, dx)
   let nx = -dy / len
   let ny = dx / len
-  let deg = (angle * 180) / Math.PI
+  let deg = (Math.atan2(dy, dx) * 180) / Math.PI
   if (deg > 90 || deg <= -90) {
     deg += deg > 0 ? -180 : 180
     nx = -nx
     ny = -ny
   }
+  // Steeper than 45° from horizontal: keep upright (ends toward the line).
+  if (Math.abs(deg) > 45) {
+    deg = 0
+  }
   return {x: mx + nx * offset, y: my + ny * offset, angleDeg: deg}
+}
+
+/** World font size that tracks zoom: ~constant on screen, clamped. */
+export function measurementFontSize(viewSize, baseAtUnitView = 0.038) {
+  const size = Number(viewSize)
+  if (!Number.isFinite(size) || size <= 0) return baseAtUnitView
+  // viewSize 1 → base; zoom in (smaller view) → smaller world font; zoom out → larger.
+  const scaled = baseAtUnitView * size
+  const min = baseAtUnitView * 0.35
+  const max = baseAtUnitView * 2.5
+  return Math.max(min, Math.min(max, scaled))
 }
 
 export function formatFeet(feet) {
