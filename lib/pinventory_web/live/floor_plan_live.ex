@@ -151,7 +151,7 @@ defmodule PinventoryWeb.FloorPlanLive do
                 </li>
                 <li
                   :for={location <- @locations}
-                  data-location-id={location.id}
+                  data-location-id={to_string(location.id)}
                   class={[
                     "flex items-stretch overflow-hidden rounded-lg border",
                     @mode == "place" && @placing_location_id == location.id &&

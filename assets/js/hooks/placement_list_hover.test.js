@@ -53,6 +53,15 @@ describe("placementGroupSelector", () => {
     )
   })
 
+
+  it("matches leading-digit UUIDs without CSS.escape rewriting", () => {
+    const id = "524c561f-d8e4-439c-a42f-200ad153a3be"
+    assert.equal(
+      placementGroupSelector(id),
+      `.placement-group[data-location-id="${id}"]`,
+    )
+  })
+
   it("returns null for empty ids", () => {
     assert.equal(placementGroupSelector(""), null)
     assert.equal(placementGroupSelector(null), null)

@@ -23,11 +23,11 @@ defmodule PinventoryWeb.FloorPlanComponents do
     name = (assigns.placement.location && assigns.placement.location.name) || ""
     label = label_text(name)
     badge_w = label_badge_width(label)
-    badge_h = 0.024
+    badge_h = 0.032
 
     assigns =
       assigns
-      |> assign(:location_id, location_id)
+      |> assign(:location_id, to_string(location_id))
       |> assign(:cx, cx)
       |> assign(:cy, cy)
       |> assign(:label, label)
@@ -92,11 +92,16 @@ defmodule PinventoryWeb.FloorPlanComponents do
           rx={@badge_h / 2}
           ry={@badge_h / 2}
         />
-        <foreignObject x={@badge_x} y={@badge_y} width={@badge_w} height={@badge_h}>
-          <div xmlns="http://www.w3.org/1999/xhtml" class="placement-label-text">
-            {@label}
-          </div>
-        </foreignObject>
+        <text
+          class="placement-label-text"
+          x="0"
+          y="0"
+          text-anchor="middle"
+          dominant-baseline="central"
+          font-size="0.018"
+        >
+          {@label}
+        </text>
       </g>
     </g>
     """
@@ -115,10 +120,10 @@ defmodule PinventoryWeb.FloorPlanComponents do
   defp label_text(_), do: ""
 
   defp label_badge_width(text) when is_binary(text) do
-    # foreignObject label ~font-size 0.011 in unit square; ~0.55em avg glyph + pad
-    char_w = 0.011 * 0.55
-    pad = 0.012
-    max(0.036, String.length(text) * char_w + pad)
+    # SVG <text> font-size 0.018 user units; ~0.62em avg glyph + pad
+    char_w = 0.018 * 0.62
+    pad = 0.018
+    max(0.048, String.length(text) * char_w + pad)
   end
 
   defp placement_edges(points) when is_list(points) and length(points) >= 2 do

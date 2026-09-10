@@ -172,8 +172,9 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     html = render(view)
     assert html =~ ~s|data-location-id=""|
     assert html =~ "placement-label-badge"
-    assert html =~ "foreignObject"
+    refute html =~ "foreignObject"
     assert html =~ "placement-label-text"
+    assert html =~ ~s|font-size="0.018"|
     assert has_element?(view, ~s|#placeable-locations[phx-hook="PlacementListHover"]|)
     assert has_element?(view, ~s|#place-location-#{garage.id}.cursor-not-allowed|)
     refute has_element?(view, ~s|#place-location-#{garage.id}.opacity-60|)

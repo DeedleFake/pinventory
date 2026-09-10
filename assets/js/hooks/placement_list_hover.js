@@ -6,11 +6,11 @@
  */
 
 export function placementGroupSelector(locationId) {
-  if (!locationId) return null
-  const escaped =
-    typeof CSS !== "undefined" && typeof CSS.escape === "function"
-      ? CSS.escape(locationId)
-      : locationId.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  if (locationId == null || locationId === "") return null
+  const id = String(locationId)
+  // Quote-escape only. CSS.escape() is for identifiers and rewrites a leading
+  // digit (common in UUIDs) to "\3N ...", which breaks attribute matching.
+  const escaped = id.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
   return `.placement-group[data-location-id="${escaped}"]`
 }
 
@@ -27,19 +27,33 @@ export function setListHover(group, on) {
 }
 
 function rowLocationId(event, listEl) {
-  const row = event.target.closest("[data-location-id]")
+  const target = event.target
+  if (!target || typeof target.closest !== "function") return null
+  const row = target.closest("[data-location-id]")
   if (!row || !listEl.contains(row)) return null
-  return row.getAttribute("data-location-id")
+  const id = row.getAttribute("data-location-id")
+  return id == null || id === "" ? null : String(id)
+}
+
+function canvasQueryRoot(doc) {
+  // Prefer the floor SVG so we don't miss groups if the page has other roots,
+  // and so floor switches (new SVG id) still resolve after morphs.
+  return (
+    doc.querySelector("#locations-floor-canvas [data-floor-plan-svg]") ||
+    doc.querySelector("#floor-plan-canvas [data-floor-plan-svg]") ||
+    doc.querySelector("[data-floor-plan-svg]") ||
+    doc
+  )
 }
 
 const PlacementListHover = {
   mounted() {
     this.hoveredId = null
-    this.root = this.el.ownerDocument || document
+    this.doc = this.el.ownerDocument || document
 
     this.clearHover = () => {
       if (!this.hoveredId) return
-      const group = findPlacementGroup(this.root, this.hoveredId)
+      const group = findPlacementGroup(canvasQueryRoot(this.doc), this.hoveredId)
       setListHover(group, false)
       this.hoveredId = null
     }
@@ -50,20 +64,33 @@ const PlacementListHover = {
       if (id === this.hoveredId) return
       this.clearHover()
       this.hoveredId = id
-      setListHover(findPlacementGroup(this.root, id), true)
+      setListHover(findPlacementGroup(canvasQueryRoot(this.doc), id), true)
     }
 
     this.onOut = (event) => {
       const id = rowLocationId(event, this.el)
       if (!id || id !== this.hoveredId) return
       const related = event.relatedTarget
-      const row = event.target.closest("[data-location-id]")
-      if (related && row && row.contains(related)) return
+      const row =
+        event.target && typeof event.target.closest === "function"
+          ? event.target.closest("[data-location-id]")
+          : null
+      if (related && row && typeof row.contains === "function" && row.contains(related)) {
+        return
+      }
       this.clearHover()
     }
 
     this.el.addEventListener("mouseover", this.onOver)
     this.el.addEventListener("mouseout", this.onOut)
+  },
+
+  updated() {
+    // Floor switch replaces the SVG; drop stale hover class tracking.
+    if (this.hoveredId) {
+      const group = findPlacementGroup(canvasQueryRoot(this.doc), this.hoveredId)
+      if (!group) this.hoveredId = null
+    }
   },
 
   destroyed() {

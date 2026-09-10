@@ -256,6 +256,8 @@ defmodule PinventoryWeb.LocationsLiveTest do
     assert has_element?(view, ~s|#locations-list-hover[phx-hook="PlacementListHover"]|)
     assert has_element?(view, "#placement-group-#{garage.id}")
     assert has_element?(view, ~s|#placement-group-#{garage.id}[phx-click]|)
-    assert html =~ "foreignObject"
+    refute html =~ "foreignObject"
+    assert html =~ ~s|font-size="0.018"|
+    assert html =~ "placement-label-text"
   end
 end

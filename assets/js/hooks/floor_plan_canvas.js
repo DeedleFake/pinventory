@@ -19,7 +19,7 @@
  * Polygon finish: close on a different vertex, double-click, or Done (adjacent auto); Escape cancels.
  *
  * Camera: fixed unit-square world (0–1). SVG viewBox is the viewport (zoom/pan).
- * Wheel zooms toward cursor; Space+drag or middle-mouse pans; Reset view restores fit.
+ * Wheel zooms toward cursor; browse mode primary-drag pans (threshold); editor uses Space+drag or middle-mouse; Reset view restores fit.
  * preserveAspectRatio meet keeps the world square (no window stretch).
  */
 import {
@@ -33,6 +33,7 @@ const SNAP_DISTANCE = 0.03
 const CLOSE_DISTANCE = 0.025
 const MIN_VIEW_SIZE = 0.12
 const MAX_VIEW_SIZE = 2.5
+const PAN_DRAG_THRESHOLD = 6
 
 const FloorPlanCanvas = {
   mounted() {
@@ -46,6 +47,8 @@ const FloorPlanCanvas = {
     this.spaceHeld = false
     this.panning = false
     this.panLast = null
+    this.browsePanCandidate = null
+    this.suppressClickAfterPan = false
     this.camera = {x: 0, y: 0, size: 1}
     this.syncFromEl()
     this.applyCamera()
@@ -330,14 +333,24 @@ const FloorPlanCanvas = {
     // Middle mouse, or Space + primary button: pan the camera.
     if (event.button === 1 || (event.button === 0 && this.spaceHeld)) {
       event.preventDefault()
+      this.browsePanCandidate = null
       this.startPan(event)
       return
     }
 
     if (event.button !== 0) return
 
-    // Browse: zoom/pan only — placement clicks are LiveView phx-click / links.
-    if (this.mode === "browse") return
+    // Browse: primary-button drag pans after a small movement threshold so
+    // a plain click still fires placement phx-click / navigate.
+    if (this.mode === "browse") {
+      this.browsePanCandidate = {
+        x: event.clientX,
+        y: event.clientY,
+        pointerId: event.pointerId,
+      }
+      this.suppressClickAfterPan = false
+      return
+    }
 
     if (this.mode === "erase") {
       const wallEl = event.target.closest("[data-wall-index]")
@@ -495,6 +508,27 @@ const FloorPlanCanvas = {
   },
 
   handlePointerMove(event) {
+    if (
+      !this.panning &&
+      this.browsePanCandidate &&
+      this.mode === "browse" &&
+      (event.buttons & 1) === 1
+    ) {
+      const dx = event.clientX - this.browsePanCandidate.x
+      const dy = event.clientY - this.browsePanCandidate.y
+      if (Math.hypot(dx, dy) >= PAN_DRAG_THRESHOLD) {
+        const start = this.browsePanCandidate
+        this.browsePanCandidate = null
+        this.suppressClickAfterPan = true
+        this.startPan({
+          clientX: start.x,
+          clientY: start.y,
+          pointerId: start.pointerId,
+        })
+        // Apply this move immediately so the first delta isn't lost.
+      }
+    }
+
     if (this.panning && this.panLast) {
       event.preventDefault()
       const dx = event.clientX - this.panLast.x
@@ -663,18 +697,35 @@ const FloorPlanCanvas = {
     }
   },
 
-  handlePointerUp(_event) {
-    if (!this.panning) return
-    this.panning = false
-    this.panLast = null
-    this.updatePanCursor()
+  handlePointerUp(event) {
+    this.browsePanCandidate = null
+
+    if (this.panning) {
+      this.panning = false
+      this.panLast = null
+      this.updatePanCursor()
+    }
+
+    if (this.suppressClickAfterPan) {
+      this.suppressClickAfterPan = false
+      // Swallow the click that browsers fire after a drag so we don't navigate.
+      const suppress = (clickEvent) => {
+        clickEvent.preventDefault()
+        clickEvent.stopPropagation()
+        clickEvent.stopImmediatePropagation?.()
+      }
+      const target = this.svg || this.el
+      target.addEventListener("click", suppress, true)
+      window.setTimeout(() => target.removeEventListener("click", suppress, true), 0)
+      if (event && event.preventDefault) event.preventDefault()
+    }
   },
 
   updatePanCursor() {
     if (!this.el) return
     if (this.panning) {
       this.el.style.cursor = "grabbing"
-    } else if (this.spaceHeld) {
+    } else if (this.spaceHeld || this.mode === "browse") {
       this.el.style.cursor = "grab"
     } else {
       this.el.style.cursor = ""

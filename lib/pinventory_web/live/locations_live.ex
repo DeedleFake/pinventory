@@ -144,7 +144,7 @@ defmodule PinventoryWeb.LocationsLive do
                 <.icon name="hero-arrows-pointing-out" class="size-4" /> Reset view
               </button>
               <span class="hidden rounded-md border border-base-300 bg-base-100/80 px-2 py-1 text-[10px] opacity-70 sm:inline">
-                Wheel zoom · Space/middle-drag pan
+                Wheel zoom · drag to pan
               </span>
             </div>
 
@@ -302,7 +302,7 @@ defmodule PinventoryWeb.LocationsLive do
           :for={{id, location} <- @streams.locations}
           navigate={~p"/location/#{location.id}"}
           id={id}
-          data-location-id={location.id}
+          data-location-id={to_string(location.id)}
           class={[
             "flex items-center gap-3 rounded-xl border border-base-300 bg-base-100 p-3",
             "transition-all hover:border-base-content/20 hover:bg-base-200/40"
