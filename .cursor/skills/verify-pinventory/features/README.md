@@ -15,7 +15,7 @@ This directory is the maintained source for verifying Pinventory's user-facing L
 ## Driving conventions
 
 - Start every recipe from the baseline unless its preconditions say otherwise.
-- Prefer the DOM ids in the skill Drive table. Do not use coordinates.
+- Prefer the DOM ids in the skill Drive table. Floor-plan drawing is the exception: use `click-at` / `click-box`, not a center `click`.
 - Treat harness commands as literal.
 - After a mutating click, wait for the destination root (`#items-page`, `#item-page`, `#locations-page`, `#location-page`, `#settings-page`) or a flash.
 - Name and filter inputs debounce at 300ms. Wait for `#item-save` / `#location-save` to enable, or for the list to update. Do not assert on the draft value alone.
@@ -44,6 +44,6 @@ Each feature file starts with an H1 and one paragraph. Then exactly four H2 sect
 - [Log in](./log-in.md) covers password login, closed registration, and failed credentials.
 - [Items](./items.md) covers list, create, stock, filter, and persistence.
 - [Locations](./locations.md) covers add, open, rename, and the per-location item list.
-- [Floor plan](./floor-plan.md) covers optional multi-floor walls, pins, list badges, and delete-plan.
+- [Floor plan](./floor-plan.md) covers optional multi-floor walls, gaps, impassable areas, pins, list badges, and delete-plan.
 - [Delete](./delete.md) covers type-the-name item delete and empty-only location delete.
-- [Settings](./settings.md) covers sudo settings tabs, invites, and the activity feed.
+- [Settings](./settings.md) covers sudo settings tabs, invite minting, invite accept, and the activity feed.
