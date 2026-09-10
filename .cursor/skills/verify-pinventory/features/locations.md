@@ -9,6 +9,7 @@ Locations is the list of named storage places. A user adds a location, opens its
 - `locations-open` navigates to `/location/<id>`.
 - `locations-rename` saves a new name from `#location_name`.
 - `locations-items` lists stock at that location only (`#location-item-<item-id>`).
+- `locations-floor-plan` shows `#floor-plan-add` or `#floor-plan-preview` / placement badges when a plan exists. See [Floor plan](./floor-plan.md).
 
 ## How to get to it (user POV)
 
@@ -40,3 +41,4 @@ Preconditions:
 - Location names are unique and trimmed. Min length is 1.
 - The location page does not change stock. To put an item here, open the item editor. See [Items](./items.md).
 - Delete is disabled once any stock row exists. See [Delete](./delete.md).
+- Floor-plan badges only appear when a plan exists. Unplaced locations show `Not on plan`.

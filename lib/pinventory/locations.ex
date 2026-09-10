@@ -164,6 +164,27 @@ defmodule Pinventory.Locations do
     Repo.all(query)
   end
 
+  @doc """
+  Like `list_with_item_counts/0`, plus floor-plan placement cues.
+
+  When a floor plan exists, each location gets `on_plan?` and optional
+  `floor_name`. When there is no plan, `on_plan?` is false and `floor_name`
+  is nil (callers should hide plan badges entirely via `FloorPlans.floor_plan_exists?/0`).
+  """
+  def list_with_item_counts_and_placements do
+    placements = Pinventory.FloorPlans.placement_index()
+
+    Enum.map(list_with_item_counts(), fn location ->
+      case Map.get(placements, location.id) do
+        %{floor_name: floor_name} ->
+          %{location | on_plan?: true, floor_name: floor_name}
+
+        nil ->
+          %{location | on_plan?: false, floor_name: nil}
+      end
+    end)
+  end
+
   defp location_has_items?(repo, location_id) do
     repo.exists?(from il in ItemLocation, where: il.location_id == ^location_id)
   end

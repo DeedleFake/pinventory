@@ -107,7 +107,13 @@ defmodule Pinventory.MixProject do
         "esbuild pinventory --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: [
+        "compile --warning-as-errors",
+        "deps.unlock --unused",
+        "format",
+        "test",
+        "cmd node --experimental-default-type=module --test assets/js/hooks/floor_plan_geometry.test.js assets/js/hooks/placement_list_hover.test.js"
+      ]
     ]
   end
 end

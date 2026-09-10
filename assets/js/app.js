@@ -25,12 +25,15 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/pinventory"
 import topbar from "../vendor/topbar"
 import UnsavedChanges from "./hooks/unsaved_changes"
+import FloorPlanCanvas from "./hooks/floor_plan_canvas"
+import FloorRailSort from "./hooks/floor_rail_sort"
+import PlacementListHover, {PlacementCanvasHover} from "./hooks/placement_list_hover"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, UnsavedChanges},
+  hooks: {...colocatedHooks, UnsavedChanges, FloorPlanCanvas, FloorRailSort, PlacementListHover, PlacementCanvasHover},
 })
 
 // Show progress bar on live navigation and form submits
