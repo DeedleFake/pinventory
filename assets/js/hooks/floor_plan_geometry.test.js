@@ -1,6 +1,9 @@
 import assert from "node:assert/strict"
 import {describe, it} from "node:test"
 import {
+  ANGLE_SNAP_STEP,
+  angleSnapPoint,
+  distanceToLine,
   mergeExtension,
   nearestVertexWithin,
   polygonArea,
@@ -191,5 +194,57 @@ describe("nearestVertexWithin", () => {
     const hit = nearestVertexWithin({x: 0.79, y: 0.21}, ring, 0.05)
     assert.ok(hit)
     assert.equal(hit.index, 1)
+  })
+})
+
+
+describe("angleSnapPoint", () => {
+  const origin = {x: 0.5, y: 0.5}
+
+  it("uses 22.5° steps (16 directions)", () => {
+    assert.equal(ANGLE_SNAP_STEP, Math.PI / 8)
+  })
+
+  it("snaps near-horizontal to 0°", () => {
+    const p = angleSnapPoint(origin, {x: 0.8, y: 0.51})
+    assert.ok(Math.abs(p.y - 0.5) < 1e-9)
+    assert.ok(p.x > 0.5)
+  })
+
+  it("snaps near-vertical to 90°", () => {
+    const p = angleSnapPoint(origin, {x: 0.51, y: 0.8})
+    assert.ok(Math.abs(p.x - 0.5) < 1e-9)
+    assert.ok(p.y > 0.5)
+  })
+
+  it("snaps to 45° when closer than 22.5°/67.5°", () => {
+    // 40° from +x should round to 45° (π/4)
+    const rad = (40 * Math.PI) / 180
+    const raw = {x: origin.x + Math.cos(rad) * 0.2, y: origin.y + Math.sin(rad) * 0.2}
+    const p = angleSnapPoint(origin, raw)
+    const angle = Math.atan2(p.y - origin.y, p.x - origin.x)
+    assert.ok(Math.abs(angle - Math.PI / 4) < 1e-9)
+    assert.ok(Math.abs(Math.hypot(p.x - origin.x, p.y - origin.y) - 0.2) < 1e-9)
+  })
+
+  it("snaps to 22.5°", () => {
+    const rad = (20 * Math.PI) / 180
+    const raw = {x: origin.x + Math.cos(rad), y: origin.y + Math.sin(rad)}
+    const p = angleSnapPoint(origin, raw)
+    const angle = Math.atan2(p.y - origin.y, p.x - origin.x)
+    assert.ok(Math.abs(angle - Math.PI / 8) < 1e-9)
+  })
+
+  it("returns the anchor for zero-length", () => {
+    assert.deepEqual(angleSnapPoint(origin, {x: 0.5, y: 0.5}), {x: 0.5, y: 0.5})
+  })
+})
+
+describe("distanceToLine", () => {
+  it("is zero on the line and positive off it", () => {
+    const a = {x: 0, y: 0}
+    const b = {x: 1, y: 0}
+    assert.equal(distanceToLine({x: 0.5, y: 0}, a, b), 0)
+    assert.ok(Math.abs(distanceToLine({x: 0.5, y: 0.1}, a, b) - 0.1) < 1e-9)
   })
 })

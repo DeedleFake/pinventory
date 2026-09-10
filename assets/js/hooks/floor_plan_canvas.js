@@ -14,7 +14,13 @@
  *
  * Walls: first click sets start (snap), second click commits; Escape cancels.
  * Snap: wall endpoints/segments + placement vertices/edges (data-snap-*).
- * Hold Ctrl/Meta to place at raw canvas coords (no snap); preview follows.
+ * Hold Ctrl/Meta to place at raw canvas coords (no geometry snap); preview follows.
+ * Hold Shift while drafting a wall (or a polygon edge with a previous point) to
+ * constrain the free endpoint to the nearest 22.5° angle from the last fixed
+ * point (16 directions). Order: raw pointer → (if Shift) angle ray from anchor →
+ * then optional geometry snap along that ray (endpoint snap when near a vertex
+ * on the ray). Ctrl/Meta still disables geometry snap; Shift can still angle-constrain.
+ * Shift keydown/keyup refreshes the draft preview live.
  * Draft corners dedupe within SNAP_DISTANCE so near-clicks reuse an existing vertex.
  * Polygon finish: close on a different vertex, double-click, or Done (adjacent auto); Escape cancels.
  *
@@ -23,6 +29,8 @@
  * preserveAspectRatio meet keeps the world square (no window stretch).
  */
 import {
+  angleSnapPoint,
+  distanceToLine,
   mergeExtension as mergeExtensionGeometry,
   nearestVertexWithin,
   provisionalCloseIndex,
@@ -191,7 +199,7 @@ const FloorPlanCanvas = {
   },
 
   handleKeyDown(event) {
-    if (event.key === "Control" || event.key === "Meta") {
+    if (event.key === "Control" || event.key === "Meta" || event.key === "Shift") {
       this.refreshPointerFromModifiers(event)
     }
 
@@ -266,7 +274,7 @@ const FloorPlanCanvas = {
   },
 
   handleKeyUp(event) {
-    if (event.key === "Control" || event.key === "Meta") {
+    if (event.key === "Control" || event.key === "Meta" || event.key === "Shift") {
       this.refreshPointerFromModifiers(event)
     }
     if (event.code === "Space") {
@@ -281,17 +289,63 @@ const FloorPlanCanvas = {
   },
 
   /**
-   * Resolve pointer to unit coords; skip geometry snap while Ctrl/Meta held.
-   * Always records lastRawPoint for modifier key refresh.
+   * Last fixed draft vertex used as the Shift angle-snap anchor, or null.
+   * Wall: draft start. Polygon: last committed point when at least one exists.
+   */
+  draftAnchor() {
+    if (this.draftWall && this.draftWall.start) return this.draftWall.start
+    if (this.draftPolygon && this.draftPolygon.points && this.draftPolygon.points.length >= 1) {
+      const pts = this.draftPolygon.points
+      return pts[pts.length - 1]
+    }
+    return null
+  },
+
+  /**
+   * Resolve pointer to unit coords.
+   * Order: raw → (if Shift + anchor) project onto nearest 22.5° ray → then
+   * optional geometry snap along that constraint (Ctrl/Meta skips geometry snap;
+   * Shift still angle-constrains). Always records lastRawPoint for modifier refresh.
    */
   resolvePointer(event) {
     const raw = this.eventToUnit(event)
     if (!raw) return {point: null, snapped: false, raw: null}
     this.lastRawPoint = raw
-    if (this.skipSnapFromEvent(event)) {
-      return {point: raw, snapped: false, raw}
+    return this.resolveFromRaw(raw, event)
+  },
+
+  /**
+   * Shared resolve used by pointer moves and Shift/Ctrl/Meta key refresh.
+   * `mods` is a keyboard/pointer event (shiftKey / ctrlKey / metaKey).
+   */
+  resolveFromRaw(raw, mods) {
+    if (!raw) return {point: null, snapped: false, raw: null}
+    const skipGeom = this.skipSnapFromEvent(mods)
+    const shift = !!(mods && mods.shiftKey)
+    const anchor = this.draftAnchor()
+
+    let point = raw
+    if (shift && anchor) {
+      point = angleSnapPoint(anchor, raw)
     }
-    const snapped = this.snap(raw)
+
+    if (skipGeom) {
+      return {point, snapped: false, raw}
+    }
+
+    const snapped = this.snap(point)
+    if (!snapped.snapped) {
+      return {point, snapped: false, raw}
+    }
+
+    // Shift stays primary: accept geometry snap only when still near the angle ray.
+    if (shift && anchor) {
+      if (distanceToLine(snapped.point, anchor, point) <= SNAP_DISTANCE) {
+        return {point: snapped.point, snapped: true, raw}
+      }
+      return {point, snapped: false, raw}
+    }
+
     return {point: snapped.point, snapped: snapped.snapped, raw}
   },
 
@@ -300,10 +354,7 @@ const FloorPlanCanvas = {
     if (!(this.mode === "wall" || (this.mode === "place" && this.locationId))) {
       return
     }
-    const skip = this.skipSnapFromEvent(event)
-    const resolved = skip
-      ? {point: this.lastRawPoint, snapped: false}
-      : this.snap(this.lastRawPoint)
+    const resolved = this.resolveFromRaw(this.lastRawPoint, event)
     this.snapPoint = resolved.snapped ? resolved.point : null
     this.drawSnapIndicator()
     if (this.draftWall) {

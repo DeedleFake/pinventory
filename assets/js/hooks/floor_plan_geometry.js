@@ -1,6 +1,14 @@
 /**
- * Pure polygon helpers for floor-plan area extend / merge.
- * Extend replaces a boundary arc a ⇝ c with a → midPoints → c.
+ * Pure geometry helpers for the floor-plan canvas.
+ *
+ * Polygon extend / merge: replace a boundary arc a ⇝ c with a → midPoints → c.
+ *
+ * Angle snap: while drafting a wall (or a polygon edge with a previous point),
+ * Shift constrains the free endpoint to the nearest 22.5° ray from the last
+ * fixed point (16 directions: 0°, 22.5°, …, 337.5° — horizontal, vertical, and
+ * three evenly spaced angles per quadrant). Compose after the raw pointer and
+ * before/with geometry snap so Shift stays primary for “make it straight”
+ * while nearby vertices on that ray can still snap.
  */
 
 function copyPoint(p) {
@@ -229,4 +237,40 @@ export function provisionalCloseIndex(existing, attachIndex, cursor, closeDist) 
     }
   }
   return best == null ? attachIndex : best
+}
+
+
+/** 22.5° in radians — 16 directions around the circle. */
+export const ANGLE_SNAP_STEP = Math.PI / 8
+
+/**
+ * Project `point` onto the ray from `anchor` at the nearest 22.5° multiple
+ * (0°, 22.5°, …, 337.5°). Preserves distance from anchor to point.
+ * Returns a copied `{x, y}`; degenerate (zero-length) returns the anchor.
+ */
+export function angleSnapPoint(anchor, point) {
+  if (!anchor || !point) return point ? copyPoint(point) : point
+  const dx = point.x - anchor.x
+  const dy = point.y - anchor.y
+  const dist = Math.hypot(dx, dy)
+  if (dist < 1e-12) return copyPoint(anchor)
+  const angle = Math.atan2(dy, dx)
+  const snapped = Math.round(angle / ANGLE_SNAP_STEP) * ANGLE_SNAP_STEP
+  return {
+    x: anchor.x + Math.cos(snapped) * dist,
+    y: anchor.y + Math.sin(snapped) * dist,
+  }
+}
+
+/**
+ * Perpendicular distance from `point` to the infinite line through `a` and `b`.
+ * Returns 0 when `a` and `b` coincide.
+ */
+export function distanceToLine(point, a, b) {
+  if (!point || !a || !b) return Infinity
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len = Math.hypot(dx, dy)
+  if (len < 1e-12) return Math.hypot(point.x - a.x, point.y - a.y)
+  return Math.abs(dx * (a.y - point.y) - dy * (a.x - point.x)) / len
 }
