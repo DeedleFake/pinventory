@@ -98,8 +98,9 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, "#floor-plan-sidebar #history-redo")
     assert has_element?(view, "#floor-plan-wall-tools")
     assert has_element?(view, "#tool-wall")
-    assert has_element?(view, "#tool-erase")
     assert has_element?(view, "#tool-gap")
+    assert has_element?(view, "#tool-erase")
+    assert html =~ ~r/id="tool-wall"[\s\S]*id="tool-gap"[\s\S]*id="tool-erase"/
     refute has_element?(view, "#tool-place")
     assert has_element?(view, "#history-undo")
     assert has_element?(view, "#history-redo")

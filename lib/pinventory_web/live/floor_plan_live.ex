@@ -116,19 +116,6 @@ defmodule PinventoryWeb.FloorPlanLive do
                 </button>
                 <button
                   type="button"
-                  id="tool-erase"
-                  phx-click="set_mode"
-                  phx-value-mode="erase"
-                  class={[
-                    "btn btn-sm justify-start",
-                    @mode == "erase" && "btn-primary",
-                    @mode != "erase" && "btn-ghost border border-base-300"
-                  ]}
-                >
-                  <.icon name="hero-trash" class="size-4" /> Erase
-                </button>
-                <button
-                  type="button"
                   id="tool-gap"
                   phx-click="set_mode"
                   phx-value-mode="gap"
@@ -139,6 +126,19 @@ defmodule PinventoryWeb.FloorPlanLive do
                   ]}
                 >
                   <.icon name="hero-minus" class="size-4" /> Cut gap
+                </button>
+                <button
+                  type="button"
+                  id="tool-erase"
+                  phx-click="set_mode"
+                  phx-value-mode="erase"
+                  class={[
+                    "btn btn-sm justify-start",
+                    @mode == "erase" && "btn-primary",
+                    @mode != "erase" && "btn-ghost border border-base-300"
+                  ]}
+                >
+                  <.icon name="hero-trash" class="size-4" /> Erase
                 </button>
               </div>
             </section>
