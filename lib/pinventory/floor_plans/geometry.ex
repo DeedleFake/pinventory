@@ -9,6 +9,7 @@ defmodule Pinventory.FloorPlans.Geometry do
   # Unit-square coords; slightly loose so float endpoints still merge.
   @eps 1.0e-5
   @collinear_eps 1.0e-4
+  @min_remainder_length 0.02
 
   @type point :: {number(), number()}
   @type segment :: {point(), point()}
@@ -80,6 +81,56 @@ defmodule Pinventory.FloorPlans.Geometry do
   end
 
   @doc """
+  Parameter `t` in `[0, 1]` and the clamped point of `point` on `seg`.
+  """
+  def project_point_on_segment(%{x1: x1, y1: y1, x2: x2, y2: y2}, {px, py})
+      when is_number(px) and is_number(py) do
+    dx = x2 - x1
+    dy = y2 - y1
+
+    t =
+      cond do
+        abs(dx) <= @eps and abs(dy) <= @eps ->
+          0.0
+
+        true ->
+          (((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy))
+          |> max(0.0)
+          |> min(1.0)
+      end
+
+    {t * 1.0, {x1 + t * dx, y1 + t * dy}}
+  end
+
+  @doc """
+  Cut the open segment `seg` on `[t0, t1]` (order-independent, clamped to `[0, 1]`).
+
+  Returns remainder coord maps. A remainder shorter than #{@min_remainder_length}
+  is dropped. Empty list means the whole segment was removed. When `t0` and `t1`
+  are within eps, returns the original segment as the sole remainder.
+  """
+  def cut_segment(%{x1: x1, y1: y1, x2: x2, y2: y2}, t0, t1)
+      when is_number(t0) and is_number(t1) do
+    t0 = t0 |> max(0.0) |> min(1.0)
+    t1 = t1 |> max(0.0) |> min(1.0)
+    {t_lo, t_hi} = if t0 <= t1, do: {t0, t1}, else: {t1, t0}
+
+    if abs(t_hi - t_lo) <= @eps do
+      [segment_to_coords({{x1, y1}, {x2, y2}})]
+    else
+      dx = x2 - x1
+      dy = y2 - y1
+      at = fn t -> {x1 + t * dx, y1 + t * dy} end
+
+      [
+        remainder_coords({x1, y1}, at.(t_lo)),
+        remainder_coords(at.(t_hi), {x2, y2})
+      ]
+      |> Enum.filter(& &1)
+    end
+  end
+
+  @doc """
   Drop vertices that are collinear with both neighbors on a closed polygon.
   Repeats until stable; always keeps at least three vertices.
   Accepts `%{"x" => _, "y" => _}` maps (and atom-key maps).
@@ -109,6 +160,16 @@ defmodule Pinventory.FloorPlans.Geometry do
       length(kept) < 3 -> points
       length(kept) == length(points) -> kept
       true -> do_drop_collinear(kept)
+    end
+  end
+
+  defp remainder_coords({x1, y1}, {x2, y2}) do
+    len = :math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1))
+
+    if len < @min_remainder_length do
+      nil
+    else
+      %{x1: x1 * 1.0, y1: y1 * 1.0, x2: x2 * 1.0, y2: y2 * 1.0}
     end
   end
 

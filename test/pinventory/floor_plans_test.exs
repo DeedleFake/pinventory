@@ -349,6 +349,123 @@ defmodule Pinventory.FloorPlansTest do
     end
   end
 
+  describe "cut wall gap" do
+    setup do
+      {:ok, floors} = FloorPlans.create_floor_plan()
+      %{floor: hd(floors)}
+    end
+
+    test "middle cut leaves two remainders and drops the original id", %{floor: floor} do
+      assert {:ok, floor} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.0, "y1" => 0.5, "x2" => 1.0, "y2" => 0.5})
+
+      [wall] = floor.walls
+      original_id = wall.id
+
+      assert {:ok, floor} = FloorPlans.cut_wall_gap(floor, original_id, {0.3, 0.5}, {0.6, 0.5})
+      assert length(floor.walls) == 2
+      refute Enum.any?(floor.walls, &(&1.id == original_id))
+      assert_has_span(floor.walls, {0.0, 0.5}, {0.3, 0.5})
+      assert_has_span(floor.walls, {0.6, 0.5}, {1.0, 0.5})
+    end
+
+    test "end nibble leaves one wall from the cut to the far end", %{floor: floor} do
+      assert {:ok, floor} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.0, "y1" => 0.5, "x2" => 1.0, "y2" => 0.5})
+
+      [wall] = floor.walls
+
+      assert {:ok, floor} = FloorPlans.cut_wall_gap(floor, wall.id, {0.0, 0.5}, {0.25, 0.5})
+      assert length(floor.walls) == 1
+      assert_has_span(floor.walls, {0.25, 0.5}, {1.0, 0.5})
+    end
+
+    test "cutting both endpoints removes the wall", %{floor: floor} do
+      assert {:ok, floor} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.0, "y1" => 0.5, "x2" => 1.0, "y2" => 0.5})
+
+      [wall] = floor.walls
+
+      assert {:ok, floor} = FloorPlans.cut_wall_gap(floor, wall.id, {0.0, 0.5}, {1.0, 0.5})
+      assert floor.walls == []
+    end
+
+    test "drops a remainder shorter than 0.02", %{floor: floor} do
+      assert {:ok, floor} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.0, "y1" => 0.5, "x2" => 1.0, "y2" => 0.5})
+
+      [wall] = floor.walls
+
+      assert {:ok, floor} = FloorPlans.cut_wall_gap(floor, wall.id, {0.01, 0.5}, {0.4, 0.5})
+      assert length(floor.walls) == 1
+      assert_has_span(floor.walls, {0.4, 0.5}, {1.0, 0.5})
+
+      refute Enum.any?(floor.walls, fn w ->
+               approx_pt({w.x1, w.y1}, {0.0, 0.5}) or approx_pt({w.x2, w.y2}, {0.0, 0.5})
+             end)
+    end
+
+    test "missing id is not_found", %{floor: floor} do
+      assert {:error, :not_found} =
+               FloorPlans.cut_wall_gap(
+                 floor,
+                 "00000000-0000-0000-0000-000000000000",
+                 {0.0, 0.5},
+                 {0.3, 0.5}
+               )
+    end
+
+    test "gapping the crossbar does not delete a T-stem", %{floor: floor} do
+      assert {:ok, floor} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.0, "y1" => 0.5, "x2" => 1.0, "y2" => 0.5})
+
+      crossbar_id = hd(floor.walls).id
+
+      assert {:ok, floor} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.5, "y1" => 0.5, "x2" => 0.5, "y2" => 0.9})
+
+      assert length(floor.walls) == 2
+
+      assert {:ok, floor} = FloorPlans.cut_wall_gap(floor, crossbar_id, {0.2, 0.5}, {0.8, 0.5})
+      assert length(floor.walls) == 3
+      refute Enum.any?(floor.walls, &(&1.id == crossbar_id))
+      assert Enum.any?(floor.walls, &(&1.x1 == 0.5 and &1.x2 == 0.5))
+      assert_has_span(floor.walls, {0.0, 0.5}, {0.2, 0.5})
+      assert_has_span(floor.walls, {0.8, 0.5}, {1.0, 0.5})
+    end
+
+    test "no-op when both points project to the same place", %{floor: floor} do
+      assert {:ok, floor} =
+               FloorPlans.add_wall(floor, %{"x1" => 0.0, "y1" => 0.5, "x2" => 1.0, "y2" => 0.5})
+
+      [wall] = floor.walls
+
+      assert {:ok, updated} = FloorPlans.cut_wall_gap(floor, wall.id, {0.5, 0.5}, {0.5, 0.51})
+      assert length(updated.walls) == 1
+      [kept] = updated.walls
+      assert kept.id == wall.id
+      assert kept.x1 == 0.0
+      assert kept.y1 == 0.5
+      assert kept.x2 == 1.0
+      assert kept.y2 == 0.5
+    end
+  end
+
+  defp assert_has_span(walls, {x1, y1}, {x2, y2}) do
+    found =
+      Enum.any?(walls, fn w ->
+        (approx_pt({w.x1, w.y1}, {x1, y1}) and approx_pt({w.x2, w.y2}, {x2, y2})) or
+          (approx_pt({w.x1, w.y1}, {x2, y2}) and approx_pt({w.x2, w.y2}, {x1, y1}))
+      end)
+
+    assert found,
+           "expected span #{inspect({x1, y1, x2, y2})} in #{inspect(Enum.map(walls, &{&1.x1, &1.y1, &1.x2, &1.y2}))}"
+  end
+
+  defp approx_pt({ax, ay}, {bx, by}) do
+    abs(ax - bx) < 1.0e-6 and abs(ay - by) < 1.0e-6
+  end
+
   describe "polygon helpers" do
     test "builds svg points and centroid" do
       points = triangle()
