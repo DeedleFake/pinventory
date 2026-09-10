@@ -221,134 +221,125 @@ defmodule PinventoryWeb.FloorPlanLive do
           </aside>
 
           <div
-            id="floor-plan-canvas-hover"
-            phx-hook="PlacementCanvasHover"
+            id="floor-plan-canvas"
+            phx-hook="FloorPlanCanvas"
+            data-mode={@mode}
+            data-location-id={@placing_location_id || ""}
+            data-place-mode={@place_mode}
+            data-existing-points={@existing_points_json}
+            tabindex="0"
             class={[
-              "min-w-0 flex-1",
-              "h-[calc(100vh-12rem)] min-h-[28rem] w-full"
+              "relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-base-300 bg-base-200/40",
+              "h-[calc(100vh-12rem)] min-h-[28rem] w-full touch-none select-none outline-none",
+              "focus-visible:ring-2 focus-visible:ring-primary/40",
+              @mode == "wall" && "cursor-crosshair",
+              @mode == "erase" && "cursor-pointer",
+              @mode == "place" && @placing_location_id && "cursor-cell",
+              @mode == "place" && !@placing_location_id && "cursor-not-allowed"
             ]}
           >
             <div
-              id="floor-plan-canvas"
-              phx-hook="FloorPlanCanvas"
-              data-mode={@mode}
-              data-location-id={@placing_location_id || ""}
-              data-place-mode={@place_mode}
-              data-existing-points={@existing_points_json}
-              tabindex="0"
-              class={[
-                "relative h-full w-full overflow-hidden rounded-2xl border border-base-300 bg-base-200/40",
-                "touch-none select-none outline-none",
-                "focus-visible:ring-2 focus-visible:ring-primary/40",
-                @mode == "wall" && "cursor-crosshair",
-                @mode == "erase" && "cursor-pointer",
-                @mode == "place" && @placing_location_id && "cursor-cell",
-                @mode == "place" && !@placing_location_id && "cursor-not-allowed"
-              ]}
+              id="floor-plan-view-chrome"
+              class="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2"
             >
-              <div
-                id="floor-plan-view-chrome"
-                class="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2"
+              <button
+                type="button"
+                id="floor-plan-zoom-reset"
+                data-zoom-reset
+                class="btn btn-sm btn-ghost border border-base-300 bg-base-100/90 pointer-events-auto shadow-md"
+                title="Reset zoom (fits floor)"
               >
-                <button
-                  type="button"
-                  id="floor-plan-zoom-reset"
-                  data-zoom-reset
-                  class="btn btn-sm btn-ghost border border-base-300 bg-base-100/90 pointer-events-auto shadow-md"
-                  title="Reset zoom (fits floor)"
-                >
-                  <.icon name="hero-arrows-pointing-out" class="size-4" /> Reset view
-                </button>
-                <span class="hidden rounded-md border border-base-300 bg-base-100/80 px-2 py-1 text-[10px] opacity-70 sm:inline">
-                  Wheel zoom · Space/middle-drag pan
-                </span>
-              </div>
-
-              <div
-                id="polygon-finish-bar"
-                class="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-2"
-              >
-                <button
-                  type="button"
-                  id="polygon-finish"
-                  data-polygon-finish
-                  class="btn btn-sm btn-primary pointer-events-auto shadow-md hidden"
-                  title="Finish area"
-                >
-                  <.icon name="hero-check" class="size-4" /> Done
-                </button>
-              </div>
-
-              <svg
-                data-floor-plan-svg
-                id={"floor-svg-#{@selected_floor.id}"}
-                viewBox="0 0 1 1"
-                preserveAspectRatio="xMidYMid meet"
-                class="h-full w-full text-base-content"
-              >
-                <rect
-                  x="0"
-                  y="0"
-                  width="1"
-                  height="1"
-                  class="fill-base-100"
-                  stroke="none"
-                />
-
-                <.placement_area
-                  :for={placement <- @selected_floor.location_placements}
-                  placement={placement}
-                  selected?={@selected_placement_id == placement.location_id}
-                  show_snap?={true}
-                />
-
-                <g :for={{wall, index} <- Enum.with_index(@selected_floor.walls)}>
-                  <line
-                    data-wall-seg
-                    x1={wall["x1"]}
-                    y1={wall["y1"]}
-                    x2={wall["x2"]}
-                    y2={wall["y2"]}
-                    stroke="currentColor"
-                    stroke-width="0.014"
-                    stroke-linecap="round"
-                    class="opacity-80 pointer-events-none"
-                  />
-                  <line
-                    data-wall-index={index}
-                    x1={wall["x1"]}
-                    y1={wall["y1"]}
-                    x2={wall["x2"]}
-                    y2={wall["y2"]}
-                    stroke="transparent"
-                    stroke-width="0.045"
-                    stroke-linecap="round"
-                    class={[
-                      @mode == "erase" && "cursor-pointer",
-                      @mode != "erase" && "pointer-events-none"
-                    ]}
-                  />
-                </g>
-              </svg>
-
-              <p
-                :if={@selected_floor.walls == [] and @selected_floor.location_placements == []}
-                class="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm opacity-50"
-              >
-                <%= cond do %>
-                  <% @mode == "wall" -> %>
-                    Click once for the start, again for the end. Snap to walls and location corners. Escape cancels.
-                  <% @mode == "erase" -> %>
-                    Click a wall segment to erase it.
-                  <% @mode == "place" && @placing_location_id && @place_mode == "extend" -> %>
-                    Click a corner to attach, add points, then click a different corner to close, or Done to close on an adjacent edge. Escape cancels.
-                  <% @mode == "place" && @placing_location_id -> %>
-                    Click points to draw an area. Close near the first point, double-click, or Done. Escape cancels.
-                  <% true -> %>
-                    Choose a location in the sidebar, then click points to draw its area.
-                <% end %>
-              </p>
+                <.icon name="hero-arrows-pointing-out" class="size-4" /> Reset view
+              </button>
+              <span class="hidden rounded-md border border-base-300 bg-base-100/80 px-2 py-1 text-[10px] opacity-70 sm:inline">
+                Wheel zoom · Space/middle-drag pan
+              </span>
             </div>
+
+            <div
+              id="polygon-finish-bar"
+              class="pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-2"
+            >
+              <button
+                type="button"
+                id="polygon-finish"
+                data-polygon-finish
+                class="btn btn-sm btn-primary pointer-events-auto shadow-md hidden"
+                title="Finish area"
+              >
+                <.icon name="hero-check" class="size-4" /> Done
+              </button>
+            </div>
+
+            <svg
+              data-floor-plan-svg
+              id={"floor-svg-#{@selected_floor.id}"}
+              viewBox="0 0 1 1"
+              preserveAspectRatio="xMidYMid meet"
+              class="h-full w-full text-base-content"
+            >
+              <rect
+                x="0"
+                y="0"
+                width="1"
+                height="1"
+                class="fill-base-100"
+                stroke="none"
+              />
+
+              <.placement_area
+                :for={placement <- @selected_floor.location_placements}
+                placement={placement}
+                selected?={@selected_placement_id == placement.location_id}
+                show_snap?={true}
+              />
+
+              <g :for={{wall, index} <- Enum.with_index(@selected_floor.walls)}>
+                <line
+                  data-wall-seg
+                  x1={wall["x1"]}
+                  y1={wall["y1"]}
+                  x2={wall["x2"]}
+                  y2={wall["y2"]}
+                  stroke="currentColor"
+                  stroke-width="0.014"
+                  stroke-linecap="round"
+                  class="opacity-80 pointer-events-none"
+                />
+                <line
+                  data-wall-index={index}
+                  x1={wall["x1"]}
+                  y1={wall["y1"]}
+                  x2={wall["x2"]}
+                  y2={wall["y2"]}
+                  stroke="transparent"
+                  stroke-width="0.045"
+                  stroke-linecap="round"
+                  class={[
+                    @mode == "erase" && "cursor-pointer",
+                    @mode != "erase" && "pointer-events-none"
+                  ]}
+                />
+              </g>
+            </svg>
+
+            <p
+              :if={@selected_floor.walls == [] and @selected_floor.location_placements == []}
+              class="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm opacity-50"
+            >
+              <%= cond do %>
+                <% @mode == "wall" -> %>
+                  Click once for the start, again for the end. Snap to walls and location corners. Escape cancels.
+                <% @mode == "erase" -> %>
+                  Click a wall segment to erase it.
+                <% @mode == "place" && @placing_location_id && @place_mode == "extend" -> %>
+                  Click a corner to attach, add points, then click a different corner to close, or Done to close on an adjacent edge. Escape cancels.
+                <% @mode == "place" && @placing_location_id -> %>
+                  Click points to draw an area. Close near the first point, double-click, or Done. Escape cancels.
+                <% true -> %>
+                  Choose a location in the sidebar, then click points to draw its area.
+              <% end %>
+            </p>
           </div>
 
           <aside

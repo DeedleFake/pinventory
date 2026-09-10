@@ -86,7 +86,6 @@ function canvasQueryRoot(doc) {
 function listQueryRoot(doc) {
   return (
     doc.querySelector("#locations-list-hover") ||
-    doc.querySelector("#placeable-locations") ||
     doc.querySelector("#locations") ||
     doc.querySelector("#locations-list") ||
     doc.querySelector('[phx-hook="PlacementListHover"]') ||
