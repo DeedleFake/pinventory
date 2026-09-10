@@ -2,7 +2,7 @@ defmodule Pinventory.FloorPlansTest do
   use Pinventory.DataCase, async: false
 
   alias Pinventory.FloorPlans
-  alias Pinventory.FloorPlans.{Floor, LocationPlacement, Wall}
+  alias Pinventory.FloorPlans.{Floor, ImpassableArea, LocationPlacement, Wall}
   alias Pinventory.Locations
 
   import Pinventory.AccountsFixtures
@@ -233,6 +233,58 @@ defmodule Pinventory.FloorPlansTest do
       assert length(restored_floor.walls) == 1
       assert restored_floor.location_placements == []
       assert FloorPlans.placement_index() == %{}
+    end
+
+    test "stores an impassable triangle on the floor", %{floor: floor} do
+      points = triangle()
+      assert {:ok, updated} = FloorPlans.add_impassable_area(floor, points)
+      assert [%ImpassableArea{points: ^points} = saved] = updated.impassable_areas
+      assert hd(FloorPlans.get_floor!(floor.id).impassable_areas).id == saved.id
+    end
+
+    test "rejects an impassable polygon with fewer than three points", %{floor: floor} do
+      assert {:error, changeset} =
+               FloorPlans.add_impassable_area(floor, [
+                 %{"x" => 0.1, "y" => 0.1},
+                 %{"x" => 0.2, "y" => 0.2}
+               ])
+
+      assert changeset.errors[:points]
+    end
+
+    test "removes an impassable area by id", %{floor: floor} do
+      assert {:ok, updated} = FloorPlans.add_impassable_area(floor, triangle())
+      [saved] = updated.impassable_areas
+      assert {:ok, cleared} = FloorPlans.remove_impassable_area(updated, saved.id)
+      assert cleared.impassable_areas == []
+    end
+
+    test "remove_impassable_area is not_found for a missing id", %{floor: floor} do
+      assert {:error, :not_found} =
+               FloorPlans.remove_impassable_area(floor, Ecto.UUID.generate())
+    end
+
+    test "remove_impassable_area is not_found for another floor's id", %{floor: floor} do
+      assert {:ok, updated} = FloorPlans.add_impassable_area(floor, triangle())
+      [saved] = updated.impassable_areas
+      assert {:ok, other} = FloorPlans.add_floor()
+
+      assert {:error, :not_found} = FloorPlans.remove_impassable_area(other, saved.id)
+      assert length(FloorPlans.get_floor!(floor.id).impassable_areas) == 1
+    end
+
+    test "restore_plan_geometry restores an impassable polygon", %{floor: floor} do
+      points = triangle()
+      assert {:ok, updated} = FloorPlans.add_impassable_area(floor, points)
+      [saved] = updated.impassable_areas
+      before = FloorPlans.plan_geometry_snapshot(FloorPlans.list_floors())
+
+      assert {:ok, _} = FloorPlans.remove_impassable_area(updated, saved.id)
+      assert hd(FloorPlans.list_floors()).impassable_areas == []
+
+      assert {:ok, restored} = FloorPlans.restore_plan_geometry(before)
+      assert [%ImpassableArea{id: restored_id, points: ^points}] = hd(restored).impassable_areas
+      assert restored_id == saved.id
     end
 
     test "restore_plan_geometry recreates a deleted floor", %{floor: floor} do
