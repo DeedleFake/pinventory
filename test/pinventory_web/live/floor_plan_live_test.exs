@@ -99,6 +99,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     assert has_element?(view, "#floor-plan-wall-tools")
     assert has_element?(view, "#tool-wall")
     assert has_element?(view, "#tool-erase")
+    assert has_element?(view, "#tool-gap")
     refute has_element?(view, "#tool-place")
     assert has_element?(view, "#history-undo")
     assert has_element?(view, "#history-redo")
@@ -286,6 +287,59 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     html = render(view)
     assert html =~ ~s|data-wall-seg|
     refute html =~ ~s|data-wall-seg" class="opacity-80|
+  end
+
+  test "cut gap tool sets canvas mode", %{conn: conn} do
+    {:ok, _} = FloorPlans.create_floor_plan()
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+
+    assert has_element?(view, "#tool-gap")
+    assert has_element?(view, "#tool-erase")
+
+    view |> element("#tool-gap") |> render_click()
+
+    assert has_element?(view, "#floor-plan-canvas[data-mode=gap]")
+  end
+
+  test "splits a wall via wall_gapped hook", %{conn: conn} do
+    {:ok, floors} = FloorPlans.create_floor_plan()
+    floor = hd(floors)
+
+    assert {:ok, with_wall} =
+             FloorPlans.add_wall(floor, %{"x1" => 0.0, "y1" => 0.5, "x2" => 1.0, "y2" => 0.5})
+
+    wall_id = hd(with_wall.walls).id
+
+    {:ok, view, _html} = live(conn, ~p"/locations/floor-plan")
+
+    view
+    |> element("#floor-plan-canvas")
+    |> render_hook("wall_gapped", %{
+      "id" => wall_id,
+      "ax" => 0.3,
+      "ay" => 0.5,
+      "bx" => 0.6,
+      "by" => 0.5
+    })
+
+    walls = hd(FloorPlans.list_floors()).walls
+    assert length(walls) == 2
+    refute Enum.any?(walls, &(&1.id == wall_id))
+
+    for wall <- walls do
+      assert_in_delta wall.y1, 0.5, 1.0e-6
+      assert_in_delta wall.y2, 0.5, 1.0e-6
+    end
+
+    xs =
+      walls
+      |> Enum.flat_map(&[&1.x1, &1.x2])
+      |> Enum.sort()
+
+    assert_in_delta Enum.at(xs, 0), 0.0, 1.0e-6
+    assert_in_delta Enum.at(xs, 1), 0.3, 1.0e-6
+    assert_in_delta Enum.at(xs, 2), 0.6, 1.0e-6
+    assert_in_delta Enum.at(xs, 3), 1.0, 1.0e-6
   end
 
   test "erases a wall by id", %{conn: conn} do

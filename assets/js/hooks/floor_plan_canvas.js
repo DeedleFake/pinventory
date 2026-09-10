@@ -1,7 +1,7 @@
 /**
  * SVG floor-plan canvas: draw/erase walls and draw/extend location polygons.
  *
- * data-mode: "wall" | "erase" | "place" | "browse"
+ * data-mode: "wall" | "erase" | "gap" | "place" | "browse"
  * data-location-id: when mode is "place", the location for the polygon
  * data-place-mode: "new" | "extend"
  * data-existing-points: JSON [{x,y}, ...] when extending an existing polygon
@@ -9,10 +9,13 @@
  * Pushes LiveView events:
  *   wall_drawn      — {x1,y1,x2,y2} world coords
  *   wall_erased     — {id}
+ *   wall_gapped     — {id, ax, ay, bx, by} two projected points on one wall
  *   polygon_placed  — {location_id, points: [{x,y}, ...]} (full polygon)
  *   undo / redo     — keyboard shortcuts
  *
  * Walls: first click sets start (snap), second click commits; Escape cancels.
+ * Gap: first click pins a point on a wall, second click on that wall cuts the
+ * span; Escape cancels the pin. Remainders are computed on the server.
  * Snap: wall endpoints/segments + placement vertices/edges (data-snap-*).
  * Hold Ctrl/Meta to place at raw canvas coords (no geometry snap); preview follows.
  * Hold Shift while drafting to constrain to 22.5° angles (16 directions). Walls
@@ -35,6 +38,7 @@
 import {
   angleSnapPoint,
   angleSnapPointDual,
+  closestPointOnSegment,
   contentBoundsFromSegments,
   DEFAULT_FEET_PER_UNIT,
   fitSquareCamera,
@@ -44,6 +48,7 @@ import {
   measurementLabelPose,
   mergeExtension as mergeExtensionGeometry,
   nearestVertexWithin,
+  pointOnSegment,
   provisionalCloseIndex,
   snapOnAngleLine,
 } from "./floor_plan_geometry.js"
@@ -60,6 +65,7 @@ const FloorPlanCanvas = {
     this.resetBtn = this.el.querySelector("[data-zoom-reset]")
     this.draftWall = null
     this.draftPolygon = null
+    this.draftGap = null
     this.snapPoint = null
     this.lastRawPoint = null
     this.spaceHeld = false
@@ -130,6 +136,7 @@ const FloorPlanCanvas = {
       // Draft overlays lived on the old SVG; drop in-progress drawing.
       this.draftWall = null
       this.draftPolygon = null
+      this.draftGap = null
       this.snapPoint = null
     }
     if (floorChanged) {
@@ -156,6 +163,7 @@ const FloorPlanCanvas = {
     this.applyCamera()
     if (this.draftPolygon) this.drawPolygonDraft()
     if (this.draftWall) this.drawWallDraft()
+    if (this.draftGap) this.drawGapDraft()
     this.drawSnapIndicator()
     this.updateFinishButton()
     this.updatePanCursor()
@@ -176,6 +184,7 @@ const FloorPlanCanvas = {
     if (this.resetBtn) this.resetBtn.removeEventListener("click", this.onResetClick)
     this.clearWallDraft()
     this.clearPolygonDraft()
+    this.clearGapDraft()
     this.clearSnapIndicator()
   },
 
@@ -194,6 +203,7 @@ const FloorPlanCanvas = {
     if (modeChanged || locationChanged || placeModeChanged || existingChanged) {
       this.clearWallDraft()
       this.clearPolygonDraft()
+      this.clearGapDraft()
       this.clearSnapIndicator()
     }
 
@@ -242,6 +252,12 @@ const FloorPlanCanvas = {
         if (this.mode === "wall" && this.draftWall) {
           event.preventDefault()
           this.clearWallDraft()
+          this.clearSnapIndicator()
+          return
+        }
+        if (this.mode === "gap" && this.draftGap) {
+          event.preventDefault()
+          this.clearGapDraft()
           this.clearSnapIndicator()
           return
         }
@@ -318,6 +334,9 @@ const FloorPlanCanvas = {
     if (this.draftWall && this.draftWall.start) {
       return {prev: this.draftWall.start, next: null}
     }
+    if (this.draftGap && this.draftGap.start) {
+      return {prev: this.draftGap.start, next: null}
+    }
     if (this.draftPolygon && this.draftPolygon.points && this.draftPolygon.points.length >= 1) {
       const pts = this.draftPolygon.points
       const prev = pts[pts.length - 1]
@@ -383,10 +402,30 @@ const FloorPlanCanvas = {
 
   refreshPointerFromModifiers(event) {
     if (!this.lastRawPoint) return
-    if (!(this.mode === "wall" || (this.mode === "place" && this.locationId))) {
+    if (
+      !(
+        this.mode === "wall" ||
+        this.mode === "gap" ||
+        (this.mode === "place" && this.locationId)
+      )
+    ) {
       return
     }
     const resolved = this.resolveFromRaw(this.lastRawPoint, event)
+    if (this.mode === "gap" && this.draftGap && resolved.point) {
+      const pinned = this.projectOntoWall(
+        resolved.point,
+        this.draftGap.a,
+        this.draftGap.b,
+        this.skipSnapFromEvent(event),
+      )
+      this.draftGap.current = {x: pinned.x, y: pinned.y}
+      this.snapPoint =
+        pinned.snapped || resolved.snapped ? {x: pinned.x, y: pinned.y} : null
+      this.drawSnapIndicator()
+      this.drawGapDraft()
+      return
+    }
     this.snapPoint = resolved.snapped ? resolved.point : null
     this.drawSnapIndicator()
     if (this.draftWall) {
@@ -441,6 +480,13 @@ const FloorPlanCanvas = {
         event.preventDefault()
         this.pushEvent("wall_erased", {id: wallEl.dataset.wallId})
       }
+      return
+    }
+
+    if (this.mode === "gap") {
+      event.preventDefault()
+      this.el.focus({preventScroll: true})
+      this.handleGapClick(event)
       return
     }
 
@@ -630,6 +676,28 @@ const FloorPlanCanvas = {
       return
     }
 
+    if (this.mode === "gap") {
+      const resolved = this.resolvePointer(event)
+      if (!resolved.point) return
+      if (this.draftGap) {
+        const pinned = this.projectOntoWall(
+          resolved.point,
+          this.draftGap.a,
+          this.draftGap.b,
+          this.skipSnapFromEvent(event),
+        )
+        this.draftGap.current = {x: pinned.x, y: pinned.y}
+        this.snapPoint =
+          pinned.snapped || resolved.snapped ? {x: pinned.x, y: pinned.y} : null
+        this.drawSnapIndicator()
+        this.drawGapDraft()
+        return
+      }
+      this.snapPoint = resolved.snapped ? resolved.point : null
+      this.drawSnapIndicator()
+      return
+    }
+
     if (!(this.mode === "wall" || (this.mode === "place" && this.locationId))) {
       this.clearSnapIndicator()
       return
@@ -729,6 +797,7 @@ const FloorPlanCanvas = {
     // Keep draft length labels screen-sized as zoom changes.
     if (this.draftWall) this.drawWallDraft()
     else if (this.draftPolygon) this.drawPolygonDraft()
+    else if (this.draftGap) this.drawGapDraft()
   },
 
   /** Browse fits content; edit leaves empty world around so you can draw outside. */
@@ -780,6 +849,10 @@ const FloorPlanCanvas = {
     if (this.draftPolygon && this.draftPolygon.points) {
       segments.push(this.draftPolygon.points)
       if (this.draftPolygon.current) segments.push([this.draftPolygon.current])
+    }
+    if (this.draftGap) {
+      if (this.draftGap.start) segments.push([this.draftGap.start])
+      if (this.draftGap.current) segments.push([this.draftGap.current])
     }
     return contentBoundsFromSegments(segments)
   },
@@ -966,6 +1039,107 @@ const FloorPlanCanvas = {
     if (dot) dot.remove()
   },
 
+  handleGapClick(event) {
+    if (!this.draftGap) {
+      const wallEl = event.target.closest("[data-wall-id]")
+      if (!wallEl) return
+      const a = {
+        x: Number(wallEl.getAttribute("x1")),
+        y: Number(wallEl.getAttribute("y1")),
+      }
+      const b = {
+        x: Number(wallEl.getAttribute("x2")),
+        y: Number(wallEl.getAttribute("y2")),
+      }
+      const resolved = this.resolvePointer(event)
+      if (!resolved.point) return
+      const pinned = this.projectOntoWall(
+        resolved.point,
+        a,
+        b,
+        this.skipSnapFromEvent(event),
+      )
+      this.draftGap = {
+        wallId: wallEl.dataset.wallId,
+        a,
+        b,
+        start: {x: pinned.x, y: pinned.y},
+        current: {x: pinned.x, y: pinned.y},
+      }
+      this.snapPoint =
+        pinned.snapped || resolved.snapped ? {x: pinned.x, y: pinned.y} : null
+      this.drawSnapIndicator()
+      this.drawGapDraft()
+      return
+    }
+
+    const resolved = this.resolvePointer(event)
+    if (!resolved.point) return
+    const end = this.projectOntoWall(
+      resolved.point,
+      this.draftGap.a,
+      this.draftGap.b,
+      this.skipSnapFromEvent(event),
+    )
+    const dist = Math.hypot(end.x - this.draftGap.start.x, end.y - this.draftGap.start.y)
+    if (dist < MIN_WALL_LENGTH) {
+      this.draftGap.current = {x: end.x, y: end.y}
+      this.snapPoint = end.snapped || resolved.snapped ? {x: end.x, y: end.y} : null
+      this.drawSnapIndicator()
+      this.drawGapDraft()
+      return
+    }
+    const {wallId, start} = this.draftGap
+    this.clearGapDraft()
+    this.clearSnapIndicator()
+    this.pushEvent("wall_gapped", {
+      id: wallId,
+      ax: start.x,
+      ay: start.y,
+      bx: end.x,
+      by: end.y,
+    })
+  },
+
+  projectOntoWall(point, a, b, skipAlongSnap) {
+    const hit = closestPointOnSegment(point, a, b)
+    if (skipAlongSnap) return {x: hit.x, y: hit.y, t: hit.t, snapped: false}
+    const along = this.snapAlongWall({x: hit.x, y: hit.y}, a, b)
+    const t = closestPointOnSegment(along, a, b).t
+    return {x: along.x, y: along.y, t, snapped: along.snapped}
+  },
+
+  snapAlongWall(point, a, b) {
+    const candidates = [a, b]
+    if (this.svg) {
+      this.svg.querySelectorAll("[data-wall-seg]").forEach((line) => {
+        const p1 = {
+          x: Number(line.getAttribute("x1")),
+          y: Number(line.getAttribute("y1")),
+        }
+        const p2 = {
+          x: Number(line.getAttribute("x2")),
+          y: Number(line.getAttribute("y2")),
+        }
+        for (const ep of [p1, p2]) {
+          if (pointOnSegment(ep, a, b)) candidates.push(ep)
+        }
+      })
+    }
+    let best = point
+    let bestDist = SNAP_DISTANCE
+    let snapped = false
+    for (const c of candidates) {
+      const d = Math.hypot(c.x - point.x, c.y - point.y)
+      if (d <= bestDist) {
+        bestDist = d
+        best = {x: c.x, y: c.y}
+        snapped = true
+      }
+    }
+    return {x: best.x, y: best.y, snapped}
+  },
+
   drawWallDraft() {
     if (!this.draftWall) return
     let line = this.svg.querySelector("[data-wall-draft]")
@@ -991,6 +1165,49 @@ const FloorPlanCanvas = {
     this.draftWall = null
     const line = this.svg && this.svg.querySelector("[data-wall-draft]")
     if (line) line.remove()
+    this.clearDraftMeasures()
+  },
+
+  drawGapDraft() {
+    if (!this.draftGap || !this.svg) return
+    let line = this.svg.querySelector("[data-gap-draft]")
+    if (!line) {
+      line = document.createElementNS("http://www.w3.org/2000/svg", "line")
+      line.setAttribute("data-gap-draft", "true")
+      line.setAttribute("stroke", "currentColor")
+      line.setAttribute("stroke-width", "0.012")
+      line.setAttribute("stroke-linecap", "round")
+      line.setAttribute("stroke-dasharray", "0.03 0.02")
+      line.setAttribute("class", "text-error opacity-80")
+      this.svg.appendChild(line)
+    }
+    const {start, current} = this.draftGap
+    line.setAttribute("x1", start.x)
+    line.setAttribute("y1", start.y)
+    line.setAttribute("x2", current.x)
+    line.setAttribute("y2", current.y)
+
+    let pin = this.svg.querySelector("[data-gap-pin]")
+    if (!pin) {
+      pin = document.createElementNS("http://www.w3.org/2000/svg", "circle")
+      pin.setAttribute("data-gap-pin", "true")
+      pin.setAttribute("r", "0.014")
+      pin.setAttribute("class", "fill-error stroke-base-100")
+      pin.setAttribute("stroke-width", "0.006")
+      this.svg.appendChild(pin)
+    }
+    pin.setAttribute("cx", start.x)
+    pin.setAttribute("cy", start.y)
+    this.drawDraftMeasures([[start, current]])
+  },
+
+  clearGapDraft() {
+    this.draftGap = null
+    if (!this.svg) return
+    const line = this.svg.querySelector("[data-gap-draft]")
+    if (line) line.remove()
+    const pin = this.svg.querySelector("[data-gap-pin]")
+    if (pin) pin.remove()
     this.clearDraftMeasures()
   },
 
@@ -1132,16 +1349,6 @@ const FloorPlanCanvas = {
     if (verts) verts.remove()
     this.clearDraftMeasures()
   },
-}
-
-function closestPointOnSegment(p, a, b) {
-  const dx = b.x - a.x
-  const dy = b.y - a.y
-  const len2 = dx * dx + dy * dy
-  if (len2 === 0) return {x: a.x, y: a.y}
-  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2
-  t = Math.max(0, Math.min(1, t))
-  return {x: a.x + t * dx, y: a.y + t * dy}
 }
 
 export default FloorPlanCanvas
