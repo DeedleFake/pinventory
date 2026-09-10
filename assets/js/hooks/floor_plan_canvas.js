@@ -1025,7 +1025,7 @@ const FloorPlanCanvas = {
       dot = document.createElementNS("http://www.w3.org/2000/svg", "circle")
       dot.setAttribute("data-snap-indicator", "true")
       dot.setAttribute("r", "0.014")
-      dot.setAttribute("class", "fill-primary stroke-base-100")
+      dot.setAttribute("class", "pointer-events-none fill-primary stroke-base-100")
       dot.setAttribute("stroke-width", "0.006")
       this.svg.appendChild(dot)
     }
@@ -1178,7 +1178,7 @@ const FloorPlanCanvas = {
       line.setAttribute("stroke-width", "0.012")
       line.setAttribute("stroke-linecap", "round")
       line.setAttribute("stroke-dasharray", "0.03 0.02")
-      line.setAttribute("class", "text-error opacity-80")
+      line.setAttribute("class", "pointer-events-none text-error opacity-80")
       this.svg.appendChild(line)
     }
     const {start, current} = this.draftGap
@@ -1192,7 +1192,7 @@ const FloorPlanCanvas = {
       pin = document.createElementNS("http://www.w3.org/2000/svg", "circle")
       pin.setAttribute("data-gap-pin", "true")
       pin.setAttribute("r", "0.014")
-      pin.setAttribute("class", "fill-error stroke-base-100")
+      pin.setAttribute("class", "pointer-events-none fill-error stroke-base-100")
       pin.setAttribute("stroke-width", "0.006")
       this.svg.appendChild(pin)
     }
