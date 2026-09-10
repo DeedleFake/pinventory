@@ -217,6 +217,7 @@ defmodule PinventoryWeb.FloorPlanLive do
 
           <div
             id="floor-plan-canvas"
+            data-feet-per-unit="40"
             phx-hook="FloorPlanCanvas"
             data-mode={@mode}
             data-location-id={@placing_location_id || ""}

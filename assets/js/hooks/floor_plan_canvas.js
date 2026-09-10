@@ -23,6 +23,7 @@
  * Ctrl/Meta skips geometry snap; Shift still angle-constrains. Shift
  * keydown/keyup refreshes the draft.
  * Draft corners dedupe within SNAP_DISTANCE so near-clicks reuse an existing vertex.
+ * Draft length labels (feet) sit along the active segment(s); polygons show newest + closing.
  * Polygon finish: close on a different vertex, double-click, or Done (adjacent auto); Escape cancels.
  *
  * Camera: unbounded world (finite floats). SVG viewBox is the viewport (zoom/pan).
@@ -35,7 +36,11 @@ import {
   angleSnapPoint,
   angleSnapPointDual,
   contentBoundsFromSegments,
+  DEFAULT_FEET_PER_UNIT,
   fitSquareCamera,
+  formatFeet,
+  lengthInFeet,
+  measurementLabelPose,
   mergeExtension as mergeExtensionGeometry,
   nearestVertexWithin,
   provisionalCloseIndex,
@@ -62,6 +67,7 @@ const FloorPlanCanvas = {
     this.browsePanCandidate = null
     this.suppressClickAfterPan = false
     this.camera = {x: 0, y: 0, size: 1}
+    this.feetPerUnit = DEFAULT_FEET_PER_UNIT
     this.floorSvgId = this.svg ? this.svg.id : null
     this.syncFromEl()
     this.resetCamera()
@@ -194,6 +200,8 @@ const FloorPlanCanvas = {
     this.locationId = nextLocationId
     this.placeMode = nextPlaceMode
     this.existingPoints = nextExisting
+    const scale = Number(this.el.dataset.feetPerUnit)
+    this.feetPerUnit = Number.isFinite(scale) && scale > 0 ? scale : DEFAULT_FEET_PER_UNIT
   },
 
   parseExistingPoints(raw) {
@@ -972,12 +980,14 @@ const FloorPlanCanvas = {
     line.setAttribute("y1", start.y)
     line.setAttribute("x2", current.x)
     line.setAttribute("y2", current.y)
+    this.drawDraftMeasures([[start, current]])
   },
 
   clearWallDraft() {
     this.draftWall = null
     const line = this.svg && this.svg.querySelector("[data-wall-draft]")
     if (line) line.remove()
+    this.clearDraftMeasures()
   },
 
   drawPolygonDraft() {
@@ -1056,6 +1066,55 @@ const FloorPlanCanvas = {
       c.setAttribute("class", "fill-primary")
       layer.appendChild(c)
     }
+
+    const segments = []
+    if (current && points.length >= 1) {
+      segments.push([points[points.length - 1], current])
+      if (points.length >= 2) segments.push([current, points[0]])
+    }
+    this.drawDraftMeasures(segments)
+  },
+
+  /**
+   * Length labels along draft segments (feet). Text follows each segment;
+   * angle stays in (-90, 90] so labels are never upside-down.
+   */
+  drawDraftMeasures(segments) {
+    if (!this.svg) return
+    let layer = this.svg.querySelector("[data-draft-measures]")
+    if (!layer) {
+      layer = document.createElementNS("http://www.w3.org/2000/svg", "g")
+      layer.setAttribute("data-draft-measures", "true")
+      layer.setAttribute("class", "pointer-events-none")
+      this.svg.appendChild(layer)
+    }
+    while (layer.firstChild) layer.removeChild(layer.firstChild)
+
+    const scale = this.feetPerUnit || DEFAULT_FEET_PER_UNIT
+    for (const pair of segments || []) {
+      if (!pair || pair.length < 2) continue
+      const [a, b] = pair
+      if (!a || !b) continue
+      if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-6) continue
+      const pose = measurementLabelPose(a, b, 0.028)
+      if (!pose) continue
+      const label = document.createElementNS("http://www.w3.org/2000/svg", "text")
+      label.setAttribute("text-anchor", "middle")
+      label.setAttribute("dominant-baseline", "central")
+      label.setAttribute("font-size", "0.045")
+      label.setAttribute("class", "fill-primary font-sans")
+      label.setAttribute(
+        "transform",
+        `translate(${pose.x} ${pose.y}) rotate(${pose.angleDeg})`,
+      )
+      label.textContent = formatFeet(lengthInFeet(a, b, scale))
+      layer.appendChild(label)
+    }
+  },
+
+  clearDraftMeasures() {
+    const layer = this.svg && this.svg.querySelector("[data-draft-measures]")
+    if (layer) layer.remove()
   },
 
   clearPolygonDraft() {
@@ -1063,8 +1122,9 @@ const FloorPlanCanvas = {
     if (!this.svg) return
     const poly = this.svg.querySelector("[data-polygon-draft]")
     if (poly) poly.remove()
-    const layer = this.svg.querySelector("[data-polygon-draft-vertices]")
-    if (layer) layer.remove()
+    const verts = this.svg.querySelector("[data-polygon-draft-vertices]")
+    if (verts) verts.remove()
+    this.clearDraftMeasures()
   },
 }
 

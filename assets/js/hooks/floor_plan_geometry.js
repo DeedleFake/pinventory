@@ -468,3 +468,45 @@ export function snapOnAngleLine(anchor, rayPoint, segments, vertices, maxDist) {
   }
   return best
 }
+
+/** Default: former unit-square floor ≈ 40 ft across. Override via data-feet-per-unit. */
+export const DEFAULT_FEET_PER_UNIT = 40
+
+export function segmentLength(a, b) {
+  if (!a || !b) return 0
+  return Math.hypot(b.x - a.x, b.y - a.y)
+}
+
+export function lengthInFeet(a, b, feetPerUnit = DEFAULT_FEET_PER_UNIT) {
+  return segmentLength(a, b) * feetPerUnit
+}
+
+/**
+ * Midpoint label pose along ab. Angle kept in (-90, 90] so text is never upside-down.
+ * `offset` is world-space distance to the left of a→b (flips with the readable angle).
+ */
+export function measurementLabelPose(a, b, offset = 0.03) {
+  if (!a || !b) return null
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len = Math.hypot(dx, dy)
+  if (len < 1e-12) return null
+  const mx = (a.x + b.x) / 2
+  const my = (a.y + b.y) / 2
+  let angle = Math.atan2(dy, dx)
+  let nx = -dy / len
+  let ny = dx / len
+  let deg = (angle * 180) / Math.PI
+  if (deg > 90 || deg <= -90) {
+    deg += deg > 0 ? -180 : 180
+    nx = -nx
+    ny = -ny
+  }
+  return {x: mx + nx * offset, y: my + ny * offset, angleDeg: deg}
+}
+
+export function formatFeet(feet) {
+  if (!Number.isFinite(feet) || feet < 0) return "0 ft"
+  if (feet < 10) return `${feet.toFixed(1)} ft`
+  return `${Math.round(feet)} ft`
+}

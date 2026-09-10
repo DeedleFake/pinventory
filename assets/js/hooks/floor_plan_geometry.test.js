@@ -9,6 +9,10 @@ import {
   distanceToLine,
   segmentHitOnAngleLine,
   snapOnAngleLine,
+  measurementLabelPose,
+  lengthInFeet,
+  formatFeet,
+  DEFAULT_FEET_PER_UNIT,
   mergeExtension,
   nearestVertexWithin,
   polygonArea,
@@ -382,5 +386,25 @@ describe("snapOnAngleLine", () => {
     assert.ok(hit)
     assert.ok(Math.abs(hit.y) < 1e-9)
     assert.ok(Math.abs(hit.x - 0.5) < 1e-9)
+  })
+})
+
+describe("measurement labels", () => {
+  it("reports feet from world length and default scale", () => {
+    const ft = lengthInFeet({x: 0, y: 0}, {x: 0.5, y: 0}, DEFAULT_FEET_PER_UNIT)
+    assert.ok(Math.abs(ft - 20) < 1e-9)
+    assert.equal(formatFeet(20), "20 ft")
+    assert.equal(formatFeet(3.2), "3.2 ft")
+  })
+
+  it("keeps label angles readable (never upside-down)", () => {
+    const right = measurementLabelPose({x: 0, y: 0}, {x: 1, y: 0}, 0.03)
+    assert.ok(Math.abs(right.angleDeg) < 1e-6)
+    const left = measurementLabelPose({x: 1, y: 0}, {x: 0, y: 0}, 0.03)
+    assert.ok(Math.abs(left.angleDeg) < 1e-6)
+    const up = measurementLabelPose({x: 0, y: 1}, {x: 0, y: 0}, 0.03)
+    assert.ok(up.angleDeg > -90 && up.angleDeg <= 90)
+    const steep = measurementLabelPose({x: 0, y: 0}, {x: -1, y: 0.1}, 0.03)
+    assert.ok(steep.angleDeg > -90 && steep.angleDeg <= 90)
   })
 })
