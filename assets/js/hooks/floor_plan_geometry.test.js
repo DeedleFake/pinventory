@@ -11,8 +11,6 @@ import {
   snapOnAngleLine,
   measurementLabelPose,
   measurementFontSize,
-  worldFromScreenPx,
-  MEASUREMENT_EDGE_GAP_PX,
   lengthInFeet,
   formatFeet,
   DEFAULT_FEET_PER_UNIT,
@@ -421,11 +419,11 @@ describe("measurement labels", () => {
 
   it("uses the same edge gap for parallel and perpendicular sides", () => {
     const fs = 0.04
-    const edgeGap = 0.01
-    const flat = measurementLabelPose({x: 0, y: 0}, {x: 1, y: 0}, fs, edgeGap)
+    const edgeGap = fs * 0.2
+    const flat = measurementLabelPose({x: 0, y: 0}, {x: 1, y: 0}, fs)
     assert.equal(flat.anchor, "middle")
     assert.ok(Math.abs(Math.abs(flat.y) - (fs * 0.5 + edgeGap)) < 1e-9)
-    const steep = measurementLabelPose({x: 0, y: 0}, {x: 0.2, y: 1}, fs, edgeGap)
+    const steep = measurementLabelPose({x: 0, y: 0}, {x: 0.2, y: 1}, fs)
     assert.ok(steep.anchor === "start" || steep.anchor === "end")
     const mid = {x: 0.1, y: 0.5}
     const d = Math.hypot(steep.x - mid.x, steep.y - mid.y)
@@ -437,11 +435,5 @@ describe("measurement labels", () => {
     assert.ok(measurementFontSize(0.1) >= 0.032 * 0.35 - 1e-9)
     assert.ok(measurementFontSize(10) <= 0.032 * 2.5 + 1e-9)
     assert.ok(measurementFontSize(0.05) <= measurementFontSize(0.2))
-  })
-
-  it("converts screen pixels to world with zoom", () => {
-    assert.ok(Math.abs(worldFromScreenPx(1, 200, 4) - 0.02) < 1e-9)
-    assert.ok(Math.abs(worldFromScreenPx(2, 200, 4) - 0.04) < 1e-9)
-    assert.equal(MEASUREMENT_EDGE_GAP_PX, 4)
   })
 })

@@ -40,10 +40,8 @@ import {
   fitSquareCamera,
   formatFeet,
   lengthInFeet,
-  MEASUREMENT_EDGE_GAP_PX,
   measurementFontSize,
   measurementLabelPose,
-  worldFromScreenPx,
   mergeExtension as mergeExtensionGeometry,
   nearestVertexWithin,
   provisionalCloseIndex,
@@ -1099,15 +1097,12 @@ const FloorPlanCanvas = {
     const scale = this.feetPerUnit || DEFAULT_FEET_PER_UNIT
     const viewSize = (this.camera && this.camera.size) || 1
     const fontSize = measurementFontSize(viewSize)
-    const rect = this.svg.getBoundingClientRect()
-    const cssPx = Math.min(rect.width, rect.height) || 1
-    const edgeGap = worldFromScreenPx(viewSize, cssPx, MEASUREMENT_EDGE_GAP_PX)
     for (const pair of segments || []) {
       if (!pair || pair.length < 2) continue
       const [a, b] = pair
       if (!a || !b) continue
       if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-6) continue
-      const pose = measurementLabelPose(a, b, fontSize, edgeGap)
+      const pose = measurementLabelPose(a, b, fontSize)
       if (!pose) continue
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text")
       label.setAttribute("text-anchor", pose.anchor || "middle")

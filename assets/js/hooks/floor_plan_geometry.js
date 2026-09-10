@@ -481,29 +481,14 @@ export function lengthInFeet(a, b, feetPerUnit = DEFAULT_FEET_PER_UNIT) {
   return segmentLength(a, b) * feetPerUnit
 }
 
-/** On-screen air gap between label ink and the draft stroke. */
-export const MEASUREMENT_EDGE_GAP_PX = 4
-
-/**
- * Convert a screen-pixel length into world units for the current square viewBox.
- * `cssPxSize` is the CSS pixel size of the mapped square (min of SVG width/height).
- */
-export function worldFromScreenPx(viewSize, cssPxSize, screenPx) {
-  const view = Number(viewSize)
-  const css = Number(cssPxSize)
-  const px = Number(screenPx)
-  if (!(view > 0) || !(css > 0) || !Number.isFinite(px)) return 0
-  return (px * view) / css
-}
-
 /**
  * Midpoint label pose along ab.
  * Try all four text sides against the line; keep the upright-most rotation.
- * `edgeGap` is world distance from the stroke to the facing text edge (same for
- * every side). Parallel uses a middle anchor; perpendicular uses start/end so
- * the label grows away from the stroke.
+ * Same edge gap for every side: parallel uses middle anchor (top/bottom toward
+ * the line); perpendicular uses start/end so the facing end sits on that gap
+ * and the label grows away from the stroke.
  */
-export function measurementLabelPose(a, b, fontSize = 0.032, edgeGap = 0) {
+export function measurementLabelPose(a, b, fontSize = 0.032) {
   if (!a || !b) return null
   const dx = b.x - a.x
   const dy = b.y - a.y
@@ -513,7 +498,7 @@ export function measurementLabelPose(a, b, fontSize = 0.032, edgeGap = 0) {
   const my = (a.y + b.y) / 2
   const lineDeg = (Math.atan2(dy, dx) * 180) / Math.PI
   const fs = Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 0.032
-  const gap = Number.isFinite(edgeGap) && edgeGap > 0 ? edgeGap : fs * 0.15
+  const edgeGap = fs * 0.2
 
   const normalize = (deg) => {
     let d = ((deg + 180) % 360) - 180
@@ -544,7 +529,8 @@ export function measurementLabelPose(a, b, fontSize = 0.032, edgeGap = 0) {
     Math.abs(sideTurns) < 45 || Math.abs(Math.abs(sideTurns) - 180) < 45
 
   if (parallel) {
-    const clearance = fs * 0.5 + gap
+    // Center sits half an em off the line so top/bottom clear by edgeGap.
+    const clearance = fs * 0.5 + edgeGap
     return {
       x: mx + nx * clearance,
       y: my + ny * clearance,
@@ -553,13 +539,14 @@ export function measurementLabelPose(a, b, fontSize = 0.032, edgeGap = 0) {
     }
   }
 
+  // Perpendicular: put the facing end on the same edgeGap, grow away from the line.
   const rad = (best * Math.PI) / 180
   const growX = Math.cos(rad)
   const growY = Math.sin(rad)
   const growsAway = growX * nx + growY * ny >= 0
   return {
-    x: mx + nx * gap,
-    y: my + ny * gap,
+    x: mx + nx * edgeGap,
+    y: my + ny * edgeGap,
     angleDeg: best,
     anchor: growsAway ? "start" : "end",
   }
