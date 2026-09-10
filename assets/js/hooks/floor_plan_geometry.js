@@ -536,13 +536,10 @@ export function measurementLabelPose(a, b, fontSize = 0.032) {
       y: my + ny * clearance,
       angleDeg: best,
       anchor: "middle",
-      nx,
-      ny,
-      edgeGap,
     }
   }
 
-  // Perpendicular: facing end on the gap; canvas nudges using measured ink bounds.
+  // Perpendicular: put the facing end on the same edgeGap, grow away from the line.
   const rad = (best * Math.PI) / 180
   const growX = Math.cos(rad)
   const growY = Math.sin(rad)
@@ -552,39 +549,7 @@ export function measurementLabelPose(a, b, fontSize = 0.032) {
     y: my + ny * edgeGap,
     angleDeg: best,
     anchor: growsAway ? "start" : "end",
-    nx,
-    ny,
-    edgeGap,
   }
-}
-
-/** Signed distance from point p to infinite line ab (left of a→b is positive). */
-export function signedDistanceToLine(p, a, b) {
-  if (!p || !a || !b) return 0
-  const abx = b.x - a.x
-  const aby = b.y - a.y
-  const len = Math.hypot(abx, aby)
-  if (len < 1e-12) return Math.hypot(p.x - a.x, p.y - a.y)
-  return (abx * (p.y - a.y) - aby * (p.x - a.x)) / len
-}
-
-/**
- * Minimum distance from axis-aligned rect to infinite line ab.
- * 0 when the line crosses the rect.
- */
-export function distanceLineToRect(a, b, rect) {
-  if (!a || !b || !rect) return 0
-  const corners = [
-    {x: rect.x, y: rect.y},
-    {x: rect.x + rect.width, y: rect.y},
-    {x: rect.x, y: rect.y + rect.height},
-    {x: rect.x + rect.width, y: rect.y + rect.height},
-  ]
-  const dists = corners.map((c) => signedDistanceToLine(c, a, b))
-  const minD = Math.min(...dists)
-  const maxD = Math.max(...dists)
-  if (minD <= 0 && maxD >= 0) return 0
-  return Math.min(Math.abs(minD), Math.abs(maxD))
 }
 
 /** World font size that tracks zoom: ~constant on screen, clamped. */

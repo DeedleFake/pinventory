@@ -11,7 +11,6 @@ import {
   snapOnAngleLine,
   measurementLabelPose,
   measurementFontSize,
-  distanceLineToRect,
   lengthInFeet,
   formatFeet,
   DEFAULT_FEET_PER_UNIT,
@@ -429,21 +428,6 @@ describe("measurement labels", () => {
     const mid = {x: 0.1, y: 0.5}
     const d = Math.hypot(steep.x - mid.x, steep.y - mid.y)
     assert.ok(Math.abs(d - edgeGap) < 1e-6, `edge gap ${d} vs ${edgeGap}`)
-  })
-
-  it("reports zero distance when a line crosses a rect", () => {
-    const d = distanceLineToRect(
-      {x: 0, y: 0},
-      {x: 2, y: 0},
-      {x: 0.5, y: -0.5, width: 1, height: 1},
-    )
-    assert.equal(d, 0)
-    const gap = distanceLineToRect(
-      {x: 0, y: 0},
-      {x: 2, y: 0},
-      {x: 0.5, y: 0.2, width: 1, height: 0.5},
-    )
-    assert.ok(Math.abs(gap - 0.2) < 1e-9)
   })
 
   it("scales font size with view size and clamps", () => {
