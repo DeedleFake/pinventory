@@ -12,10 +12,6 @@ defmodule PinventoryWeb.FloorPlanComponents do
   attr :polygon_dom_id, :string, default: nil
   attr :navigate, :string, default: nil, doc: "when set, clicking the area navigates here"
 
-  attr :list_row_id, :string,
-    default: nil,
-    doc: "DOM id of the locations-list row to highlight on canvas hover"
-
   def placement_area(assigns) do
     location_id = assigns.placement.location_id
     points = assigns.placement.points
@@ -43,8 +39,6 @@ defmodule PinventoryWeb.FloorPlanComponents do
       id={@group_id}
       data-location-id={@location_id}
       phx-click={@navigate && JS.navigate(@navigate)}
-      phx-mouseenter={@list_row_id && JS.add_class("is-canvas-hover", to: "##{@list_row_id}")}
-      phx-mouseleave={@list_row_id && JS.remove_class("is-canvas-hover", to: "##{@list_row_id}")}
       class={[
         "placement-group",
         @navigate && "cursor-pointer",

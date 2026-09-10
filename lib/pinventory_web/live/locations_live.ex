@@ -116,75 +116,83 @@ defmodule PinventoryWeb.LocationsLive do
           </aside>
 
           <div
-            id="locations-floor-canvas"
-            phx-hook="FloorPlanCanvas"
-            data-mode="browse"
-            data-location-id=""
-            data-place-mode="new"
-            data-existing-points="[]"
-            tabindex="0"
+            id="locations-canvas-hover"
+            phx-hook="PlacementCanvasHover"
             class={[
-              "relative min-w-0 flex-1 overflow-hidden rounded-2xl border border-base-300 bg-base-200/40",
-              "h-[calc(100vh-12rem)] min-h-[22rem] w-full touch-none select-none outline-none",
-              "focus-visible:ring-2 focus-visible:ring-primary/40",
-              "cursor-grab"
+              "min-w-0 flex-1",
+              "h-[calc(100vh-12rem)] min-h-[22rem] w-full"
             ]}
           >
             <div
-              id="locations-floor-view-chrome"
-              class="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2"
+              id="locations-floor-canvas"
+              phx-hook="FloorPlanCanvas"
+              data-mode="browse"
+              data-location-id=""
+              data-place-mode="new"
+              data-existing-points="[]"
+              tabindex="0"
+              class={[
+                "relative h-full w-full overflow-hidden rounded-2xl border border-base-300 bg-base-200/40",
+                "touch-none select-none outline-none",
+                "focus-visible:ring-2 focus-visible:ring-primary/40",
+                "cursor-grab"
+              ]}
             >
-              <button
-                type="button"
-                id="locations-floor-zoom-reset"
-                data-zoom-reset
-                class="btn btn-sm btn-ghost border border-base-300 bg-base-100/90 pointer-events-auto shadow-md"
-                title="Reset zoom (fits floor)"
+              <div
+                id="locations-floor-view-chrome"
+                class="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2"
               >
-                <.icon name="hero-arrows-pointing-out" class="size-4" /> Reset view
-              </button>
-              <span class="hidden rounded-md border border-base-300 bg-base-100/80 px-2 py-1 text-[10px] opacity-70 sm:inline">
-                Wheel zoom · drag to pan
-              </span>
-            </div>
+                <button
+                  type="button"
+                  id="locations-floor-zoom-reset"
+                  data-zoom-reset
+                  class="btn btn-sm btn-ghost border border-base-300 bg-base-100/90 pointer-events-auto shadow-md"
+                  title="Reset zoom (fits floor)"
+                >
+                  <.icon name="hero-arrows-pointing-out" class="size-4" /> Reset view
+                </button>
+                <span class="hidden rounded-md border border-base-300 bg-base-100/80 px-2 py-1 text-[10px] opacity-70 sm:inline">
+                  Wheel zoom · drag to pan
+                </span>
+              </div>
 
-            <svg
-              data-floor-plan-svg
-              id={"locations-floor-svg-#{@selected_floor.id}"}
-              viewBox="0 0 1 1"
-              preserveAspectRatio="xMidYMid meet"
-              class="h-full w-full text-base-content"
-            >
-              <rect x="0" y="0" width="1" height="1" class="fill-base-100" stroke="none" />
+              <svg
+                data-floor-plan-svg
+                id={"locations-floor-svg-#{@selected_floor.id}"}
+                viewBox="0 0 1 1"
+                preserveAspectRatio="xMidYMid meet"
+                class="h-full w-full text-base-content"
+              >
+                <rect x="0" y="0" width="1" height="1" class="fill-base-100" stroke="none" />
 
-              <.placement_area
-                :for={placement <- @selected_floor.location_placements}
-                placement={placement}
-                navigate={~p"/location/#{placement.location_id}"}
-                list_row_id={"location-#{placement.location_id}"}
-              />
-
-              <g :for={wall <- @selected_floor.walls}>
-                <line
-                  data-wall-seg
-                  x1={wall["x1"]}
-                  y1={wall["y1"]}
-                  x2={wall["x2"]}
-                  y2={wall["y2"]}
-                  stroke="currentColor"
-                  stroke-width="0.014"
-                  stroke-linecap="round"
-                  class="opacity-80 pointer-events-none"
+                <.placement_area
+                  :for={placement <- @selected_floor.location_placements}
+                  placement={placement}
+                  navigate={~p"/location/#{placement.location_id}"}
                 />
-              </g>
-            </svg>
 
-            <p
-              :if={@selected_floor.walls == [] and @selected_floor.location_placements == []}
-              class="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm opacity-50"
-            >
-              This floor is empty. Edit the floor plan to draw walls and place locations.
-            </p>
+                <g :for={wall <- @selected_floor.walls}>
+                  <line
+                    data-wall-seg
+                    x1={wall["x1"]}
+                    y1={wall["y1"]}
+                    x2={wall["x2"]}
+                    y2={wall["y2"]}
+                    stroke="currentColor"
+                    stroke-width="0.014"
+                    stroke-linecap="round"
+                    class="opacity-80 pointer-events-none"
+                  />
+                </g>
+              </svg>
+
+              <p
+                :if={@selected_floor.walls == [] and @selected_floor.location_placements == []}
+                class="pointer-events-none absolute inset-0 flex items-center justify-center p-6 text-center text-sm opacity-50"
+              >
+                This floor is empty. Edit the floor plan to draw walls and place locations.
+              </p>
+            </div>
           </div>
 
           <aside

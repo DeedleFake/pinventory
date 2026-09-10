@@ -1,8 +1,11 @@
 import assert from "node:assert/strict"
 import {describe, it} from "node:test"
 import {
+  findListRow,
   findPlacementGroup,
+  listRowSelector,
   placementGroupSelector,
+  setCanvasHover,
   setListHover,
 } from "./placement_list_hover.js"
 
@@ -83,5 +86,34 @@ describe("findPlacementGroup + setListHover", () => {
     assert.equal(group.classList.contains("is-list-hover"), true)
     assert.equal(setListHover(group, false), false)
     assert.equal(group.classList.contains("is-list-hover"), false)
+  })
+})
+
+describe("listRowSelector + findListRow + setCanvasHover", () => {
+  it("selects list rows and skips placement groups", () => {
+    const id = "524c561f-d8e4-439c-a42f-200ad153a3be"
+    assert.equal(listRowSelector(id), `[data-location-id="${id}"]`)
+
+    const group = fakeEl({
+      class: "placement-group",
+      "data-location-id": "loc-1",
+    })
+    const row = fakeEl({
+      class: "list-row",
+      "data-location-id": "loc-1",
+    })
+    // querySelectorAll fake
+    const root = fakeEl({}, [group, row])
+    root.querySelectorAll = (selector) => {
+      const match = selector.match(/^\[data-location-id="(.+)"\]$/)
+      if (!match) return []
+      const want = match[1]
+      return [group, row].filter((n) => n.attrs["data-location-id"] === want)
+    }
+
+    assert.equal(findListRow(root, "loc-1"), row)
+    assert.equal(setCanvasHover(row, true), true)
+    assert.equal(row.classList.contains("is-canvas-hover"), true)
+    assert.equal(setCanvasHover(row, false), false)
   })
 })

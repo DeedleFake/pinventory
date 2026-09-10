@@ -216,7 +216,8 @@
 
 /* Locations list row highlighted from canvas placement hover */
 #locations a.is-canvas-hover,
-#locations-list a.is-canvas-hover {
+#locations-list a.is-canvas-hover,
+#placeable-locations li.is-canvas-hover {
   border-color: color-mix(in oklab, var(--color-primary) 50%, var(--color-base-300));
   background: color-mix(in oklab, var(--color-primary) 8%, var(--color-base-100));
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-primary) 22%, transparent);
