@@ -484,11 +484,11 @@ export function lengthInFeet(a, b, feetPerUnit = DEFAULT_FEET_PER_UNIT) {
 /**
  * Midpoint label pose along ab.
  * Try all four text sides against the line; keep the upright-most rotation.
- * Same edge gap for every side: parallel uses middle anchor (top/bottom toward
- * the line); perpendicular uses start/end so the facing end sits on that gap
- * and the label grows away from the stroke.
+ * `inkGap` is the distance from the stroke to the facing ink edge (same for
+ * top/bottom and beginning/end). `halfFace` is center→top/bottom for a middle
+ * anchor (from real font metrics). End-on uses start/end on that same inkGap.
  */
-export function measurementLabelPose(a, b, fontSize = 0.032) {
+export function measurementLabelPose(a, b, fontSize = 0.032, halfFace = null, inkGap = null, startBearing = 0) {
   if (!a || !b) return null
   const dx = b.x - a.x
   const dy = b.y - a.y
@@ -498,7 +498,9 @@ export function measurementLabelPose(a, b, fontSize = 0.032) {
   const my = (a.y + b.y) / 2
   const lineDeg = (Math.atan2(dy, dx) * 180) / Math.PI
   const fs = Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 0.032
-  const edgeGap = fs * 0.2
+  const face = Number.isFinite(halfFace) && halfFace > 0 ? halfFace : fs * 0.5
+  const gap = Number.isFinite(inkGap) && inkGap >= 0 ? inkGap : fs * 0.2
+  const bearing = Number.isFinite(startBearing) ? startBearing : 0
 
   const normalize = (deg) => {
     let d = ((deg + 180) % 360) - 180
@@ -529,8 +531,7 @@ export function measurementLabelPose(a, b, fontSize = 0.032) {
     Math.abs(sideTurns) < 45 || Math.abs(Math.abs(sideTurns) - 180) < 45
 
   if (parallel) {
-    // Center sits half an em off the line so top/bottom clear by edgeGap.
-    const clearance = fs * 0.5 + edgeGap
+    const clearance = face + gap
     return {
       x: mx + nx * clearance,
       y: my + ny * clearance,
@@ -539,14 +540,15 @@ export function measurementLabelPose(a, b, fontSize = 0.032) {
     }
   }
 
-  // Perpendicular: put the facing end on the same edgeGap, grow away from the line.
   const rad = (best * Math.PI) / 180
   const growX = Math.cos(rad)
   const growY = Math.sin(rad)
   const growsAway = growX * nx + growY * ny >= 0
+  // Put facing ink on the same gap: start/end anchors include side bearing.
+  const endClearance = gap - bearing
   return {
-    x: mx + nx * edgeGap,
-    y: my + ny * edgeGap,
+    x: mx + nx * endClearance,
+    y: my + ny * endClearance,
     angleDeg: best,
     anchor: growsAway ? "start" : "end",
   }
