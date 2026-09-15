@@ -221,7 +221,7 @@ defmodule PinventoryWeb.LocationsLive do
               class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
             >
               <li
-                :for={floor <- floors_top_first(@floors)}
+                :for={floor <- FloorPlans.floors_top_first(@floors)}
                 id={"locations-floor-rail-item-#{floor.id}"}
                 class={[
                   "rounded-lg border",
@@ -500,10 +500,6 @@ defmodule PinventoryWeb.LocationsLive do
   end
 
   defp locations_floor_path(floor_id), do: ~p"/locations/#{floor_id}"
-
-  defp floors_top_first(floors) when is_list(floors) do
-    Enum.sort_by(floors, & &1.position, :desc)
-  end
 
   defp empty_new_form do
     %Location{}

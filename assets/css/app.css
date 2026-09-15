@@ -180,15 +180,13 @@
   transition: opacity 140ms ease;
 }
 
-.placement-group.is-list-hover > .placement-area,
-.placement-group.is-highlighted > .placement-area {
+.placement-group.is-list-hover > .placement-area {
   fill: color-mix(in oklab, var(--color-primary) 34%, transparent);
   stroke-width: 0.0085;
   opacity: 1;
 }
 
-.placement-group.is-list-hover .placement-label-badge,
-.placement-group.is-highlighted .placement-label-badge {
+.placement-group.is-list-hover .placement-label-badge {
   fill: color-mix(in oklab, var(--color-primary) 42%, var(--color-base-100));
   stroke: var(--color-primary);
   stroke-width: 0.0028;
@@ -206,14 +204,6 @@
   stroke-width: 0.0032;
 }
 
-.placement-group.is-dimmed {
-  opacity: 0.38;
-}
-
-.placement-group.is-dimmed .placement-label-text {
-  opacity: 0.75;
-}
-
 /* Floor-plan impassable areas: muted hatch, unlabeled, distinct from placement-area. */
 .impassable-area {
   fill: color-mix(in oklab, var(--color-base-content) 8%, transparent);
@@ -222,8 +212,7 @@
 }
 
 /* Locations list row highlighted from canvas placement hover */
-#locations a.is-canvas-hover,
-#locations-list a.is-canvas-hover {
+#locations a.is-canvas-hover {
   border-color: color-mix(in oklab, var(--color-primary) 50%, var(--color-base-300));
   background: color-mix(in oklab, var(--color-primary) 8%, var(--color-base-100));
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-primary) 22%, transparent);

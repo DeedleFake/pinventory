@@ -33,6 +33,13 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
+  Returns floors sorted top-of-building first (highest `position` first).
+  """
+  def floors_top_first(floors) when is_list(floors) do
+    Enum.sort_by(floors, & &1.position, :desc)
+  end
+
+  @doc """
   Returns true when at least one floor exists (feature on).
   """
   def floor_plan_exists? do
@@ -73,14 +80,8 @@ defmodule Pinventory.FloorPlans do
 
   @doc """
   Gets a floor by id with walls, impassable areas, and placements (+ location)
-  preloaded, or `nil`.
+  preloaded.
   """
-  def get_floor(id) do
-    Floor
-    |> Repo.get(id)
-    |> maybe_preload_floor()
-  end
-
   def get_floor!(id) do
     Floor
     |> Repo.get!(id)
@@ -119,41 +120,6 @@ defmodule Pinventory.FloorPlans do
     |> case do
       {:ok, updated} -> {:ok, preload_floor(updated)}
       error -> error
-    end
-  end
-
-  @doc """
-  Moves a floor one step higher or lower in the building (by `position`).
-
-  `:higher` raises the floor toward the top of the building; `:lower` lowers it.
-  No-ops with `{:ok, floor}` when there is no neighbor in that direction.
-  """
-  def move_floor(%Floor{} = floor, direction) when direction in [:higher, :lower] do
-    neighbor =
-      case direction do
-        :higher ->
-          Repo.one(
-            from f in Floor,
-              where: f.position > ^floor.position,
-              order_by: [asc: f.position],
-              limit: 1
-          )
-
-        :lower ->
-          Repo.one(
-            from f in Floor,
-              where: f.position < ^floor.position,
-              order_by: [desc: f.position],
-              limit: 1
-          )
-      end
-
-    case neighbor do
-      nil ->
-        {:ok, preload_floor(floor)}
-
-      other ->
-        swap_floor_positions(floor, other)
     end
   end
 
@@ -390,19 +356,6 @@ defmodule Pinventory.FloorPlans do
   end
 
   @doc """
-  Returns locations that are not placed on any floor, ordered by name.
-  """
-  def unplaced_locations do
-    placed_ids = from(p in LocationPlacement, select: p.location_id)
-
-    from(l in Location,
-      where: l.id not in subquery(placed_ids),
-      order_by: [asc: l.name]
-    )
-    |> Repo.all()
-  end
-
-  @doc """
   Returns all locations ordered by name (for the place picker).
   """
   def list_locations do
@@ -633,25 +586,8 @@ defmodule Pinventory.FloorPlans do
     [:walls, :impassable_areas, location_placements: :location]
   end
 
-  defp maybe_preload_floor(nil), do: nil
-  defp maybe_preload_floor(floor), do: preload_floor(floor)
-
   defp preload_floor(floor) do
     Repo.preload(floor, floor_preloads())
-  end
-
-  defp swap_floor_positions(%Floor{} = a, %Floor{} = b) do
-    pos_a = a.position
-    pos_b = b.position
-
-    Multi.new()
-    |> Multi.update(:a, Floor.changeset(a, %{position: pos_b}))
-    |> Multi.update(:b, Floor.changeset(b, %{position: pos_a}))
-    |> Repo.transaction()
-    |> case do
-      {:ok, %{a: floor}} -> {:ok, preload_floor(floor)}
-      {:error, _step, reason, _} -> {:error, reason}
-    end
   end
 
   defp normalize_points(points) when is_list(points) do
