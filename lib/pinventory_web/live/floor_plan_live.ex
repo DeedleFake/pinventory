@@ -422,7 +422,7 @@ defmodule PinventoryWeb.FloorPlanLive do
               class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
             >
               <li
-                :for={floor <- floors_top_first(@floors)}
+                :for={floor <- FloorPlans.floors_top_first(@floors)}
                 id={"floor-rail-item-#{floor.id}"}
                 data-floor-id={floor.id}
                 class={[
@@ -1144,10 +1144,6 @@ defmodule PinventoryWeb.FloorPlanLive do
       _ ->
         {"new", "[]"}
     end
-  end
-
-  defp floors_top_first(floors) when is_list(floors) do
-    Enum.sort_by(floors, & &1.position, :desc)
   end
 
   defp to_float(value) when is_float(value), do: value

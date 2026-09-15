@@ -6,10 +6,7 @@ defmodule PinventoryWeb.FloorPlanComponents do
 
   attr :placement, :map, required: true
   attr :selected?, :boolean, default: false
-  attr :highlighted?, :boolean, default: false
-  attr :dimmed?, :boolean, default: false
   attr :show_snap?, :boolean, default: false
-  attr :polygon_dom_id, :string, default: nil
   attr :navigate, :string, default: nil, doc: "when set, clicking the area navigates here"
 
   def placement_area(assigns) do
@@ -42,13 +39,10 @@ defmodule PinventoryWeb.FloorPlanComponents do
       class={[
         "placement-group",
         @navigate && "cursor-pointer",
-        @selected? && "is-selected",
-        @highlighted? && "is-highlighted",
-        @dimmed? && "is-dimmed"
+        @selected? && "is-selected"
       ]}
     >
       <polygon
-        id={@polygon_dom_id}
         data-placement-location-id={@location_id}
         points={FloorPlans.polygon_points_attr(@placement.points)}
         class="placement-area stroke-primary"

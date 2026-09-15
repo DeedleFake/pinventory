@@ -13,6 +13,8 @@ defmodule PinventoryWeb.LocationLive do
       linkable_item_id_for_edit: 1
     ]
 
+  import PinventoryWeb.ConfirmDeleteComponents
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -202,12 +204,21 @@ defmodule PinventoryWeb.LocationLive do
           </div>
         </section>
 
-        <.location_delete_modal
+        <.name_confirm_delete_modal
           :if={@delete_modal?}
+          id_prefix="location-delete"
+          title="Delete location"
+          entity_name={@location.name}
+          confirm_label="Type the location name to confirm"
           form={@delete_form}
-          location_name={@location.name}
           confirm_ready?={@delete_confirm_ready?}
-        />
+        >
+          <:impact>
+            <p id="location-delete-impact" class="text-sm opacity-70">
+              This will delete {@location.name}.
+            </p>
+          </:impact>
+        </.name_confirm_delete_modal>
       </div>
     </Layouts.app>
     """
@@ -234,77 +245,6 @@ defmodule PinventoryWeb.LocationLive do
           event={event}
         />
       </ul>
-    </div>
-    """
-  end
-
-  attr :form, Phoenix.HTML.Form, required: true
-  attr :location_name, :string, required: true
-  attr :confirm_ready?, :boolean, required: true
-
-  defp location_delete_modal(assigns) do
-    ~H"""
-    <div
-      id="location-delete-modal"
-      class="fixed inset-0 z-50 flex items-end justify-center bg-neutral/40 p-4 sm:items-center"
-      phx-window-keydown="close_delete"
-      phx-key="Escape"
-    >
-      <div
-        id="location-delete-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="location-delete-title"
-        class="w-full max-w-md rounded-2xl border border-base-300 bg-base-100 p-5 shadow-2xl sm:p-6"
-        phx-click-away="close_delete"
-      >
-        <div class="space-y-1">
-          <h2 id="location-delete-title" class="text-lg font-semibold tracking-tight">
-            Delete location
-          </h2>
-          <p id="location-delete-impact" class="text-sm opacity-70">
-            This will delete {@location_name}.
-          </p>
-        </div>
-
-        <.form
-          for={@form}
-          id="location-delete-form"
-          class="mt-4 space-y-4"
-          phx-change="validate_delete"
-          phx-submit="confirm_delete"
-        >
-          <.input
-            type="text"
-            field={@form[:name]}
-            id="location-delete-confirm"
-            label="Type the location name to confirm"
-            placeholder={@location_name}
-            autocomplete="off"
-            spellcheck="false"
-            phx-mounted={JS.focus()}
-          />
-
-          <div class="flex justify-end gap-2">
-            <button
-              type="button"
-              id="location-delete-cancel"
-              class="btn btn-ghost"
-              phx-click="close_delete"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              id="location-delete-confirm-submit"
-              class="btn btn-error"
-              disabled={not @confirm_ready?}
-            >
-              Delete
-            </button>
-          </div>
-        </.form>
-      </div>
     </div>
     """
   end
@@ -480,17 +420,6 @@ defmodule PinventoryWeb.LocationLive do
     socket
     |> assign(:delete_form, delete_form(raw_name))
     |> assign(:delete_confirm_ready?, confirm_name_matches?(raw_name, saved_name(socket)))
-  end
-
-  defp delete_form(name) do
-    to_form(%{"name" => name}, as: :delete)
-  end
-
-  defp delete_name_from_params(%{"delete" => %{"name" => name}}) when is_binary(name), do: name
-  defp delete_name_from_params(_), do: ""
-
-  defp confirm_name_matches?(typed, saved) when is_binary(typed) and is_binary(saved) do
-    typed == saved or String.trim(typed) == String.trim(saved)
   end
 
   defp unsaved_name?(socket) do

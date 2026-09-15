@@ -355,11 +355,6 @@ const FloorPlanCanvas = {
     return {prev: null, next: null}
   },
 
-  /** @deprecated use draftAngleAnchors */
-  draftAnchor() {
-    return this.draftAngleAnchors().prev
-  },
-
   /**
    * Resolve pointer to world coords.
    * Order: raw → (if Shift + anchor) project onto nearest 22.5° ray → then

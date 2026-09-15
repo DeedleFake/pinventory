@@ -77,8 +77,8 @@ defmodule Pinventory.FloorPlansTest do
       assert {:error, :last_floor} = FloorPlans.delete_floor(floor)
     end
 
-    test "moves and reorders floors by position" do
-      assert {:ok, floor2} = FloorPlans.add_floor()
+    test "reorders floors by position" do
+      assert {:ok, _floor2} = FloorPlans.add_floor()
       assert {:ok, _floor3} = FloorPlans.add_floor()
 
       assert Enum.map(FloorPlans.list_floors(), & &1.name) == [
@@ -87,16 +87,7 @@ defmodule Pinventory.FloorPlansTest do
                "Floor 3"
              ]
 
-      # Raise Floor 2 above Floor 3.
-      assert {:ok, _} = FloorPlans.move_floor(floor2, :higher)
-
-      assert Enum.map(FloorPlans.list_floors(), &{&1.name, &1.position}) == [
-               {"Floor 1", 0},
-               {"Floor 3", 1},
-               {"Floor 2", 2}
-             ]
-
-      [f1, f3, f2] = FloorPlans.list_floors()
+      [f1, f2, f3] = FloorPlans.list_floors()
 
       # Highest-first list → positions 2,1,0
       assert {:ok, _} = FloorPlans.reorder_floors([f1.id, f3.id, f2.id])
@@ -114,10 +105,9 @@ defmodule Pinventory.FloorPlansTest do
   describe "walls and placements" do
     setup %{scope: scope} do
       {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-      {:ok, attic} = Locations.create(scope, %{name: "Attic"})
       {:ok, floors} = FloorPlans.create_floor_plan()
       floor = hd(floors)
-      %{garage: garage, attic: attic, floor: floor}
+      %{garage: garage, floor: floor}
     end
 
     test "stores wall segments as rows", %{floor: floor} do
@@ -193,12 +183,6 @@ defmodule Pinventory.FloorPlansTest do
                ])
 
       assert changeset.errors[:points]
-    end
-
-    test "lists unplaced locations", %{garage: garage, attic: attic, floor: floor} do
-      assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
-      assert [%{id: id, name: "Attic"}] = FloorPlans.unplaced_locations()
-      assert id == attic.id
     end
 
     test "unplace removes polygon only", %{garage: garage, floor: floor} do

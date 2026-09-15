@@ -15,6 +15,8 @@ defmodule PinventoryWeb.EditItemLive do
       linkable_location_id: 1
     ]
 
+  import PinventoryWeb.ConfirmDeleteComponents
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -191,14 +193,27 @@ defmodule PinventoryWeb.EditItemLive do
           </div>
         </section>
 
-        <.item_delete_modal
+        <.name_confirm_delete_modal
           :if={@live_action == :edit and @delete_modal?}
+          id_prefix="item-delete"
+          title="Delete item"
+          entity_name={@item.name}
+          confirm_label="Type the item name to confirm"
           form={@delete_form}
-          item_name={@item.name}
-          total={@delete_total}
-          location_count={@delete_location_count}
           confirm_ready?={@delete_confirm_ready?}
-        />
+        >
+          <:impact>
+            <p id="item-delete-impact" class="text-sm opacity-70">
+              This will delete {@item.name}.
+            </p>
+            <p id="item-delete-impact-total" class="text-sm opacity-70">
+              Total quantity: {@delete_total}.
+            </p>
+            <p id="item-delete-impact-locations" class="text-sm opacity-70">
+              Locations with stock: {@delete_location_count}.
+            </p>
+          </:impact>
+        </.name_confirm_delete_modal>
       </div>
     </Layouts.app>
     """
@@ -294,85 +309,6 @@ defmodule PinventoryWeb.EditItemLive do
             {@current}
           </span>
         </div>
-      </div>
-    </div>
-    """
-  end
-
-  attr :form, Phoenix.HTML.Form, required: true
-  attr :item_name, :string, required: true
-  attr :total, :integer, required: true
-  attr :location_count, :integer, required: true
-  attr :confirm_ready?, :boolean, required: true
-
-  defp item_delete_modal(assigns) do
-    ~H"""
-    <div
-      id="item-delete-modal"
-      class="fixed inset-0 z-50 flex items-end justify-center bg-neutral/40 p-4 sm:items-center"
-      phx-window-keydown="close_delete"
-      phx-key="Escape"
-    >
-      <div
-        id="item-delete-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="item-delete-title"
-        class="w-full max-w-md rounded-2xl border border-base-300 bg-base-100 p-5 shadow-2xl sm:p-6"
-        phx-click-away="close_delete"
-      >
-        <div class="space-y-1">
-          <h2 id="item-delete-title" class="text-lg font-semibold tracking-tight">
-            Delete item
-          </h2>
-          <p id="item-delete-impact" class="text-sm opacity-70">
-            This will delete {@item_name}.
-          </p>
-          <p id="item-delete-impact-total" class="text-sm opacity-70">
-            Total quantity: {@total}.
-          </p>
-          <p id="item-delete-impact-locations" class="text-sm opacity-70">
-            Locations with stock: {@location_count}.
-          </p>
-        </div>
-
-        <.form
-          for={@form}
-          id="item-delete-form"
-          class="mt-4 space-y-4"
-          phx-change="validate_delete"
-          phx-submit="confirm_delete"
-        >
-          <.input
-            type="text"
-            field={@form[:name]}
-            id="item-delete-confirm"
-            label="Type the item name to confirm"
-            placeholder={@item_name}
-            autocomplete="off"
-            spellcheck="false"
-            phx-mounted={JS.focus()}
-          />
-
-          <div class="flex justify-end gap-2">
-            <button
-              type="button"
-              id="item-delete-cancel"
-              class="btn btn-ghost"
-              phx-click="close_delete"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              id="item-delete-confirm-submit"
-              class="btn btn-error"
-              disabled={not @confirm_ready?}
-            >
-              Delete
-            </button>
-          </div>
-        </.form>
       </div>
     </div>
     """
@@ -914,17 +850,6 @@ defmodule PinventoryWeb.EditItemLive do
     socket
     |> assign(:delete_form, delete_form(raw_name))
     |> assign(:delete_confirm_ready?, confirm_name_matches?(raw_name, saved_name(socket)))
-  end
-
-  defp delete_form(name) do
-    to_form(%{"name" => name}, as: :delete)
-  end
-
-  defp delete_name_from_params(%{"delete" => %{"name" => name}}) when is_binary(name), do: name
-  defp delete_name_from_params(_), do: ""
-
-  defp confirm_name_matches?(typed, saved) when is_binary(typed) and is_binary(saved) do
-    typed == saved or String.trim(typed) == String.trim(saved)
   end
 
   defp unsaved_name?(socket) do
