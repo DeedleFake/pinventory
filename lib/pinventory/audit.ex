@@ -117,28 +117,6 @@ defmodule Pinventory.Audit do
     load_edit_groups(edit_query, opts[:limit], location_id: location_id)
   end
 
-  @doc """
-  Lists events for an item (item and stock events), newest first.
-  With `:limit`, returns the N most recent events. Preloads `:user`.
-
-  Prefer `list_edits_for_item/2` for the item Activity UI (grouped by edit).
-
-  Options:
-
-    * `:limit` - max rows (default 100)
-  """
-  def list_for_item(item_id, opts \\ []) when is_binary(item_id) do
-    opts = Keyword.validate!(opts, limit: 100)
-
-    from(e in Event,
-      where: e.item_id == ^item_id,
-      order_by: [desc: e.inserted_at, desc: e.edit_seq, desc: e.id],
-      limit: ^opts[:limit],
-      preload: [:user]
-    )
-    |> Repo.all()
-  end
-
   defp base_edit_query do
     from(e in Event,
       group_by: e.edit_id,
