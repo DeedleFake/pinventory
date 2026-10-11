@@ -6,6 +6,8 @@ defmodule Pinventory.Items.Item do
   @foreign_key_type :binary_id
   schema "items" do
     field :name, :string
+    field :notes, :string, default: ""
+    field :lock_version, :integer, default: 1
     field :total_quantity, :integer, virtual: true, default: 0
     field :location_count, :integer, virtual: true, default: 0
     # Stock at one location. Set by list_items_at_location/1 only.
@@ -21,6 +23,8 @@ defmodule Pinventory.Items.Item do
   def changeset(item, attrs) do
     item
     |> cast(attrs, [:name])
+    |> cast(attrs, [:notes], empty_values: [nil])
+    |> update_change(:notes, &normalize_newlines/1)
     |> update_change(:name, &trim_name/1)
     |> validate_required([:name])
     |> validate_length(:name, min: 2)
@@ -29,4 +33,7 @@ defmodule Pinventory.Items.Item do
 
   defp trim_name(name) when is_binary(name), do: String.trim(name)
   defp trim_name(name), do: name
+
+  defp normalize_newlines(notes) when is_binary(notes), do: String.replace(notes, "\r\n", "\n")
+  defp normalize_newlines(nil), do: ""
 end
