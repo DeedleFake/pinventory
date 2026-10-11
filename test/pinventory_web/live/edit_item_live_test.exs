@@ -737,7 +737,7 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/item/#{item}?note=2")
 
-      assert has_element?(view, "#note-history-summary", "Changes by sam")
+      assert has_element?(view, "#note-history-summary", "Changes by sam@example.com")
       assert has_element?(view, "#note-history-counts", "+2 −1")
       assert has_element?(view, "#note-diff[data-view=inline] .text-success", "Basement")
       assert has_element?(view, "#note-history-next", "v3")
@@ -747,8 +747,12 @@ defmodule PinventoryWeb.EditItemLiveTest do
       |> form("#note-compare-form", %{from: "0", to: "3"})
       |> render_change()
 
-      user = scope.user.email |> String.split("@") |> hd()
-      assert has_element?(view, "#note-history-summary", "Changes by #{user} and sam")
+      assert has_element?(
+               view,
+               "#note-history-summary",
+               "Changes by #{scope.user.email} and sam@example.com"
+             )
+
       assert has_element?(view, "#note-history-summary", "v0 → v3")
       assert has_element?(view, "#note-history-counts", "+4 −0")
 
@@ -780,8 +784,8 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
       assert has_element?(
                view,
-               ~s(#note-history-summary [title="alex, deedle, sam, kim"]),
-               "alex, deedle, and others"
+               ~s(#note-history-summary [title="alex@x.test, deedle@x.test, sam@x.test, kim@x.test"]),
+               "alex@x.test, deedle@x.test, and others"
              )
     end
 

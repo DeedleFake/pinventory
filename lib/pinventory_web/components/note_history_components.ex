@@ -8,12 +8,12 @@ defmodule PinventoryWeb.NoteHistoryComponents do
 
   alias Pinventory.Items.NoteVersion
   alias Pinventory.NoteDiff
+  alias PinventoryWeb.AuditHelpers
 
   @doc """
-  Short author name for a version: the local part of the user's email.
+  Author of a version, shown the same way as users in Activity.
   """
-  def author(%NoteVersion{user: %{email: email}}), do: email |> String.split("@") |> hd()
-  def author(%NoteVersion{}), do: "unknown"
+  def author(%NoteVersion{user: user}), do: AuditHelpers.actor_label(user)
 
   @doc """
   Names the authors of a compared range.

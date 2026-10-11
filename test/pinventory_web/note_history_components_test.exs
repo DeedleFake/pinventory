@@ -32,8 +32,17 @@ defmodule PinventoryWeb.NoteHistoryComponentsTest do
       version(4, "deedle@example.com")
     ]
 
-    assert NoteHistoryComponents.range_authors(versions, 1, 4) == ["deedle", "sam"]
-    assert NoteHistoryComponents.range_authors(versions, 4, 0) == ["alex", "deedle", "sam"]
+    assert NoteHistoryComponents.range_authors(versions, 1, 4) == [
+             "deedle@example.com",
+             "sam@example.com"
+           ]
+
+    assert NoteHistoryComponents.range_authors(versions, 4, 0) == [
+             "alex@example.com",
+             "deedle@example.com",
+             "sam@example.com"
+           ]
+
     assert NoteHistoryComponents.range_authors(versions, 2, 2) == []
   end
 
