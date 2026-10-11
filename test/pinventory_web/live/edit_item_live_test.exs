@@ -6,6 +6,8 @@ defmodule PinventoryWeb.EditItemLiveTest do
   alias Pinventory.Items
   alias Pinventory.Locations
 
+  import Pinventory.AccountsFixtures
+
   setup :register_and_log_in_user
 
   test "renders the new item form with locations ordered by name", %{conn: conn, scope: scope} do
@@ -686,6 +688,173 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
     refute has_element?(view, ~s(#item-delete-confirm[value="Lev"]))
     assert has_element?(view, "#item-delete-confirm-submit:disabled")
+  end
+
+  describe "notes" do
+    test "saves notes with the item and links the activity line to that version", %{
+      conn: conn,
+      scope: scope
+    } do
+      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
+      {:ok, view, _html} = live(conn, ~p"/item/#{item}")
+
+      view |> form("#item-form", item: %{notes: "Bottom shelf"}) |> render_change()
+
+      assert has_element?(view, ~s(#item-notes-section[data-notes-dirty="true"]))
+      assert has_element?(view, "#item-save:not([disabled])")
+
+      view |> form("#item-form") |> render_submit()
+
+      assert Items.get_item!(item.id).notes == "Bottom shelf"
+      assert has_element?(view, ~s(#item-notes-section[data-notes-dirty="false"]))
+      assert has_element?(view, "#note-edited-menu", "edited 1 time")
+
+      [event] =
+        item.id
+        |> Pinventory.Audit.list_for_item()
+        |> Enum.filter(&(&1.action == "item.notes_changed"))
+
+      line = element(view, "#item-event-#{event.id}")
+
+      assert render(line) =~ "Edited notes +2 −0"
+      assert render(line) =~ ~s(href="/item/#{item.id}?note=1")
+
+      render_click(line)
+
+      assert_patch(view, ~p"/item/#{item}?note=1")
+      assert has_element?(view, "#note-history-summary", "v0 → v1")
+    end
+
+    test "the history window compares any two versions", %{conn: conn, scope: scope} do
+      sam = user_scope_fixture(user_fixture(%{email: "sam@example.com"}))
+
+      item =
+        item_with_notes(scope, [
+          {scope, "Fridge"},
+          {sam, "Basement fridge"},
+          {scope, "Basement fridge, bottom shelf"}
+        ])
+
+      {:ok, view, _html} = live(conn, ~p"/item/#{item}?note=2")
+
+      assert has_element?(view, "#note-history-summary", "Changes by sam")
+      assert has_element?(view, "#note-history-counts", "+2 −1")
+      assert has_element?(view, "#note-diff[data-view=inline] .text-success", "Basement")
+      assert has_element?(view, "#note-history-next", "v3")
+      assert has_element?(view, "#note-history-prev", "v1")
+
+      view
+      |> form("#note-compare-form", %{from: "0", to: "3"})
+      |> render_change()
+
+      user = scope.user.email |> String.split("@") |> hd()
+      assert has_element?(view, "#note-history-summary", "Changes by #{user} and sam")
+      assert has_element?(view, "#note-history-summary", "v0 → v3")
+      assert has_element?(view, "#note-history-counts", "+4 −0")
+
+      view |> element("#note-view-split") |> render_click()
+
+      assert has_element?(view, "#note-diff[data-view=split]")
+
+      view |> element("#note-history-close") |> render_click()
+
+      assert_patch(view, ~p"/item/#{item}")
+      refute has_element?(view, "#note-history")
+    end
+
+    test "a range with four authors names two and others", %{conn: conn, scope: scope} do
+      edits =
+        for {email, text} <- [
+              {"alex@x.test", "a"},
+              {"deedle@x.test", "a b"},
+              {"sam@x.test", "a b c"},
+              {"kim@x.test", "a b c d"}
+            ] do
+          {user_scope_fixture(user_fixture(%{email: email})), text}
+        end
+
+      item = item_with_notes(scope, edits)
+      {:ok, view, _html} = live(conn, ~p"/item/#{item}?note=4")
+
+      view |> form("#note-compare-form", %{from: "0", to: "4"}) |> render_change()
+
+      assert has_element?(
+               view,
+               ~s(#note-history-summary [title="alex, deedle, sam, kim"]),
+               "alex, deedle, and others"
+             )
+    end
+
+    test "restore fills the form and Save writes a new version", %{conn: conn, scope: scope} do
+      item = item_with_notes(scope, [{scope, "Fridge"}, {scope, "Freezer"}])
+      {:ok, view, _html} = live(conn, ~p"/item/#{item}?note=1")
+
+      view |> element("#note-history-restore") |> render_click()
+
+      assert_patch(view, ~p"/item/#{item}")
+      assert has_element?(view, "#item_notes", "Fridge")
+      assert has_element?(view, "#item-notes-hint", "restored from v1")
+      assert Items.get_item!(item.id).notes == "Freezer"
+
+      view |> form("#item-form") |> render_submit()
+
+      assert Enum.map(Items.note_versions(item.id), & &1.text) == [
+               "",
+               "Fridge",
+               "Freezer",
+               "Fridge"
+             ]
+    end
+
+    test "a save from an out-of-date copy warns instead of overwriting", %{
+      conn: conn,
+      scope: scope
+    } do
+      sam = user_scope_fixture(user_fixture(%{email: "sam@example.com"}))
+      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
+      {:ok, view, _html} = live(conn, ~p"/item/#{item}")
+
+      {:ok, _} = Items.update_item(sam, item, %{notes: "Their note"})
+
+      view |> form("#item-form", item: %{notes: "My note"}) |> render_submit()
+
+      assert has_element?(view, "#item-stale-warning", "sam@example.com saved this item")
+      assert has_element?(view, "#item-stale-notes-diff .text-error", "Their")
+      assert has_element?(view, "#item-stale-notes-diff .text-success", "My")
+      assert Items.get_item!(item.id).notes == "Their note"
+
+      view |> element("#item-stale-keep") |> render_click()
+
+      refute has_element?(view, "#item-stale-warning")
+      assert has_element?(view, ~s(#item-notes-section[data-notes-dirty="true"]))
+
+      view |> form("#item-form") |> render_submit()
+
+      assert Items.get_item!(item.id).notes == "My note"
+    end
+
+    test "loading the newer version drops the unsaved edits", %{conn: conn, scope: scope} do
+      sam = user_scope_fixture(user_fixture(%{email: "sam@example.com"}))
+      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
+      {:ok, view, _html} = live(conn, ~p"/item/#{item}")
+      {:ok, _} = Items.update_item(sam, item, %{notes: "Their note"})
+
+      view |> form("#item-form", item: %{notes: "My note"}) |> render_submit()
+      view |> element("#item-stale-load") |> render_click()
+
+      refute has_element?(view, "#item-stale-warning")
+      assert has_element?(view, "#item_notes", "Their note")
+      assert has_element?(view, ~s(#item-notes-section[data-notes-dirty="false"]))
+    end
+  end
+
+  defp item_with_notes(scope, edits) do
+    {:ok, item} = Items.create_item(scope, %{name: "Milk"})
+
+    Enum.reduce(edits, item, fn {editor, text}, item ->
+      {:ok, item} = Items.update_item(editor, item, %{notes: text})
+      item
+    end)
   end
 
   defp assert_quantity(view, location_id, quantity) do

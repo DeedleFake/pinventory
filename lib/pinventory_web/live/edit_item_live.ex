@@ -10,12 +10,14 @@ defmodule PinventoryWeb.EditItemLive do
   import PinventoryWeb.AuditHelpers,
     only: [
       activity_event_line: 1,
+      actor_label: 1,
       edit_heading: 1,
       format_event_time: 1,
       linkable_location_id: 1
     ]
 
   import PinventoryWeb.ConfirmDeleteComponents
+  import PinventoryWeb.NoteHistoryComponents
 
   @impl true
   def render(assigns) do
@@ -48,6 +50,13 @@ defmodule PinventoryWeb.EditItemLive do
             </button>
           </div>
         </div>
+
+        <.stale_warning
+          :if={@stale_item}
+          item={@stale_item}
+          edit={@stale_edit}
+          current_notes={@current_notes}
+        />
 
         <%!-- Name lives in its own form so stock Enter keys do not submit Save. --%>
         <.form
@@ -90,6 +99,33 @@ defmodule PinventoryWeb.EditItemLive do
               :if={@live_action == :new and @suggestions != []}
               suggestions={@suggestions}
             />
+          </div>
+
+          <div
+            id="item-notes-section"
+            data-notes-dirty={to_string(@notes_dirty?)}
+            class={[
+              "relative mt-3 space-y-1 rounded-xl border px-3 py-2 transition-colors duration-200",
+              @notes_dirty? && "border-primary ring-1 ring-primary/30 bg-primary/5",
+              not @notes_dirty? && "border-base-300 bg-base-100"
+            ]}
+          >
+            <div class="flex items-center justify-between gap-2">
+              <label for="item_notes" class="text-sm font-medium opacity-80">Notes</label>
+              <.edited_menu versions={@note_versions} history_path={&note_history_path(@item, &1)} />
+            </div>
+            <.input
+              type="textarea"
+              field={@form[:notes]}
+              rows="3"
+              placeholder="e.g. Bottom shelf of the fridge"
+              phx-debounce="300"
+              class="textarea w-full text-sm"
+              wrapperclass="mb-0"
+            />
+            <p :if={@notes_dirty?} id="item-notes-hint" class="text-xs text-primary">
+              Unsaved note change<span :if={@restored_from}> · restored from v{@restored_from}</span>
+            </p>
           </div>
         </.form>
 
@@ -187,11 +223,23 @@ defmodule PinventoryWeb.EditItemLive do
                   id={"item-event-#{event.id}"}
                   event={event}
                   href={item_activity_event_href(event)}
+                  patch={note_event_patch(@item, @note_versions, event)}
                 />
               </ul>
             </article>
           </div>
         </section>
+
+        <.history_window
+          :if={@note_history}
+          versions={@note_versions}
+          from={@note_history.from}
+          to={@note_history.to}
+          view={@note_history.view}
+          current_notes={@current_notes}
+          history_path={&note_history_path(@item, &1)}
+          close_path={~p"/item/#{@item}"}
+        />
 
         <.name_confirm_delete_modal
           :if={@live_action == :edit and @delete_modal?}
@@ -216,6 +264,65 @@ defmodule PinventoryWeb.EditItemLive do
         </.name_confirm_delete_modal>
       </div>
     </Layouts.app>
+    """
+  end
+
+  attr :item, Item, required: true
+  attr :edit, :map, default: nil
+  attr :current_notes, :string, required: true
+
+  defp stale_warning(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :notes_rows,
+        Pinventory.NoteDiff.rows(assigns.item.notes, assigns.current_notes)
+      )
+
+    ~H"""
+    <div
+      id="item-stale-warning"
+      role="alert"
+      class="space-y-3 rounded-xl border border-warning/60 bg-warning/10 px-4 py-3"
+    >
+      <div class="flex items-start gap-2">
+        <.icon name="hero-exclamation-triangle" class="mt-0.5 size-5 shrink-0 text-warning" />
+        <div class="space-y-1 text-sm">
+          <p class="font-medium">
+            {if @edit, do: actor_label(@edit.user), else: "Someone else"} saved this item while you were editing.
+          </p>
+          <p class="opacity-80">
+            Your changes were not saved and are still in the form. Keep your edits to review them
+            against the new version, or load the new version and drop your edits.
+          </p>
+          <p :if={@edit} id="item-stale-their-edit" class="text-xs opacity-70">
+            Their save: {edit_heading(@edit)}
+          </p>
+        </div>
+      </div>
+      <div :if={@item.notes != @current_notes} id="item-stale-notes" class="space-y-1">
+        <p class="text-xs font-semibold opacity-70">Notes: their version → yours</p>
+        <.note_diff id="item-stale-notes-diff" rows={@notes_rows} />
+      </div>
+      <div class="flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          id="item-stale-load"
+          class="btn btn-ghost btn-sm"
+          phx-click="load_latest"
+        >
+          Load their version
+        </button>
+        <button
+          type="button"
+          id="item-stale-keep"
+          class="btn btn-warning btn-sm"
+          phx-click="keep_my_edits"
+        >
+          Keep my edits
+        </button>
+      </div>
+    </div>
     """
   end
 
@@ -444,6 +551,12 @@ defmodule PinventoryWeb.EditItemLive do
      |> assign(:total_baseline, 0)
      |> assign(:location_dirty, %{})
      |> assign(:item_edits, [])
+     |> assign(:note_versions, [])
+     |> assign(:notes_dirty?, false)
+     |> assign(:restored_from, nil)
+     |> assign(:note_history, nil)
+     |> assign(:stale_item, nil)
+     |> assign(:stale_edit, nil)
      |> assign(:delete_modal?, false)
      |> assign(:delete_form, delete_form(""))
      |> assign(:delete_confirm_ready?, false)
@@ -453,35 +566,14 @@ defmodule PinventoryWeb.EditItemLive do
   end
 
   @impl true
-  def handle_params(%{"item_id" => item_id}, _uri, socket) do
-    case Items.get_item(item_id) do
-      nil ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "Item not found.")
-         |> push_navigate(to: ~p"/")}
+  def handle_params(%{"item_id" => item_id} = params, _uri, socket) do
+    socket =
+      case socket.assigns do
+        %{item: %Item{id: ^item_id}} -> socket
+        _ -> load_item(socket, item_id)
+      end
 
-      item ->
-        locations = Locations.list()
-        quantities = DraftStock.from_locations(locations, Items.stock_map(item))
-
-        socket =
-          socket
-          |> assign(:page_title, item.name)
-          |> assign(:live_action, :edit)
-          |> assign(:item, item)
-          |> assign(:locations, locations)
-          |> assign(:baseline_name, item.name)
-          |> assign(:baseline_quantities, quantities)
-          |> assign(:quantities, quantities)
-          |> assign(:form, to_item_form(Items.change_item(item)))
-          |> assign(:item_edits, Audit.list_edits_for_item(item.id))
-          |> clear_suggestions()
-          |> close_delete_modal()
-          |> sync_dirty()
-
-        {:noreply, socket}
-    end
+    {:noreply, apply_note_param(socket, params["note"])}
   end
 
   def handle_params(_params, _uri, socket) do
@@ -500,6 +592,7 @@ defmodule PinventoryWeb.EditItemLive do
       |> assign(:quantities, quantities)
       |> assign(:form, to_item_form(Items.change_item(item)))
       |> assign(:item_edits, [])
+      |> assign(:note_versions, [])
       |> clear_suggestions()
       |> close_delete_modal()
       |> sync_dirty()
@@ -510,10 +603,11 @@ defmodule PinventoryWeb.EditItemLive do
   @impl true
   def handle_event("validate", params, socket) do
     name = get_in(params, ["item", "name"]) || ""
+    notes = get_in(params, ["item", "notes"]) || current_notes(socket.assigns)
 
     form =
       socket.assigns.item
-      |> Items.change_item(%{"name" => name})
+      |> Items.change_item(%{"name" => name, "notes" => notes})
       |> Map.put(:action, :validate)
       |> to_item_form()
 
@@ -524,10 +618,15 @@ defmodule PinventoryWeb.EditItemLive do
         []
       end
 
+    restored_from =
+      if current_notes(%{form: form}) == current_notes(socket.assigns),
+        do: socket.assigns.restored_from
+
     {:noreply,
      socket
      |> assign(:form, form)
      |> assign(:suggestions, suggestions)
+     |> assign(:restored_from, restored_from)
      |> sync_dirty()}
   end
 
@@ -631,13 +730,74 @@ defmodule PinventoryWeb.EditItemLive do
     end
   end
 
+  def handle_event("compare_note_versions", %{"from" => from, "to" => to}, socket) do
+    {:noreply,
+     update(socket, :note_history, fn history ->
+       %{history | from: note_number(socket, from), to: note_number(socket, to)}
+     end)}
+  end
+
+  def handle_event("set_note_view", %{"view" => view}, socket) when view in ~w(inline split) do
+    {:noreply, update(socket, :note_history, &%{&1 | view: String.to_existing_atom(view)})}
+  end
+
+  # Restore only fills the form. The normal Save writes it as a new version.
+  def handle_event("restore_note_version", %{"number" => number}, socket) do
+    number = note_number(socket, number)
+    text = Enum.at(socket.assigns.note_versions, number).text
+
+    form =
+      socket.assigns.item
+      |> Items.change_item(%{"name" => current_name(socket), "notes" => text})
+      |> to_item_form()
+
+    {:noreply,
+     socket
+     |> assign(:form, form)
+     |> assign(:restored_from, number)
+     |> sync_dirty()
+     |> push_patch(to: ~p"/item/#{socket.assigns.item}")}
+  end
+
+  # Takes the newer saved item as the baseline and keeps the user's form, so
+  # the unsaved highlights show what this save would change on top of it.
+  def handle_event("keep_my_edits", _params, socket) do
+    item = socket.assigns.stale_item
+
+    form =
+      item
+      |> Items.change_item(%{
+        "name" => current_name(socket),
+        "notes" => current_notes(socket.assigns)
+      })
+      |> to_item_form()
+
+    {:noreply,
+     socket
+     |> assign(:item, item)
+     |> assign(:baseline_name, item.name)
+     |> assign(
+       :baseline_quantities,
+       DraftStock.from_locations(socket.assigns.locations, Items.stock_map(item))
+     )
+     |> assign(:form, form)
+     |> assign(:stale_item, nil)
+     |> assign(:stale_edit, nil)
+     |> sync_dirty()}
+  end
+
+  def handle_event("load_latest", _params, socket) do
+    {:noreply, show_item(socket, socket.assigns.stale_item)}
+  end
+
   # Stock form only exists so LiveView can serialize inputs; Enter must not navigate.
   def handle_event("stock_noop", _params, socket), do: {:noreply, socket}
 
   def handle_event("save", params, socket) do
     name = get_in(params, ["item", "name"]) || current_name(socket)
+    notes = get_in(params, ["item", "notes"]) || current_notes(socket.assigns)
     quantities = socket.assigns.quantities
-    attrs = %{"name" => name}
+    attrs = %{"name" => name, "notes" => notes}
     scope = socket.assigns.current_scope
 
     result =
@@ -659,18 +819,7 @@ defmodule PinventoryWeb.EditItemLive do
           if socket.assigns.live_action == :new do
             push_navigate(socket, to: ~p"/item/#{item.id}")
           else
-            quantities =
-              DraftStock.from_locations(socket.assigns.locations, Items.stock_map(item))
-
-            socket
-            |> assign(:item, item)
-            |> assign(:baseline_name, item.name)
-            |> assign(:baseline_quantities, quantities)
-            |> assign(:quantities, quantities)
-            |> assign(:form, to_item_form(Items.change_item(item)))
-            |> assign(:item_edits, Audit.list_edits_for_item(item.id))
-            |> clear_suggestions()
-            |> sync_dirty()
+            show_item(socket, item)
           end
 
         {:noreply, socket}
@@ -687,6 +836,18 @@ defmodule PinventoryWeb.EditItemLive do
          socket
          |> assign(:form, to_item_form(changeset, action: :validate))
          |> assign(:suggestions, suggestions)
+         |> sync_dirty()}
+
+      {:error, :stale} ->
+        item = Items.get_item!(socket.assigns.item.id)
+
+        {:noreply,
+         socket
+         |> assign(:form, to_item_form(Items.change_item(socket.assigns.item, attrs)))
+         |> assign(:stale_item, item)
+         |> assign(:stale_edit, item.id |> Audit.list_edits_for_item(limit: 1) |> List.first())
+         |> assign(:item_edits, Audit.list_edits_for_item(item.id))
+         |> assign(:note_versions, Items.note_versions(item.id))
          |> sync_dirty()}
 
       {:error, %Ecto.Changeset{data: %Items.ItemLocation{}} = changeset} ->
@@ -708,6 +869,76 @@ defmodule PinventoryWeb.EditItemLive do
       location_id -> ~p"/location/#{location_id}"
     end
   end
+
+  defp load_item(socket, item_id) do
+    case Items.get_item(item_id) do
+      nil ->
+        socket
+        |> put_flash(:error, "Item not found.")
+        |> push_navigate(to: ~p"/")
+
+      item ->
+        socket
+        |> assign(:page_title, item.name)
+        |> assign(:live_action, :edit)
+        |> assign(:locations, Locations.list())
+        |> show_item(item)
+        |> close_delete_modal()
+    end
+  end
+
+  defp show_item(socket, %Item{} = item) do
+    quantities = DraftStock.from_locations(socket.assigns.locations, Items.stock_map(item))
+
+    socket
+    |> assign(:item, item)
+    |> assign(:baseline_name, item.name)
+    |> assign(:baseline_quantities, quantities)
+    |> assign(:quantities, quantities)
+    |> assign(:form, to_item_form(Items.change_item(item)))
+    |> assign(:item_edits, Audit.list_edits_for_item(item.id))
+    |> assign(:note_versions, Items.note_versions(item.id))
+    |> assign(:restored_from, nil)
+    |> assign(:stale_item, nil)
+    |> assign(:stale_edit, nil)
+    |> clear_suggestions()
+    |> sync_dirty()
+  end
+
+  defp apply_note_param(%{assigns: %{note_versions: versions}} = socket, number)
+       when is_binary(number) and versions != [] do
+    case Integer.parse(number) do
+      {n, ""} when n >= 0 and n < length(versions) ->
+        view = if socket.assigns.note_history, do: socket.assigns.note_history.view, else: :inline
+
+        socket
+        |> clear_flash()
+        |> assign(:note_history, %{from: max(n - 1, 0), to: n, view: view})
+
+      _ ->
+        assign(socket, :note_history, nil)
+    end
+  end
+
+  defp apply_note_param(socket, _number), do: assign(socket, :note_history, nil)
+
+  defp note_number(socket, raw) do
+    raw
+    |> String.to_integer()
+    |> max(0)
+    |> min(length(socket.assigns.note_versions) - 1)
+  end
+
+  defp note_history_path(item, number), do: ~p"/item/#{item}?note=#{number}"
+
+  defp note_event_patch(item, versions, %{action: "item.notes_changed", id: event_id}) do
+    case Enum.find(versions, &(&1.event_id == event_id)) do
+      nil -> nil
+      version -> note_history_path(item, version.number)
+    end
+  end
+
+  defp note_event_patch(_item, _versions, _event), do: nil
 
   defp page_heading(:new), do: "New item"
   defp page_heading(:edit), do: "Edit item"
@@ -806,10 +1037,14 @@ defmodule PinventoryWeb.EditItemLive do
         {location_id, qty != DraftStock.get(baseline_quantities, location_id)}
       end)
 
-    dirty? = name != socket.assigns.baseline_name or stock_dirty?
+    notes_dirty? = current_notes(socket.assigns) != socket.assigns.item.notes
+    dirty? = name != socket.assigns.baseline_name or stock_dirty? or notes_dirty?
 
     socket
     |> assign(:name_dirty?, name_dirty?)
+    |> assign(:notes_dirty?, notes_dirty?)
+    |> assign(:current_notes, current_notes(socket.assigns))
+    |> assign(:restored_from, notes_dirty? && socket.assigns.restored_from)
     |> assign(:stock_total_mode, stock_total_mode)
     |> assign(:total_current, total_current)
     |> assign(:total_baseline, total_baseline)
@@ -872,6 +1107,10 @@ defmodule PinventoryWeb.EditItemLive do
       |> assign(:dirty?, dirty?)
       |> push_event("unsaved-changes", %{dirty: dirty?})
     end
+  end
+
+  defp current_notes(%{form: %Phoenix.HTML.Form{source: %Ecto.Changeset{} = changeset}}) do
+    Ecto.Changeset.get_field(changeset, :notes)
   end
 
   defp current_name(socket) do
