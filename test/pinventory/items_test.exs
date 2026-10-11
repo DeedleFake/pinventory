@@ -1,6 +1,7 @@
 defmodule Pinventory.ItemsTest do
   use Pinventory.DataCase, async: false
 
+  alias Pinventory.Audit
   alias Pinventory.Items
   alias Pinventory.Items.Item
   alias Pinventory.Items.ItemLocation
@@ -117,6 +118,76 @@ defmodule Pinventory.ItemsTest do
       assert item_id == item.id
       assert errors_on(changeset) == %{location_id: ["does not exist"]}
       assert Items.get_item!(item.id).name == "Kept"
+      assert Items.stock_map(Items.get_item!(item.id)) == %{}
+    end
+  end
+
+  describe "notes" do
+    test "update_item/4 saves notes and records the old and new text", %{scope: scope} do
+      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
+
+      assert {:ok, %Item{notes: "Bottom shelf"}} =
+               Items.update_item(scope, item, %{name: "Milk", notes: "Bottom shelf"})
+
+      assert [%{action: "item.notes_changed", changes: changes, user_id: user_id}] =
+               Audit.list_for_item(item.id) |> Enum.filter(&(&1.action == "item.notes_changed"))
+
+      assert changes == %{"notes" => %{"from" => "", "to" => "Bottom shelf"}}
+      assert user_id == scope.user.id
+    end
+
+    test "a rename and a notes edit in one save share an edit", %{scope: scope} do
+      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
+      {:ok, _} = Items.update_item(scope, item, %{name: "Oat milk", notes: "Door"})
+
+      [edit] =
+        item.id
+        |> Audit.list_edits_for_item()
+        |> Enum.reject(&match?([%{action: "item.created"}], &1.events))
+
+      assert Enum.map(edit.events, &{&1.action, &1.edit_seq}) == [
+               {"item.updated", 0},
+               {"item.notes_changed", 1}
+             ]
+    end
+
+    test "browser line endings are stored as \\n", %{scope: scope} do
+      {:ok, item} = Items.create_item(scope, %{name: "Milk", notes: "a\r\nb"})
+
+      assert item.notes == "a\nb"
+    end
+
+    test "note_versions/1 lists every saved version, oldest first", %{scope: scope} do
+      other = user_scope_fixture()
+      {:ok, item} = Items.create_item(scope, %{name: "Milk", notes: "Fridge"})
+      {:ok, item} = Items.update_item(other, item, %{notes: "Basement fridge"})
+      {:ok, _} = Items.update_item(scope, item, %{name: "Whole milk"})
+
+      versions = Items.note_versions(item.id)
+
+      assert Enum.map(versions, &{&1.number, &1.text, &1.user && &1.user.id}) == [
+               {0, "", nil},
+               {1, "Fridge", scope.user.id},
+               {2, "Basement fridge", other.user.id}
+             ]
+    end
+
+    test "update_item/4 rejects a save from an out-of-date copy", %{scope: scope} do
+      other = user_scope_fixture()
+      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
+      {:ok, _} = Items.update_item(other, item, %{notes: "Their note"})
+
+      assert Items.update_item(scope, item, %{notes: "My note"}) == {:error, :stale}
+      assert Items.get_item!(item.id).notes == "Their note"
+      assert length(Items.note_versions(item.id)) == 2
+    end
+
+    test "a stock-only save also detects an out-of-date copy", %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
+      {:ok, _} = Items.update_item(scope, item, %{notes: "Newer"})
+
+      assert Items.update_item(scope, item, %{}, %{garage.id => 2}) == {:error, :stale}
       assert Items.stock_map(Items.get_item!(item.id)) == %{}
     end
   end

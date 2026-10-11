@@ -7,6 +7,8 @@ defmodule PinventoryWeb.AuditHelpers do
 
   import PinventoryWeb.CoreComponents, only: [icon: 1]
 
+  alias Pinventory.NoteDiff
+
   @doc """
   Human-readable actor label from a preloaded user or nil.
   """
@@ -35,6 +37,13 @@ defmodule PinventoryWeb.AuditHelpers do
       _ ->
         "Updated item"
     end
+  end
+
+  def event_line(%{action: "item.notes_changed", changes: %{"notes" => notes}}) do
+    %{added: added, removed: removed} =
+      notes["from"] |> NoteDiff.rows(notes["to"]) |> NoteDiff.counts()
+
+    "Edited notes +#{added} −#{removed}"
   end
 
   def event_line(%{action: "item.deleted", metadata: meta}) do
@@ -162,30 +171,35 @@ defmodule PinventoryWeb.AuditHelpers do
   attr :id, :string, required: true
   attr :event, :map, required: true
   attr :href, :string, default: nil
+  attr :patch, :string, default: nil, doc: "same-page target; used instead of href when set"
 
   def activity_event_line(assigns) do
     ~H"""
     <li class="text-sm">
       <.link
-        :if={@href}
+        :if={@href || @patch}
         id={@id}
         navigate={@href}
+        patch={@patch}
         class={[
           "flex items-center gap-2 rounded-lg px-2 py-1.5 -mx-2",
           "font-medium text-primary",
           "transition-colors hover:bg-primary/10"
         ]}
       >
-        <.icon name="hero-map-pin" class="size-3.5 shrink-0 opacity-70" />
+        <.icon name={event_icon(@event)} class="size-3.5 shrink-0 opacity-70" />
         <span class="min-w-0 flex-1 underline decoration-primary/30 underline-offset-2">
           {event_line(@event)}
         </span>
         <.icon name="hero-chevron-right" class="size-4 shrink-0 opacity-50" />
       </.link>
-      <span :if={!@href} id={@id} class="opacity-80">{event_line(@event)}</span>
+      <span :if={!@href and !@patch} id={@id} class="opacity-80">{event_line(@event)}</span>
     </li>
     """
   end
+
+  defp event_icon(%{action: "item.notes_changed"}), do: "hero-document-text"
+  defp event_icon(_event), do: "hero-map-pin"
 
   defp edit_subject(events) do
     Enum.find_value(events, fn event ->
@@ -222,6 +236,7 @@ defmodule PinventoryWeb.AuditHelpers do
 
   defp summary_part(%{action: "item.created"}), do: "created"
   defp summary_part(%{action: "item.updated"}), do: "renamed"
+  defp summary_part(%{action: "item.notes_changed"}), do: "notes edited"
   defp summary_part(%{action: "item.deleted"}), do: "deleted"
   defp summary_part(%{action: "location.created"}), do: "location created"
   defp summary_part(%{action: "location.updated"}), do: "location renamed"

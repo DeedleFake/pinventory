@@ -16,11 +16,13 @@ defmodule Pinventory.Items do
   alias Ecto.Multi
   alias Pinventory.Accounts.Scope
   alias Pinventory.Audit
+  alias Pinventory.Audit.Event
   alias Pinventory.Repo
 
   alias Pinventory.Items.DraftStock
   alias Pinventory.Items.Item
   alias Pinventory.Items.ItemLocation
+  alias Pinventory.Items.NoteVersion
   alias Pinventory.Locations.Location
 
   # SQLite LIKE escape character. Used by escape_like/1 and embedded as a SQL
@@ -263,6 +265,10 @@ defmodule Pinventory.Items do
             edit_seq: 0
           )
         ] ++
+          initial_notes_events(item, edit_id, user_id)
+
+      events =
+        events ++
           Audit.stock_change_attrs(
             edit_id: edit_id,
             user_id: user_id,
@@ -271,7 +277,7 @@ defmodule Pinventory.Items do
             before: %{},
             after: desired,
             location_names: location_names,
-            start_seq: 1
+            start_seq: length(events)
           )
 
       Audit.insert_events(repo, events)
@@ -284,10 +290,16 @@ defmodule Pinventory.Items do
   end
 
   @doc """
-  Updates an item name and replaces stock so only positive quantities remain.
+  Updates an item's name and notes and replaces stock so only positive
+  quantities remain.
 
-  Skips the write (and audit) when the name and stock are unchanged.
-  All events for a successful save share one `edit_id`.
+  Skips the write (and audit) when the name, notes, and stock are unchanged.
+  All events for a successful save share one `edit_id`. A notes change is its
+  own `item.notes_changed` event with the full old and new text, so the audit
+  log is the note's version history (see `note_versions/1`).
+
+  `item` must be the copy the user started editing. If another save changed
+  the item since then, nothing is written and `{:error, :stale}` is returned.
 
   `quantities` is a **full replacement** map of `location_id => quantity`.
   Locations omitted from the map or set to 0 are cleared (and audited as
@@ -301,60 +313,58 @@ defmodule Pinventory.Items do
     before_stock = stock_map(item)
     desired = normalize_desired_stock(quantities)
     changeset = change_item(item, attrs)
-
-    name_change = name_change_diff(changeset)
-    stock_diffs? = stock_changed?(before_stock, desired)
+    field_events = item_field_events(changeset)
 
     cond do
       not changeset.valid? ->
         {:error, changeset}
 
-      name_change == nil and not stock_diffs? ->
+      field_events == [] and not stock_changed?(before_stock, desired) ->
         {:ok, item}
 
       true ->
+        # Stock-only saves leave the item row unchanged, and optimistic_lock
+        # skips unchanged rows, so force the version bump to check every save.
+        changeset =
+          changeset
+          |> Ecto.Changeset.force_change(:lock_version, item.lock_version)
+          |> Ecto.Changeset.optimistic_lock(:lock_version)
+
         Multi.new()
-        |> Multi.update(:item, changeset)
+        |> Multi.update(:item, changeset, stale_error_field: :lock_version)
         |> Multi.run(:stock, fn repo, %{item: updated} ->
           sync_stock(repo, updated.id, desired)
         end)
         |> Multi.run(:audit_events, fn repo, %{item: updated} ->
-          location_ids =
-            Map.keys(before_stock) ++ Map.keys(desired)
+          location_names = location_names(repo, Map.keys(before_stock) ++ Map.keys(desired))
 
-          location_names = location_names(repo, location_ids)
-
-          {seq, events} =
-            if name_change do
-              {1,
-               [
-                 Audit.item_event_attrs(
-                   action: "item.updated",
-                   edit_id: edit_id,
-                   user_id: user_id,
-                   item: updated,
-                   changes: %{"name" => name_change},
-                   edit_seq: 0
-                 )
-               ]}
-            else
-              {0, []}
-            end
-
-          events =
-            events ++
-              Audit.stock_change_attrs(
+          item_events =
+            field_events
+            |> Enum.with_index()
+            |> Enum.map(fn {{action, changes}, seq} ->
+              Audit.item_event_attrs(
+                action: action,
                 edit_id: edit_id,
                 user_id: user_id,
-                item_id: updated.id,
-                item_name: updated.name,
-                before: before_stock,
-                after: desired,
-                location_names: location_names,
-                start_seq: seq
+                item: updated,
+                changes: changes,
+                edit_seq: seq
               )
+            end)
 
-          Audit.insert_events(repo, events)
+          stock_events =
+            Audit.stock_change_attrs(
+              edit_id: edit_id,
+              user_id: user_id,
+              item_id: updated.id,
+              item_name: updated.name,
+              before: before_stock,
+              after: desired,
+              location_names: location_names,
+              start_seq: length(item_events)
+            )
+
+          Audit.insert_events(repo, item_events ++ stock_events)
         end)
         |> Multi.run(:result, fn repo, %{item: updated} ->
           {:ok, repo.preload(updated, :item_locations, force: true)}
@@ -362,6 +372,37 @@ defmodule Pinventory.Items do
         |> Repo.transaction()
         |> unwrap_item_transaction()
     end
+  end
+
+  @doc """
+  Returns every saved version of an item's notes, oldest first.
+
+  Version 0 is the empty note every item starts with. Each later version
+  comes from one `item.notes_changed` audit event.
+  """
+  def note_versions(item_id) when is_binary(item_id) do
+    events =
+      from(e in Event,
+        where: e.item_id == ^item_id and e.action == "item.notes_changed",
+        order_by: [asc: e.inserted_at, asc: fragment("rowid")],
+        preload: [:user]
+      )
+      |> Repo.all()
+
+    edits =
+      events
+      |> Enum.with_index(1)
+      |> Enum.map(fn {event, number} ->
+        %NoteVersion{
+          number: number,
+          text: event.changes["notes"]["to"],
+          user: event.user,
+          inserted_at: event.inserted_at,
+          event_id: event.id
+        }
+      end)
+
+    [%NoteVersion{number: 0, text: ""} | edits]
   end
 
   @doc """
@@ -416,6 +457,7 @@ defmodule Pinventory.Items do
   defp unwrap_item_transaction(result) do
     case result do
       {:ok, %{result: item}} -> {:ok, item}
+      {:error, :item, %Ecto.Changeset{errors: [{:lock_version, _} | _]}, _} -> {:error, :stale}
       {:error, :item, changeset, _} -> {:error, changeset}
       {:error, :stock, reason, _} -> {:error, reason}
       {:error, :audit_events, reason, _} -> {:error, reason}
@@ -423,19 +465,40 @@ defmodule Pinventory.Items do
     end
   end
 
-  defp name_change_diff(%Ecto.Changeset{} = changeset) do
-    case Ecto.Changeset.fetch_change(changeset, :name) do
-      :error ->
-        nil
+  defp initial_notes_events(%Item{notes: ""}, _edit_id, _user_id), do: []
 
-      {:ok, new_name} ->
-        old_name = changeset.data.name
+  defp initial_notes_events(%Item{} = item, edit_id, user_id) do
+    [
+      Audit.item_event_attrs(
+        action: "item.notes_changed",
+        edit_id: edit_id,
+        user_id: user_id,
+        item: item,
+        changes: %{"notes" => %{"from" => "", "to" => item.notes}},
+        edit_seq: 1
+      )
+    ]
+  end
 
-        if old_name == new_name do
-          nil
-        else
-          %{"from" => old_name, "to" => new_name}
-        end
+  defp item_field_events(%Ecto.Changeset{} = changeset) do
+    [
+      {"item.updated", :name},
+      {"item.notes_changed", :notes}
+    ]
+    |> Enum.flat_map(fn {action, field} ->
+      case field_change(changeset, field) do
+        nil -> []
+        change -> [{action, %{Atom.to_string(field) => change}}]
+      end
+    end)
+  end
+
+  defp field_change(%Ecto.Changeset{} = changeset, field) do
+    old = Map.fetch!(changeset.data, field)
+
+    case Ecto.Changeset.fetch_change(changeset, field) do
+      {:ok, new} when new != old -> %{"from" => old, "to" => new}
+      _ -> nil
     end
   end
 

@@ -12,6 +12,7 @@ defmodule Pinventory.Audit.Event do
   @actions ~w(
     item.created
     item.updated
+    item.notes_changed
     item.deleted
     location.created
     location.updated
