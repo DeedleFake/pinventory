@@ -669,9 +669,14 @@ defmodule PinventoryWeb.UserLive.Settings do
        |> assign(:passkeys, Accounts.list_passkey_credentials(user))
        |> put_flash(:info, "Passkey added.")}
     else
-      :sudo -> {:noreply, require_sudo_redirect(socket)}
-      {:error, :duplicate} -> {:noreply, put_flash(socket, :error, "That passkey is already registered.")}
-      _ -> {:noreply, put_flash(socket, :error, "Could not add passkey.")}
+      :sudo ->
+        {:noreply, require_sudo_redirect(socket)}
+
+      {:error, :duplicate} ->
+        {:noreply, put_flash(socket, :error, "That passkey is already registered.")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Could not add passkey.")}
     end
   end
 

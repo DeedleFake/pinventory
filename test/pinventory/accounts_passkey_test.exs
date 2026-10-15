@@ -49,7 +49,9 @@ defmodule Pinventory.AccountsPasskeyTest do
       user = user_fixture()
       other = user_fixture()
       {options, ceremony} = Accounts.begin_passkey_registration(other)
-      {:ok, att} = SoftAuthenticator.new() |> SoftAuthenticator.create(options) |> Wire.attestation()
+
+      {:ok, att} =
+        SoftAuthenticator.new() |> SoftAuthenticator.create(options) |> Wire.attestation()
 
       assert {:error, :invalid} = Accounts.finish_passkey_registration(user, ceremony, att)
     end
@@ -58,10 +60,16 @@ defmodule Pinventory.AccountsPasskeyTest do
       user = user_fixture()
       {options, _} = Accounts.begin_passkey_registration(user)
       {_, auth_ceremony} = Accounts.begin_passkey_authentication()
-      {:ok, att} = SoftAuthenticator.new() |> SoftAuthenticator.create(options) |> Wire.attestation()
+
+      {:ok, att} =
+        SoftAuthenticator.new() |> SoftAuthenticator.create(options) |> Wire.attestation()
 
       assert {:error, :invalid} =
-               Accounts.finish_passkey_registration(user, %{auth_ceremony | user_id: user.id}, att)
+               Accounts.finish_passkey_registration(
+                 user,
+                 %{auth_ceremony | user_id: user.id},
+                 att
+               )
     end
 
     test "rejects a wrong origin" do
@@ -174,7 +182,12 @@ defmodule Pinventory.AccountsPasskeyTest do
       user = user_fixture()
       {auth, _} = register(user)
       {options, ceremony} = Accounts.begin_passkey_authentication()
-      expired = %{ceremony | challenge: %{ceremony.challenge | issued_at: ceremony.challenge.issued_at - 121}}
+
+      expired = %{
+        ceremony
+        | challenge: %{ceremony.challenge | issued_at: ceremony.challenge.issued_at - 121}
+      }
+
       {:ok, assertion} = auth |> SoftAuthenticator.get(options) |> Wire.assertion()
 
       assert {:error, :invalid} = Accounts.finish_passkey_authentication(expired, assertion)
@@ -199,7 +212,10 @@ defmodule Pinventory.AccountsPasskeyTest do
     test "is idempotent and hides the credential from the list" do
       user = user_fixture()
       {_, cred} = register(user)
-      assert {:ok, %{revoked_at: %DateTime{} = at}} = Accounts.revoke_passkey_credential(user, cred.id)
+
+      assert {:ok, %{revoked_at: %DateTime{} = at}} =
+               Accounts.revoke_passkey_credential(user, cred.id)
+
       assert {:ok, %{revoked_at: ^at}} = Accounts.revoke_passkey_credential(user, cred.id)
       assert Accounts.list_passkey_credentials(user) == []
     end

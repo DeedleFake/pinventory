@@ -501,8 +501,7 @@ defmodule Pinventory.Accounts do
       timeout: challenge.timeout * 1000,
       attestation: "none",
       authenticatorSelection: %{residentKey: "required", userVerification: "preferred"},
-      excludeCredentials:
-        Enum.map(existing, &%{type: "public-key", id: b64(&1.credential_id)})
+      excludeCredentials: Enum.map(existing, &%{type: "public-key", id: b64(&1.credential_id)})
     }
 
     {options, %Ceremony{kind: :registration, challenge: challenge, user_id: user.id}}
@@ -559,7 +558,10 @@ defmodule Pinventory.Accounts do
 
     allowed =
       if user,
-        do: Repo.all(from c in PasskeyCredential, where: c.user_id == ^user.id and is_nil(c.revoked_at)),
+        do:
+          Repo.all(
+            from c in PasskeyCredential, where: c.user_id == ^user.id and is_nil(c.revoked_at)
+          ),
         else: []
 
     challenge = Wax.new_authentication_challenge(rp_opts())
@@ -570,11 +572,13 @@ defmodule Pinventory.Accounts do
       timeout: challenge.timeout * 1000,
       userVerification: "preferred",
       allowCredentials:
-        Enum.map(allowed, &%{type: "public-key", id: b64(&1.credential_id), transports: &1.transports})
+        Enum.map(
+          allowed,
+          &%{type: "public-key", id: b64(&1.credential_id), transports: &1.transports}
+        )
     }
 
-    {options,
-     %Ceremony{kind: :authentication, challenge: challenge, user_id: user && user.id}}
+    {options, %Ceremony{kind: :authentication, challenge: challenge, user_id: user && user.id}}
   end
 
   @doc """

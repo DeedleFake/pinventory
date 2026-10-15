@@ -100,7 +100,9 @@ defmodule Pinventory.AccountsFixtures do
     {options, ceremony} = Accounts.begin_passkey_registration(user)
 
     {:ok, att} =
-      auth |> Pinventory.SoftAuthenticator.create(options) |> PinventoryWeb.Passkey.Wire.attestation()
+      auth
+      |> Pinventory.SoftAuthenticator.create(options)
+      |> PinventoryWeb.Passkey.Wire.attestation()
 
     {:ok, cred} = Accounts.finish_passkey_registration(user, ceremony, att)
     {auth, cred}

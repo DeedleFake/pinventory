@@ -135,7 +135,9 @@ defmodule PinventoryWeb.UserLive.Login do
   # Passkey ceremony. The challenge lives in this LiveView process: a
   # reconnect drops it and the user just presses the button again.
   def handle_event("passkey_start", _params, socket) do
-    begin_opts = if socket.assigns.reauth?, do: [user: socket.assigns.current_scope.user], else: []
+    begin_opts =
+      if socket.assigns.reauth?, do: [user: socket.assigns.current_scope.user], else: []
+
     {options, ceremony} = Accounts.begin_passkey_authentication(begin_opts)
 
     {:noreply,

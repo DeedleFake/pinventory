@@ -136,7 +136,7 @@ defmodule Pinventory.Accounts.UserToken do
                  :crypto.hash(@hash_algorithm, decoded),
                  "passkey_login"
                ),
-            where: t.inserted_at > ago(@passkey_login_validity_in_seconds, "second")
+               where: t.inserted_at > ago(@passkey_login_validity_in_seconds, "second")
 
         {:ok, query}
 

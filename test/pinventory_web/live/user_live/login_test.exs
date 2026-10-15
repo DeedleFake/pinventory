@@ -119,7 +119,9 @@ defmodule PinventoryWeb.UserLive.LoginTest do
 
       lv
       |> element("#passkey-login")
-      |> render_hook("passkey_assertion", %{credential: SoftAuthenticator.get(auth, options, opts)})
+      |> render_hook("passkey_assertion", %{
+        credential: SoftAuthenticator.get(auth, options, opts)
+      })
     end
 
     test "logs in with a discoverable passkey and no email", %{conn: conn} do
@@ -132,7 +134,10 @@ defmodule PinventoryWeb.UserLive.LoginTest do
       conn = follow_trigger_action(form(lv, "#passkey_login_form"), conn)
       assert redirected_to(conn) == ~p"/"
       assert conn.resp_cookies["_pinventory_web_user_remember_me"]
-      {session_user, _} = Pinventory.Accounts.get_user_by_session_token(get_session(conn, :user_token))
+
+      {session_user, _} =
+        Pinventory.Accounts.get_user_by_session_token(get_session(conn, :user_token))
+
       assert session_user.id == user.id
     end
 
@@ -162,7 +167,12 @@ defmodule PinventoryWeb.UserLive.LoginTest do
       credential = SoftAuthenticator.get(auth, options, sign_count: 0)
 
       lv |> element("#passkey-login") |> render_hook("passkey_cancel", %{})
-      html = lv |> element("#passkey-login") |> render_hook("passkey_assertion", %{credential: credential})
+
+      html =
+        lv
+        |> element("#passkey-login")
+        |> render_hook("passkey_assertion", %{credential: credential})
+
       assert html =~ "Passkey sign-in failed"
     end
 
@@ -171,7 +181,11 @@ defmodule PinventoryWeb.UserLive.LoginTest do
       {:ok, lv, _html} = live(conn, ~p"/user/log-in")
       lv |> element("#passkey-login-button") |> render_click()
 
-      html = lv |> element("#passkey-login") |> render_hook("passkey_assertion", %{credential: %{"rawId" => "!!"}})
+      html =
+        lv
+        |> element("#passkey-login")
+        |> render_hook("passkey_assertion", %{credential: %{"rawId" => "!!"}})
+
       assert html =~ "Passkey sign-in failed"
     end
 
