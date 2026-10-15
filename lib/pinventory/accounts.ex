@@ -417,8 +417,6 @@ defmodule Pinventory.Accounts do
   Updates the user password.
 
   Returns a tuple with the updated user, as well as a list of expired tokens.
-  Every passkey of the user is revoked too, so one an attacker added cannot
-  outlive the password change.
 
   ## Examples
 
@@ -432,7 +430,7 @@ defmodule Pinventory.Accounts do
   def update_user_password(user, attrs) do
     user
     |> User.password_changeset(attrs)
-    |> update_user_and_delete_all_tokens(revoke_passkeys: true)
+    |> update_user_and_delete_all_tokens()
   end
 
   ## Session
@@ -767,21 +765,9 @@ defmodule Pinventory.Accounts do
 
   ## Token helper
 
-  # `revoke_passkeys: true` (password change) also revokes every passkey: a
-  # password is changed when the account may be compromised, and an attacker
-  # could have added a passkey that would otherwise survive the change.
-  defp update_user_and_delete_all_tokens(changeset, opts \\ []) do
+  defp update_user_and_delete_all_tokens(changeset) do
     Repo.transact(fn ->
       with {:ok, user} <- Repo.update(changeset) do
-        if opts[:revoke_passkeys] do
-          now = DateTime.utc_now(:second)
-
-          Repo.update_all(
-            from(c in PasskeyCredential, where: c.user_id == ^user.id and is_nil(c.revoked_at)),
-            set: [revoked_at: now, updated_at: now]
-          )
-        end
-
         tokens_to_expire = Repo.all_by(UserToken, user_id: user.id)
 
         Repo.delete_all(from(t in UserToken, where: t.id in ^Enum.map(tokens_to_expire, & &1.id)))

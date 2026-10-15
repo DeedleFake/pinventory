@@ -306,25 +306,16 @@ defmodule Pinventory.AccountsPasskeyTest do
   end
 
   describe "update_user_password/2 and passkeys" do
-    test "revokes every passkey of the user" do
+    test "keeps passkeys but deletes sessions" do
       user = user_fixture()
       {auth, _} = register(user)
-      {_, _} = register(user)
-      {_, theirs} = register(user_fixture())
+      session = Accounts.generate_user_session_token(user)
 
       assert {:ok, _} = Accounts.update_user_password(user, %{password: "a new valid password"})
 
-      assert Accounts.list_passkey_credentials(user) == []
-      assert Repo.get!(PasskeyCredential, theirs.id).revoked_at == nil
-      assert {:error, :invalid} = assert_with(auth)
-    end
-
-    test "leaves passkeys alone when the password is invalid" do
-      user = user_fixture()
-      register(user)
-
-      assert {:error, _} = Accounts.update_user_password(user, %{password: "short"})
       assert [_] = Accounts.list_passkey_credentials(user)
+      refute Accounts.get_user_by_session_token(session)
+      assert {:ok, _} = assert_with(auth)
     end
   end
 
