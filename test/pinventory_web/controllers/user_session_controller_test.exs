@@ -123,6 +123,48 @@ defmodule PinventoryWeb.UserSessionControllerTest do
     end
   end
 
+  describe "POST /user/log-in/passkey" do
+    test "logs the user in with remember me and burns the token", %{conn: conn, user: user} do
+      token = Accounts.mint_passkey_login_token(user)
+      conn = post(conn, ~p"/user/log-in/passkey", %{"token" => token})
+
+      assert redirected_to(conn) == ~p"/"
+      assert conn.resp_cookies["_pinventory_web_user_remember_me"]
+      {session_user, _} = Accounts.get_user_by_session_token(get_session(conn, :user_token))
+      assert session_user.id == user.id
+
+      conn = post(build_conn(), ~p"/user/log-in/passkey", %{"token" => token})
+      assert redirected_to(conn) == ~p"/user/log-in"
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Passkey sign-in failed"
+      refute get_session(conn, :user_token)
+    end
+
+    test "rejects missing or bogus tokens", %{conn: conn} do
+      for params <- [%{}, %{"token" => "bogus"}] do
+        conn = post(conn, ~p"/user/log-in/passkey", params)
+        assert redirected_to(conn) == ~p"/user/log-in"
+        refute get_session(conn, :user_token)
+      end
+    end
+
+    test "re-auth refreshes the session user", %{conn: conn, user: user} do
+      token = Accounts.mint_passkey_login_token(user)
+      conn = conn |> log_in_user(user) |> post(~p"/user/log-in/passkey", %{"token" => token})
+
+      assert redirected_to(conn) == ~p"/user/settings"
+      {session_user, _} = Accounts.get_user_by_session_token(get_session(conn, :user_token))
+      assert session_user.id == user.id
+      assert Accounts.sudo_mode?(session_user)
+    end
+
+    test "re-auth cannot switch to another user", %{conn: conn, user: user} do
+      token = Accounts.mint_passkey_login_token(user_fixture())
+      conn = conn |> log_in_user(user) |> post(~p"/user/log-in/passkey", %{"token" => token})
+
+      assert redirected_to(conn) == ~p"/user/log-in"
+    end
+  end
+
   describe "POST /user/update-password" do
     test "updates password and re-logs in when in sudo mode", %{conn: conn, user: user} do
       new_password = "a brand new password"

@@ -77,6 +77,7 @@ defmodule PinventoryWeb.Router do
     end
 
     post "/user/log-in", UserSessionController, :create
+    post "/user/log-in/passkey", UserSessionController, :create_from_passkey
     delete "/user/log-out", UserSessionController, :delete
   end
 end
