@@ -3,8 +3,9 @@ defmodule Pinventory.Accounts.PasskeyCredential do
   A WebAuthn credential (passkey) registered to a user.
 
   Lifecycle is a single field: `revoked_at` is `nil` while the passkey is
-  active and set once it is revoked. Revoked rows are kept so a revoked
-  credential id can never be re-registered or used again.
+  active and set once it is revoked. Revoked rows are kept as history and
+  can never authenticate again. Credential ids are unique among active rows
+  only, so a removed authenticator can be registered again as a new row.
   """
   use Ecto.Schema
   import Ecto.Changeset

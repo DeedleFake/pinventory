@@ -92,6 +92,35 @@ defmodule Pinventory.AccountsPasskeyTest do
 
       assert {:error, :duplicate} = Accounts.finish_passkey_registration(user, ceremony, att)
     end
+
+    test "a revoked passkey can be registered again" do
+      user = user_fixture()
+      {auth, old} = register(user)
+      {:ok, _} = Accounts.revoke_passkey_credential(user, old.id)
+
+      {options, ceremony} = Accounts.begin_passkey_registration(user)
+      assert options.excludeCredentials == []
+      {:ok, att} = auth |> SoftAuthenticator.create(options) |> Wire.attestation()
+
+      assert {:ok, new} = Accounts.finish_passkey_registration(user, ceremony, att)
+      assert new.id != old.id
+      assert [%{id: id}] = Accounts.list_passkey_credentials(user)
+      assert id == new.id
+      assert {:ok, _} = assert_with(auth)
+    end
+
+    test "non-constraint insert failures are :invalid, not :duplicate" do
+      user = user_fixture()
+      {options, ceremony} = Accounts.begin_passkey_registration(user)
+
+      {:ok, att} =
+        SoftAuthenticator.new() |> SoftAuthenticator.create(options) |> Wire.attestation()
+
+      assert {:error, :invalid} =
+               Accounts.finish_passkey_registration(user, ceremony, att,
+                 label: String.duplicate("x", 81)
+               )
+    end
   end
 
   describe "authentication" do

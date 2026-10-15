@@ -491,7 +491,10 @@ defmodule Pinventory.Accounts do
   @spec begin_passkey_registration(User.t()) :: {map(), Ceremony.t()}
   def begin_passkey_registration(%User{} = user) do
     challenge = Wax.new_registration_challenge(rp_opts())
-    existing = Repo.all(from c in PasskeyCredential, where: c.user_id == ^user.id)
+    existing =
+      Repo.all(
+        from c in PasskeyCredential, where: c.user_id == ^user.id and is_nil(c.revoked_at)
+      )
 
     options = %{
       challenge: b64(challenge.bytes),
@@ -535,7 +538,7 @@ defmodule Pinventory.Accounts do
       |> Repo.insert()
       |> case do
         {:ok, cred} -> {:ok, cred}
-        {:error, %Ecto.Changeset{}} -> {:error, :duplicate}
+        {:error, changeset} -> {:error, insert_error(changeset)}
       end
     else
       {:error, _} -> {:error, :invalid}
@@ -543,6 +546,13 @@ defmodule Pinventory.Accounts do
   end
 
   def finish_passkey_registration(_user, _ceremony, _attestation, _opts), do: {:error, :invalid}
+
+  defp insert_error(%Ecto.Changeset{errors: errors}) do
+    case errors[:credential_id] do
+      {_, opts} -> if opts[:constraint] == :unique, do: :duplicate, else: :invalid
+      nil -> :invalid
+    end
+  end
 
   @doc """
   Starts a passkey authentication.
