@@ -388,7 +388,9 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       {options, ceremony} = Accounts.begin_passkey_authentication()
 
       {:ok, assertion} =
-        auth |> SoftAuthenticator.get(options) |> PinventoryWeb.Passkey.Wire.assertion()
+        auth
+        |> SoftAuthenticator.get(options, user_handle: Ecto.UUID.dump!(user.id))
+        |> PinventoryWeb.Passkey.Wire.assertion()
 
       assert {:ok, %{id: id}} = Accounts.finish_passkey_authentication(ceremony, assertion)
       assert id == user.id

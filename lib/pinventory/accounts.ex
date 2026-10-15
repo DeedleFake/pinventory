@@ -642,14 +642,16 @@ defmodule Pinventory.Accounts do
     )
   end
 
-  defp user_handle_matches?(nil, _user_id), do: true
-
-  defp user_handle_matches?(handle, user_id) do
+  # Discoverable credentials always return the user handle, and it is the
+  # authenticator's own statement of whose key this is: a missing one fails.
+  defp user_handle_matches?(handle, user_id) when is_binary(handle) do
     case Ecto.UUID.load(handle) do
       {:ok, ^user_id} -> true
       _ -> false
     end
   end
+
+  defp user_handle_matches?(_handle, _user_id), do: false
 
   defp advance_sign_count(%PasskeyCredential{id: id}, new_count) when is_integer(new_count) do
     now = DateTime.utc_now(:second)

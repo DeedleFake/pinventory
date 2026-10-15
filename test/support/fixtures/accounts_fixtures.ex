@@ -105,6 +105,6 @@ defmodule Pinventory.AccountsFixtures do
       |> PinventoryWeb.Passkey.Wire.attestation()
 
     {:ok, cred} = Accounts.finish_passkey_registration(user, ceremony, att)
-    {auth, cred}
+    {%{auth | user_handle: Ecto.UUID.dump!(user.id)}, cred}
   end
 end

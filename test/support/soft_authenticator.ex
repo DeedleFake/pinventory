@@ -67,8 +67,9 @@ defmodule Pinventory.SoftAuthenticator do
       "signature" => b64(sig)
     }
 
+    # Defaults to the handle stored at registration; `user_handle: nil` omits it.
     response =
-      case Keyword.get(opts, :user_handle) do
+      case Keyword.get(opts, :user_handle, a.user_handle) do
         nil -> response
         handle -> Map.put(response, "userHandle", b64(handle))
       end

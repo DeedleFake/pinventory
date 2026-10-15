@@ -12,7 +12,7 @@ defmodule Pinventory.AccountsPasskeyTest do
     {options, ceremony} = Accounts.begin_passkey_registration(user)
     {:ok, att} = auth |> SoftAuthenticator.create(options) |> Wire.attestation()
     {:ok, cred} = Accounts.finish_passkey_registration(user, ceremony, att)
-    {auth, cred}
+    {%{auth | user_handle: Ecto.UUID.dump!(user.id)}, cred}
   end
 
   defp assert_with(auth, opts \\ [], begin_opts \\ []) do
@@ -188,6 +188,7 @@ defmodule Pinventory.AccountsPasskeyTest do
       user = user_fixture()
       {auth, _} = register(user)
       assert {:error, :invalid} = assert_with(auth, user_handle: Ecto.UUID.bingenerate())
+      assert {:error, :invalid} = assert_with(auth, user_handle: nil)
     end
 
     test "rejects a signature over a different challenge" do
