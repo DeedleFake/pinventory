@@ -12,7 +12,8 @@ defmodule Pinventory.Accounts do
   import Ecto.Query, warn: false
   alias Pinventory.Repo
 
-  alias Pinventory.Accounts.{Invite, Scope, User, UserToken, UserNotifier}
+  alias Pinventory.Accounts.{Invite, PasskeyCredential, Scope, User, UserToken, UserNotifier}
+  alias Pinventory.Accounts.Passkey.{Assertion, Attestation, Ceremony, RP}
 
   ## Database getters
 
@@ -477,6 +478,231 @@ defmodule Pinventory.Accounts do
     Repo.delete_all(from(UserToken, where: [token: ^token, context: "session"]))
     :ok
   end
+
+  ## Passkeys
+
+  @doc """
+  Starts a passkey registration for `user`.
+
+  Returns the `PublicKeyCredentialCreationOptions` for the browser (binary
+  fields base64url-encoded) and the ceremony the caller must hold until
+  `finish_passkey_registration/3`. The caller enforces sudo mode.
+  """
+  @spec begin_passkey_registration(User.t()) :: {map(), Ceremony.t()}
+  def begin_passkey_registration(%User{} = user) do
+    challenge = Wax.new_registration_challenge(rp_opts())
+    existing = Repo.all(from c in PasskeyCredential, where: c.user_id == ^user.id)
+
+    options = %{
+      challenge: b64(challenge.bytes),
+      rp: %{id: challenge.rp_id, name: RP.name()},
+      user: %{id: b64(user_handle(user)), name: user.email, displayName: user.email},
+      pubKeyCredParams: [%{type: "public-key", alg: -7}, %{type: "public-key", alg: -257}],
+      timeout: challenge.timeout * 1000,
+      attestation: "none",
+      authenticatorSelection: %{residentKey: "required", userVerification: "preferred"},
+      excludeCredentials:
+        Enum.map(existing, &%{type: "public-key", id: b64(&1.credential_id)})
+    }
+
+    {options, %Ceremony{kind: :registration, challenge: challenge, user_id: user.id}}
+  end
+
+  @doc """
+  Verifies a registration response and stores the new passkey.
+  """
+  @spec finish_passkey_registration(User.t(), Ceremony.t(), Attestation.t(), keyword()) ::
+          {:ok, PasskeyCredential.t()} | {:error, :invalid | :duplicate}
+  def finish_passkey_registration(user, ceremony, attestation, opts \\ [])
+
+  def finish_passkey_registration(
+        %User{id: user_id},
+        %Ceremony{kind: :registration, user_id: user_id, challenge: challenge},
+        %Attestation{} = att,
+        opts
+      ) do
+    with {:ok, {auth_data, _attestation_result}} <-
+           Wax.register(att.attestation_object, att.client_data_json, challenge) do
+      acd = auth_data.attested_credential_data
+
+      PasskeyCredential.create_changeset(user_id, %{
+        credential_id: acd.credential_id,
+        public_key: PasskeyCredential.encode_cose_key(acd.credential_public_key),
+        sign_count: auth_data.sign_count,
+        aaguid: acd.aaguid,
+        transports: att.transports,
+        label: opts[:label]
+      })
+      |> Repo.insert()
+      |> case do
+        {:ok, cred} -> {:ok, cred}
+        {:error, %Ecto.Changeset{}} -> {:error, :duplicate}
+      end
+    else
+      {:error, _} -> {:error, :invalid}
+    end
+  end
+
+  def finish_passkey_registration(_user, _ceremony, _attestation, _opts), do: {:error, :invalid}
+
+  @doc """
+  Starts a passkey authentication.
+
+  Without `:user`, the browser may offer any discoverable passkey for this
+  site (no email needed, nothing to enumerate). With `:user` (sudo reauth),
+  only that user's active passkeys are allowed and finishing as anyone else
+  fails.
+  """
+  @spec begin_passkey_authentication(keyword()) :: {map(), Ceremony.t()}
+  def begin_passkey_authentication(opts \\ []) do
+    user = opts[:user]
+
+    allowed =
+      if user,
+        do: Repo.all(from c in PasskeyCredential, where: c.user_id == ^user.id and is_nil(c.revoked_at)),
+        else: []
+
+    challenge = Wax.new_authentication_challenge(rp_opts())
+
+    options = %{
+      challenge: b64(challenge.bytes),
+      rpId: challenge.rp_id,
+      timeout: challenge.timeout * 1000,
+      userVerification: "preferred",
+      allowCredentials:
+        Enum.map(allowed, &%{type: "public-key", id: b64(&1.credential_id), transports: &1.transports})
+    }
+
+    {options,
+     %Ceremony{kind: :authentication, challenge: challenge, user_id: user && user.id}}
+  end
+
+  @doc """
+  Verifies an authentication response. Returns the user on success.
+
+  Every failure is `{:error, :invalid}` so callers cannot leak which check
+  failed. The stored signature counter must increase, except that
+  authenticators which always report 0 (synced passkeys) stay at 0. The
+  counter update is a compare-and-set, so two concurrent uses of one
+  assertion cannot both succeed.
+  """
+  @spec finish_passkey_authentication(Ceremony.t(), Assertion.t()) ::
+          {:ok, User.t()} | {:error, :invalid}
+  def finish_passkey_authentication(
+        %Ceremony{kind: :authentication, challenge: challenge, user_id: bound_user_id},
+        %Assertion{} = assertion
+      ) do
+    with %PasskeyCredential{} = cred <- active_credential(assertion.credential_id),
+         true <- is_nil(bound_user_id) or cred.user_id == bound_user_id,
+         true <- user_handle_matches?(assertion.user_handle, cred.user_id),
+         {:ok, auth_data} <-
+           Wax.authenticate(
+             assertion.credential_id,
+             assertion.authenticator_data,
+             assertion.signature,
+             assertion.client_data_json,
+             challenge,
+             [{cred.credential_id, PasskeyCredential.cose_key(cred)}]
+           ),
+         :ok <- advance_sign_count(cred, auth_data.sign_count) do
+      {:ok, Repo.get!(User, cred.user_id)}
+    else
+      _ -> {:error, :invalid}
+    end
+  end
+
+  def finish_passkey_authentication(_ceremony, _assertion), do: {:error, :invalid}
+
+  defp active_credential(credential_id) when is_binary(credential_id) do
+    Repo.one(
+      from c in PasskeyCredential,
+        where: c.credential_id == ^credential_id and is_nil(c.revoked_at)
+    )
+  end
+
+  defp user_handle_matches?(nil, _user_id), do: true
+
+  defp user_handle_matches?(handle, user_id) do
+    case Ecto.UUID.load(handle) do
+      {:ok, ^user_id} -> true
+      _ -> false
+    end
+  end
+
+  defp advance_sign_count(%PasskeyCredential{id: id}, new_count) when is_integer(new_count) do
+    now = DateTime.utc_now(:second)
+
+    {count, _} =
+      Repo.update_all(
+        from(c in PasskeyCredential,
+          where: c.id == ^id and is_nil(c.revoked_at),
+          where: c.sign_count < ^new_count or (c.sign_count == 0 and ^new_count == 0)
+        ),
+        set: [sign_count: new_count, last_used_at: now, updated_at: now]
+      )
+
+    if count == 1, do: :ok, else: {:error, :sign_count}
+  end
+
+  @doc "Active passkeys for `user`, newest first."
+  @spec list_passkey_credentials(User.t()) :: [PasskeyCredential.t()]
+  def list_passkey_credentials(%User{id: user_id}) do
+    Repo.all(
+      from c in PasskeyCredential,
+        where: c.user_id == ^user_id and is_nil(c.revoked_at),
+        order_by: [desc: c.inserted_at, desc: c.id]
+    )
+  end
+
+  @doc "Revokes one of `user`'s passkeys. Idempotent; other users' ids are `:not_found`."
+  @spec revoke_passkey_credential(User.t(), binary()) ::
+          {:ok, PasskeyCredential.t()} | {:error, :not_found}
+  def revoke_passkey_credential(%User{id: user_id}, id) when is_binary(id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(id),
+         %PasskeyCredential{} = cred <- Repo.get_by(PasskeyCredential, id: uuid, user_id: user_id) do
+      if PasskeyCredential.active?(cred) do
+        cred |> Ecto.Changeset.change(revoked_at: DateTime.utc_now(:second)) |> Repo.update()
+      else
+        {:ok, cred}
+      end
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Mints a one-time token the browser posts to `UserSessionController` to turn
+  a verified passkey assertion into a session.
+  """
+  @spec mint_passkey_login_token(User.t()) :: String.t()
+  def mint_passkey_login_token(%User{} = user) do
+    {token, user_token} = UserToken.build_passkey_login_token(user)
+    Repo.insert!(user_token)
+    token
+  end
+
+  @doc "Consumes a passkey login token. Returns the user once, then `nil`."
+  @spec consume_passkey_login_token(String.t()) :: User.t() | nil
+  def consume_passkey_login_token(token) when is_binary(token) do
+    with {:ok, query} <- UserToken.verify_passkey_login_token_query(token),
+         %UserToken{} = row <- Repo.one(query),
+         {1, _} <- Repo.delete_all(from t in UserToken, where: t.id == ^row.id) do
+      Repo.get(User, row.user_id)
+    else
+      _ -> nil
+    end
+  end
+
+  def consume_passkey_login_token(_), do: nil
+
+  defp rp_opts, do: [origin: RP.origin(), rp_id: RP.id(), attestation: "none"]
+
+  defp user_handle(%User{id: id}) do
+    {:ok, bin} = Ecto.UUID.dump(id)
+    bin
+  end
+
+  defp b64(bin), do: Base.url_encode64(bin, padding: false)
 
   ## Token helper
 

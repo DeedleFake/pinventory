@@ -9,6 +9,9 @@ defmodule Pinventory.Accounts.UserToken do
   # Email-change tokens are delivered by email; keep validity limited.
   @change_email_validity_in_days 7
   @session_validity_in_days 14
+  # Passkey login tokens hand a verified assertion from the LiveView to the
+  # session controller. The browser posts them immediately.
+  @passkey_login_validity_in_seconds 60
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -99,6 +102,41 @@ defmodule Pinventory.Accounts.UserToken do
         query =
           from token in by_token_and_context_query(hashed_token, context),
             where: token.inserted_at > ago(@change_email_validity_in_days, "day")
+
+        {:ok, query}
+
+      :error ->
+        :error
+    end
+  end
+
+  @doc """
+  Builds a one-time passkey login token. The plain token goes to the browser
+  (hidden form field); only its hash is stored.
+  """
+  def build_passkey_login_token(user) do
+    token = :crypto.strong_rand_bytes(@rand_size)
+
+    {Base.url_encode64(token, padding: false),
+     %UserToken{
+       token: :crypto.hash(@hash_algorithm, token),
+       context: "passkey_login",
+       user_id: user.id
+     }}
+  end
+
+  @doc """
+  Returns a query for the unexpired passkey login token row, or `:error`.
+  """
+  def verify_passkey_login_token_query(token) when is_binary(token) do
+    case Base.url_decode64(token, padding: false) do
+      {:ok, decoded} ->
+        query =
+          from t in by_token_and_context_query(
+                 :crypto.hash(@hash_algorithm, decoded),
+                 "passkey_login"
+               ),
+            where: t.inserted_at > ago(@passkey_login_validity_in_seconds, "second")
 
         {:ok, query}
 
