@@ -273,10 +273,10 @@ defmodule Pinventory.AccountsPasskeyTest do
       user = user_fixture()
       {_, cred} = register(user)
 
-      assert {:ok, %{revoked_at: %DateTime{} = at}} =
+      assert {:ok, {%{revoked_at: %DateTime{} = at}, _}} =
                Accounts.revoke_passkey_credential(user, cred.id)
 
-      assert {:ok, %{revoked_at: ^at}} = Accounts.revoke_passkey_credential(user, cred.id)
+      assert {:ok, {%{revoked_at: ^at}, []}} = Accounts.revoke_passkey_credential(user, cred.id)
       assert Accounts.list_passkey_credentials(user) == []
     end
 
@@ -286,6 +286,44 @@ defmodule Pinventory.AccountsPasskeyTest do
       assert {:error, :not_found} = Accounts.revoke_passkey_credential(user, cred.id)
       assert {:error, :not_found} = Accounts.revoke_passkey_credential(user, "not-a-uuid")
       assert Repo.get!(PasskeyCredential, cred.id).revoked_at == nil
+    end
+
+    test "signs out every other session but keeps the given one" do
+      user = user_fixture()
+      {_, cred} = register(user)
+      keep = Accounts.generate_user_session_token(user)
+      other = Accounts.generate_user_session_token(user)
+
+      assert {:ok, {_, expired}} =
+               Accounts.revoke_passkey_credential(user, cred.id, keep_session_token: keep)
+
+      assert Enum.any?(expired, &(&1.token == other))
+      refute Enum.any?(expired, &(&1.token == keep))
+      assert Accounts.get_user_by_session_token(keep)
+      refute Accounts.get_user_by_session_token(other)
+    end
+  end
+
+  describe "update_user_password/2 and passkeys" do
+    test "revokes every passkey of the user" do
+      user = user_fixture()
+      {auth, _} = register(user)
+      {_, _} = register(user)
+      {_, theirs} = register(user_fixture())
+
+      assert {:ok, _} = Accounts.update_user_password(user, %{password: "a new valid password"})
+
+      assert Accounts.list_passkey_credentials(user) == []
+      assert Repo.get!(PasskeyCredential, theirs.id).revoked_at == nil
+      assert {:error, :invalid} = assert_with(auth)
+    end
+
+    test "leaves passkeys alone when the password is invalid" do
+      user = user_fixture()
+      register(user)
+
+      assert {:error, _} = Accounts.update_user_password(user, %{password: "short"})
+      assert [_] = Accounts.list_passkey_credentials(user)
     end
   end
 

@@ -4,6 +4,7 @@ defmodule PinventoryWeb.UserLive.Settings do
   alias Pinventory.Accounts
   alias Pinventory.Audit
   alias PinventoryWeb.Passkey.Wire
+  alias PinventoryWeb.UserAuth
 
   import PinventoryWeb.AuditHelpers,
     only: [activity_link_target: 1, edit_heading: 1, event_line: 1]
@@ -408,8 +409,9 @@ defmodule PinventoryWeb.UserLive.Settings do
     {:ok, push_navigate(socket, to: ~p"/user/settings")}
   end
 
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
     user = socket.assigns.current_scope.user
+    socket = assign(socket, :session_token, session["user_token"])
     email_changeset = Accounts.change_user_email(user, %{}, validate_unique: false)
     password_changeset = Accounts.change_user_password(user, %{}, hash_password: false)
 
@@ -695,14 +697,22 @@ defmodule PinventoryWeb.UserLive.Settings do
       not Accounts.sudo_mode?(user) ->
         {:noreply, require_sudo_redirect(socket)}
 
-      match?({:ok, _}, Accounts.revoke_passkey_credential(user, id)) ->
-        {:noreply,
-         socket
-         |> assign(:passkeys, Accounts.list_passkey_credentials(user))
-         |> put_flash(:info, "Passkey removed.")}
-
       true ->
-        {:noreply, put_flash(socket, :error, "Could not remove passkey.")}
+        keep = socket.assigns.session_token
+
+        case Accounts.revoke_passkey_credential(user, id, keep_session_token: keep) do
+          {:ok, {_cred, expired_tokens}} ->
+            # Sign out every other browser; this one keeps its session.
+            UserAuth.disconnect_sessions(expired_tokens)
+
+            {:noreply,
+             socket
+             |> assign(:passkeys, Accounts.list_passkey_credentials(user))
+             |> put_flash(:info, "Passkey removed. Other sessions were signed out.")}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Could not remove passkey.")}
+        end
     end
   end
 end

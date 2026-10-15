@@ -417,6 +417,8 @@ defmodule Pinventory.Accounts do
   Updates the user password.
 
   Returns a tuple with the updated user, as well as a list of expired tokens.
+  Every passkey of the user is revoked too, so one an attacker added cannot
+  outlive the password change.
 
   ## Examples
 
@@ -430,7 +432,7 @@ defmodule Pinventory.Accounts do
   def update_user_password(user, attrs) do
     user
     |> User.password_changeset(attrs)
-    |> update_user_and_delete_all_tokens()
+    |> update_user_and_delete_all_tokens(revoke_passkeys: true)
   end
 
   ## Session
@@ -491,10 +493,9 @@ defmodule Pinventory.Accounts do
   @spec begin_passkey_registration(User.t()) :: {map(), Ceremony.t()}
   def begin_passkey_registration(%User{} = user) do
     challenge = Wax.new_registration_challenge(rp_opts())
+
     existing =
-      Repo.all(
-        from c in PasskeyCredential, where: c.user_id == ^user.id and is_nil(c.revoked_at)
-      )
+      Repo.all(from c in PasskeyCredential, where: c.user_id == ^user.id and is_nil(c.revoked_at))
 
     options = %{
       challenge: b64(challenge.bytes),
@@ -675,20 +676,50 @@ defmodule Pinventory.Accounts do
     )
   end
 
-  @doc "Revokes one of `user`'s passkeys. Idempotent; other users' ids are `:not_found`."
-  @spec revoke_passkey_credential(User.t(), binary()) ::
-          {:ok, PasskeyCredential.t()} | {:error, :not_found}
-  def revoke_passkey_credential(%User{id: user_id}, id) when is_binary(id) do
+  @doc """
+  Revokes one of `user`'s passkeys and signs the user out everywhere else.
+
+  A passkey is usually removed because a device was lost or the key looks
+  unfamiliar, so every token of the user is deleted (like a password change)
+  except the session token passed as `:keep_session_token`, which keeps the
+  browser doing the removal signed in. Returns the revoked credential and
+  the expired tokens so the caller can disconnect their sockets.
+
+  Idempotent (an already revoked passkey expires nothing); other users' ids
+  are `:not_found`.
+  """
+  @spec revoke_passkey_credential(User.t(), binary(), keyword()) ::
+          {:ok, {PasskeyCredential.t(), [UserToken.t()]}} | {:error, :not_found}
+  def revoke_passkey_credential(%User{id: user_id}, id, opts \\ []) when is_binary(id) do
     with {:ok, uuid} <- Ecto.UUID.cast(id),
          %PasskeyCredential{} = cred <- Repo.get_by(PasskeyCredential, id: uuid, user_id: user_id) do
       if PasskeyCredential.active?(cred) do
-        cred |> Ecto.Changeset.change(revoked_at: DateTime.utc_now(:second)) |> Repo.update()
+        Repo.transact(fn ->
+          with {:ok, cred} <-
+                 cred
+                 |> Ecto.Changeset.change(revoked_at: DateTime.utc_now(:second))
+                 |> Repo.update() do
+            {:ok, {cred, delete_tokens_except(user_id, opts[:keep_session_token])}}
+          end
+        end)
       else
-        {:ok, cred}
+        {:ok, {cred, []}}
       end
     else
       _ -> {:error, :not_found}
     end
+  end
+
+  defp delete_tokens_except(user_id, keep) do
+    tokens =
+      Repo.all(
+        from t in UserToken,
+          where: t.user_id == ^user_id,
+          where: not (t.context == "session" and t.token == ^(keep || <<>>))
+      )
+
+    Repo.delete_all(from t in UserToken, where: t.id in ^Enum.map(tokens, & &1.id))
+    tokens
   end
 
   @doc """
@@ -727,9 +758,21 @@ defmodule Pinventory.Accounts do
 
   ## Token helper
 
-  defp update_user_and_delete_all_tokens(changeset) do
+  # `revoke_passkeys: true` (password change) also revokes every passkey: a
+  # password is changed when the account may be compromised, and an attacker
+  # could have added a passkey that would otherwise survive the change.
+  defp update_user_and_delete_all_tokens(changeset, opts \\ []) do
     Repo.transact(fn ->
       with {:ok, user} <- Repo.update(changeset) do
+        if opts[:revoke_passkeys] do
+          now = DateTime.utc_now(:second)
+
+          Repo.update_all(
+            from(c in PasskeyCredential, where: c.user_id == ^user.id and is_nil(c.revoked_at)),
+            set: [revoked_at: now, updated_at: now]
+          )
+        end
+
         tokens_to_expire = Repo.all_by(UserToken, user_id: user.id)
 
         Repo.delete_all(from(t in UserToken, where: t.id in ^Enum.map(tokens_to_expire, & &1.id)))

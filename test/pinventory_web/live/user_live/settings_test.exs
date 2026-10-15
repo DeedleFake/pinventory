@@ -430,6 +430,17 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       assert Accounts.list_passkey_credentials(user) == []
     end
 
+    test "removing a passkey signs out other sessions only", %{conn: conn, user: user} do
+      {_, cred} = passkey_fixture(user)
+      other = Accounts.generate_user_session_token(user)
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+
+      lv |> element("#passkey-#{cred.id} button", "Remove") |> render_click()
+
+      refute Accounts.get_user_by_session_token(other)
+      assert Accounts.get_user_by_session_token(get_session(conn, :user_token))
+    end
+
     test "cannot remove another user's passkey", %{conn: conn} do
       {_, cred} = passkey_fixture(user_fixture())
       {:ok, lv, _html} = live(conn, ~p"/user/settings")
