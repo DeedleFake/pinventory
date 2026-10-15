@@ -94,4 +94,17 @@ defmodule Pinventory.AccountsFixtures do
   def invite_fixture(%_{} = created_by) do
     invite_fixture(created_by: created_by)
   end
+
+  @doc "Registers a software passkey for `user`. Returns `{authenticator, credential}`."
+  def passkey_fixture(user, auth \\ Pinventory.SoftAuthenticator.new()) do
+    {options, ceremony} = Accounts.begin_passkey_registration(user)
+
+    {:ok, att} =
+      auth
+      |> Pinventory.SoftAuthenticator.create(options)
+      |> PinventoryWeb.Passkey.Wire.attestation()
+
+    {:ok, cred} = Accounts.finish_passkey_registration(user, ceremony, att)
+    {%{auth | user_handle: Ecto.UUID.dump!(user.id)}, cred}
+  end
 end

@@ -36,6 +36,36 @@ defmodule PinventoryWeb.UserSessionController do
     end
   end
 
+  # passkey login: the LiveView verified the assertion and minted a one-time token.
+  def create_from_passkey(conn, %{"token" => token}) when is_binary(token) do
+    # Same per-browser secret the LiveView bound the token to.
+    user = Accounts.consume_passkey_login_token(token, get_session(conn, :passkey_binding))
+
+    case {user, conn.assigns} do
+      {nil, _} ->
+        passkey_failed(conn)
+
+      # Sudo reauth must stay the session user, like the locked password email.
+      {user, %{current_scope: %{user: %{id: session_id}}}} when session_id != user.id ->
+        passkey_failed(conn)
+
+      {user, %{current_scope: %{user: %{id: _}}}} ->
+        UserAuth.log_in_user(conn, user, %{})
+
+      # Passkey login has no checkbox; remember by default.
+      {user, _} ->
+        UserAuth.log_in_user(conn, user, %{"remember_me" => "true"})
+    end
+  end
+
+  def create_from_passkey(conn, _params), do: passkey_failed(conn)
+
+  defp passkey_failed(conn) do
+    conn
+    |> put_flash(:error, "Passkey sign-in failed")
+    |> redirect(to: ~p"/user/log-in")
+  end
+
   defp maybe_put_info_flash(conn, nil), do: conn
   defp maybe_put_info_flash(conn, info), do: put_flash(conn, :info, info)
 

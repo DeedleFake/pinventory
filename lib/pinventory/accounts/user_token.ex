@@ -9,6 +9,11 @@ defmodule Pinventory.Accounts.UserToken do
   # Email-change tokens are delivered by email; keep validity limited.
   @change_email_validity_in_days 7
   @session_validity_in_days 14
+  # Passkey login tokens hand a verified assertion from the LiveView to the
+  # session controller. The browser posts them immediately.
+  @passkey_login_validity_in_seconds 60
+
+  @type t :: %__MODULE__{}
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -106,6 +111,47 @@ defmodule Pinventory.Accounts.UserToken do
         :error
     end
   end
+
+  @doc """
+  Builds a one-time passkey login token. The plain token goes to the browser
+  (hidden form field); only its hash is stored. The hash also covers
+  `binding`, a secret from the browser's Plug session, so the token only
+  works when posted from the browser that ran the passkey prompt.
+  """
+  def build_passkey_login_token(user, binding) when is_binary(binding) do
+    token = :crypto.strong_rand_bytes(@rand_size)
+
+    {Base.url_encode64(token, padding: false),
+     %UserToken{
+       token: passkey_login_hash(token, binding),
+       context: "passkey_login",
+       user_id: user.id
+     }}
+  end
+
+  @doc """
+  Returns a query for the unexpired passkey login token row, or `:error`.
+  """
+  def verify_passkey_login_token_query(token, binding)
+      when is_binary(token) and is_binary(binding) do
+    case Base.url_decode64(token, padding: false) do
+      {:ok, decoded} ->
+        query =
+          from t in by_token_and_context_query(
+                 passkey_login_hash(decoded, binding),
+                 "passkey_login"
+               ),
+               where: t.inserted_at > ago(@passkey_login_validity_in_seconds, "second")
+
+        {:ok, query}
+
+      :error ->
+        :error
+    end
+  end
+
+  defp passkey_login_hash(token, binding),
+    do: :crypto.hash(@hash_algorithm, [token, :crypto.hash(@hash_algorithm, binding)])
 
   defp by_token_and_context_query(token, context) do
     from UserToken, where: [token: ^token, context: ^context]

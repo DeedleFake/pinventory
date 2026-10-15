@@ -42,6 +42,7 @@ defmodule Pinventory.MixProject do
   defp deps do
     [
       {:argon2_elixir, "~> 4.0"},
+      {:wax_, "~> 0.7.0"},
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
@@ -112,7 +113,7 @@ defmodule Pinventory.MixProject do
         "deps.unlock --unused",
         "format",
         "test",
-        "cmd node --test assets/js/hooks/floor_plan_geometry.test.js assets/js/hooks/placement_list_hover.test.js"
+        "cmd node --test assets/js/hooks/floor_plan_geometry.test.js assets/js/hooks/placement_list_hover.test.js assets/js/hooks/passkey_codec.test.js"
       ]
     ]
   end

@@ -21,7 +21,12 @@ defmodule Pinventory.Application do
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Pinventory.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    with {:ok, pid} <- Supervisor.start_link(children, opts) do
+      # After the Endpoint starts: the RP origin defaults to its URL.
+      Pinventory.Accounts.Passkey.RP.validate!()
+      {:ok, pid}
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration

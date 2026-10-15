@@ -20,6 +20,15 @@ if System.get_env("PHX_SERVER") do
   config :pinventory, PinventoryWeb.Endpoint, server: true
 end
 
+# Passkey relying party. Defaults to the Endpoint url (PHX_HOST in prod).
+# Override only when the browser-facing origin differs from the Endpoint url,
+# e.g. behind a proxy on another port, or to scope rp_id to a parent domain.
+if config_env() != :test do
+  config :pinventory, :passkey,
+    rp_id: System.get_env("PASSKEY_RP_ID"),
+    origin: System.get_env("PASSKEY_ORIGIN")
+end
+
 if config_env() == :prod do
   database_path =
     System.get_env("DATABASE_PATH") ||
