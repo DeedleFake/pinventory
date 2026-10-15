@@ -727,18 +727,25 @@ defmodule Pinventory.Accounts do
   @doc """
   Mints a one-time token the browser posts to `UserSessionController` to turn
   a verified passkey assertion into a session.
+
+  `binding` is a per-browser secret from the Plug session (the CSRF session
+  secret); `consume_passkey_login_token/2` must be given the same value, so a
+  leaked token is useless from another browser.
   """
-  @spec mint_passkey_login_token(User.t()) :: String.t()
-  def mint_passkey_login_token(%User{} = user) do
-    {token, user_token} = UserToken.build_passkey_login_token(user)
+  @spec mint_passkey_login_token(User.t(), String.t()) :: String.t()
+  def mint_passkey_login_token(%User{} = user, binding) when is_binary(binding) do
+    {token, user_token} = UserToken.build_passkey_login_token(user, binding)
     Repo.insert!(user_token)
     token
   end
 
-  @doc "Consumes a passkey login token. Returns the user once, then `nil`."
-  @spec consume_passkey_login_token(String.t()) :: User.t() | nil
-  def consume_passkey_login_token(token) when is_binary(token) do
-    with {:ok, query} <- UserToken.verify_passkey_login_token_query(token),
+  @doc """
+  Consumes a passkey login token minted with the same `binding`. Returns the
+  user once, then `nil`.
+  """
+  @spec consume_passkey_login_token(String.t(), String.t() | nil) :: User.t() | nil
+  def consume_passkey_login_token(token, binding) when is_binary(token) and is_binary(binding) do
+    with {:ok, query} <- UserToken.verify_passkey_login_token_query(token, binding),
          %UserToken{} = row <- Repo.one(query),
          {1, _} <- Repo.delete_all(from t in UserToken, where: t.id == ^row.id) do
       Repo.get(User, row.user_id)
@@ -747,7 +754,7 @@ defmodule Pinventory.Accounts do
     end
   end
 
-  def consume_passkey_login_token(_), do: nil
+  def consume_passkey_login_token(_token, _binding), do: nil
 
   defp rp_opts, do: [origin: RP.origin(), rp_id: RP.id(), attestation: "none"]
 

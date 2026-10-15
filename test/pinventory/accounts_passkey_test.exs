@@ -331,26 +331,34 @@ defmodule Pinventory.AccountsPasskeyTest do
   describe "passkey login tokens" do
     test "are single use" do
       user = user_fixture()
-      token = Accounts.mint_passkey_login_token(user)
-      assert %{id: id} = Accounts.consume_passkey_login_token(token)
+      token = Accounts.mint_passkey_login_token(user, "b")
+      assert %{id: id} = Accounts.consume_passkey_login_token(token, "b")
       assert id == user.id
-      assert Accounts.consume_passkey_login_token(token) == nil
+      assert Accounts.consume_passkey_login_token(token, "b") == nil
     end
 
     test "expire after 60 seconds" do
       user = user_fixture()
-      token = Accounts.mint_passkey_login_token(user)
+      token = Accounts.mint_passkey_login_token(user, "b")
 
       Repo.update_all(from(t in UserToken, where: t.context == "passkey_login"),
         set: [inserted_at: DateTime.add(DateTime.utc_now(:second), -61)]
       )
 
-      assert Accounts.consume_passkey_login_token(token) == nil
+      assert Accounts.consume_passkey_login_token(token, "b") == nil
     end
 
     test "reject garbage" do
-      assert Accounts.consume_passkey_login_token("nope!") == nil
-      assert Accounts.consume_passkey_login_token(nil) == nil
+      assert Accounts.consume_passkey_login_token("nope!", "b") == nil
+      assert Accounts.consume_passkey_login_token(nil, "b") == nil
+    end
+
+    test "only work with the binding they were minted with" do
+      user = user_fixture()
+      token = Accounts.mint_passkey_login_token(user, "b")
+      assert Accounts.consume_passkey_login_token(token, "other") == nil
+      assert Accounts.consume_passkey_login_token(token, nil) == nil
+      assert %{} = Accounts.consume_passkey_login_token(token, "b")
     end
   end
 end

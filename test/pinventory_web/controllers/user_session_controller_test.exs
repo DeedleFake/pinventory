@@ -124,8 +124,10 @@ defmodule PinventoryWeb.UserSessionControllerTest do
   end
 
   describe "POST /user/log-in/passkey" do
+    setup %{conn: conn}, do: %{conn: init_test_session(conn, %{passkey_binding: "b"})}
+
     test "logs the user in with remember me and burns the token", %{conn: conn, user: user} do
-      token = Accounts.mint_passkey_login_token(user)
+      token = Accounts.mint_passkey_login_token(user, "b")
       conn = post(conn, ~p"/user/log-in/passkey", %{"token" => token})
 
       assert redirected_to(conn) == ~p"/"
@@ -139,6 +141,14 @@ defmodule PinventoryWeb.UserSessionControllerTest do
       refute get_session(conn, :user_token)
     end
 
+    test "rejects a token minted for another browser session", %{conn: conn, user: user} do
+      token = Accounts.mint_passkey_login_token(user, "someone else")
+      conn = post(conn, ~p"/user/log-in/passkey", %{"token" => token})
+
+      assert redirected_to(conn) == ~p"/user/log-in"
+      refute get_session(conn, :user_token)
+    end
+
     test "rejects missing or bogus tokens", %{conn: conn} do
       for params <- [%{}, %{"token" => "bogus"}] do
         conn = post(conn, ~p"/user/log-in/passkey", params)
@@ -148,7 +158,7 @@ defmodule PinventoryWeb.UserSessionControllerTest do
     end
 
     test "re-auth refreshes the session user", %{conn: conn, user: user} do
-      token = Accounts.mint_passkey_login_token(user)
+      token = Accounts.mint_passkey_login_token(user, "b")
       conn = conn |> log_in_user(user) |> post(~p"/user/log-in/passkey", %{"token" => token})
 
       assert redirected_to(conn) == ~p"/user/settings"
@@ -158,7 +168,7 @@ defmodule PinventoryWeb.UserSessionControllerTest do
     end
 
     test "re-auth cannot switch to another user", %{conn: conn, user: user} do
-      token = Accounts.mint_passkey_login_token(user_fixture())
+      token = Accounts.mint_passkey_login_token(user_fixture(), "b")
       conn = conn |> log_in_user(user) |> post(~p"/user/log-in/passkey", %{"token" => token})
 
       assert redirected_to(conn) == ~p"/user/log-in"

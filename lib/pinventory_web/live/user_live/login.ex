@@ -87,7 +87,7 @@ defmodule PinventoryWeb.UserLive.Login do
   end
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
     cond do
       not Accounts.any_users?() ->
         # Bootstrap register page heading explains the first-account flow.
@@ -122,7 +122,9 @@ defmodule PinventoryWeb.UserLive.Login do
            reauth?: reauth?,
            passkey_supported?: true,
            passkey_ceremony: nil,
-           passkey_login_token: nil
+           passkey_login_token: nil,
+           # Binds the one-time login token to this browser's Plug session.
+           passkey_binding: session["passkey_binding"]
          )}
     end
   end
@@ -152,9 +154,11 @@ defmodule PinventoryWeb.UserLive.Login do
     socket = assign(socket, :passkey_ceremony, nil)
 
     with %Accounts.Passkey.Ceremony{} <- ceremony,
+         binding when is_binary(binding) <- socket.assigns.passkey_binding,
          {:ok, assertion} <- Wire.assertion(raw),
          {:ok, user} <- Accounts.finish_passkey_authentication(ceremony, assertion) do
-      {:noreply, assign(socket, :passkey_login_token, Accounts.mint_passkey_login_token(user))}
+      token = Accounts.mint_passkey_login_token(user, binding)
+      {:noreply, assign(socket, :passkey_login_token, token)}
     else
       _ -> {:noreply, put_flash(socket, :error, "Passkey sign-in failed")}
     end

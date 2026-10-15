@@ -169,6 +169,20 @@ defmodule PinventoryWeb.UserAuth do
   end
 
   @doc """
+  Ensures the session holds a random per-browser secret. The login LiveView
+  binds one-time passkey login tokens to it, and the session controller only
+  accepts a token from the session that minted it. It must exist before the
+  LiveView renders, because a LiveView cannot write the Plug session.
+  """
+  def put_passkey_binding(conn, _opts) do
+    if get_session(conn, :passkey_binding) do
+      conn
+    else
+      put_session(conn, :passkey_binding, Base.url_encode64(:crypto.strong_rand_bytes(32)))
+    end
+  end
+
+  @doc """
   Disconnects existing sockets for the given tokens.
   """
   def disconnect_sessions(tokens) do

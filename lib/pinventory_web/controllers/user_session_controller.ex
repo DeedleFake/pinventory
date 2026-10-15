@@ -38,7 +38,8 @@ defmodule PinventoryWeb.UserSessionController do
 
   # passkey login: the LiveView verified the assertion and minted a one-time token.
   def create_from_passkey(conn, %{"token" => token}) when is_binary(token) do
-    user = Accounts.consume_passkey_login_token(token)
+    # Same per-browser secret the LiveView bound the token to.
+    user = Accounts.consume_passkey_login_token(token, get_session(conn, :passkey_binding))
 
     case {user, conn.assigns} do
       {nil, _} ->

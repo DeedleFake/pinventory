@@ -11,6 +11,7 @@ defmodule PinventoryWeb.Router do
     plug :protect_from_forgery
     plug :put_secure_browser_headers
     plug :fetch_current_scope_for_user
+    plug :put_passkey_binding
   end
 
   pipeline :api do

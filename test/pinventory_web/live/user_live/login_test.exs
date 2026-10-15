@@ -113,6 +113,10 @@ defmodule PinventoryWeb.UserLive.LoginTest do
   describe "user login - passkey" do
     alias Pinventory.SoftAuthenticator
 
+    # The browser pipeline would add this on the first request; set it up
+    # front so follow_trigger_action posts from the same session.
+    setup %{conn: conn}, do: %{conn: init_test_session(conn, %{passkey_binding: "b"})}
+
     defp passkey_login(lv, auth, opts \\ []) do
       lv |> element("#passkey-login-button") |> render_click()
       assert_push_event lv, "passkey:authenticate", %{options: options}
