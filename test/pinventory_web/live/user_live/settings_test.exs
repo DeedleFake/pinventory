@@ -355,4 +355,76 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       refute Map.has_key?(flash, "error")
     end
   end
+
+  describe "passkeys" do
+    alias Pinventory.Accounts
+    alias Pinventory.SoftAuthenticator
+
+    setup %{conn: conn} do
+      user = user_fixture()
+      %{conn: log_in_user(conn, user), user: user}
+    end
+
+    defp enroll(lv, auth, opts \\ []) do
+      lv |> element("#add-passkey-button") |> render_click()
+      assert_push_event lv, "passkey:register", %{options: options}
+
+      lv
+      |> element("#passkeys-section")
+      |> render_hook("passkey_attestation", %{credential: SoftAuthenticator.create(auth, options, opts)})
+    end
+
+    test "adds a passkey that can then log in", %{conn: conn, user: user} do
+      {:ok, lv, html} = live(conn, ~p"/user/settings")
+      assert html =~ "No passkeys yet."
+
+      auth = SoftAuthenticator.new()
+      assert enroll(lv, auth) =~ "Passkey added."
+      assert [cred] = Accounts.list_passkey_credentials(user)
+      assert has_element?(lv, "#passkey-#{cred.id}")
+
+      {options, ceremony} = Accounts.begin_passkey_authentication()
+      {:ok, assertion} = auth |> SoftAuthenticator.get(options) |> PinventoryWeb.Passkey.Wire.assertion()
+      assert {:ok, %{id: id}} = Accounts.finish_passkey_authentication(ceremony, assertion)
+      assert id == user.id
+    end
+
+    test "rejects an attestation for the wrong origin", %{conn: conn, user: user} do
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+      assert enroll(lv, SoftAuthenticator.new(), origin: "https://evil.example") =~ "Could not add passkey."
+      assert Accounts.list_passkey_credentials(user) == []
+    end
+
+    test "rejects an attestation with no ceremony in flight", %{conn: conn, user: user} do
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+      {options, _} = Accounts.begin_passkey_registration(user)
+
+      html =
+        lv
+        |> element("#passkeys-section")
+        |> render_hook("passkey_attestation", %{credential: SoftAuthenticator.create(SoftAuthenticator.new(), options)})
+
+      assert html =~ "Could not add passkey."
+      assert Accounts.list_passkey_credentials(user) == []
+    end
+
+    test "removes a passkey", %{conn: conn, user: user} do
+      {_, cred} = passkey_fixture(user)
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+      assert has_element?(lv, "#passkey-#{cred.id}")
+
+      assert lv |> element("#passkey-#{cred.id} button", "Remove") |> render_click() =~ "Passkey removed."
+      refute has_element?(lv, "#passkey-#{cred.id}")
+      assert Accounts.list_passkey_credentials(user) == []
+    end
+
+    test "cannot remove another user's passkey", %{conn: conn} do
+      {_, cred} = passkey_fixture(user_fixture())
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+
+      html = lv |> element("#passkeys-section") |> render_hook("revoke_passkey", %{"id" => cred.id})
+      assert html =~ "Could not remove passkey."
+      assert Pinventory.Repo.get!(Accounts.PasskeyCredential, cred.id).revoked_at == nil
+    end
+  end
 end

@@ -3,6 +3,7 @@ defmodule PinventoryWeb.UserLive.Settings do
 
   alias Pinventory.Accounts
   alias Pinventory.Audit
+  alias PinventoryWeb.Passkey.Wire
 
   import PinventoryWeb.AuditHelpers,
     only: [activity_link_target: 1, edit_heading: 1, event_line: 1]
@@ -109,6 +110,62 @@ defmodule PinventoryWeb.UserLive.Settings do
               Save Password
             </.button>
           </.form>
+
+          <div class="divider" />
+
+          <section
+            id="passkeys-section"
+            phx-hook="Passkey"
+            class="space-y-3"
+            aria-labelledby="passkeys-heading"
+          >
+            <div>
+              <h2 id="passkeys-heading" class="text-lg font-semibold tracking-tight">Passkeys</h2>
+              <p class="mt-1 text-sm opacity-70">
+                Log in with your device instead of a password. Passkey logins stay signed in for 14 days.
+              </p>
+            </div>
+
+            <ul :if={@passkeys != []} id="passkeys" class="space-y-1">
+              <li
+                :for={cred <- @passkeys}
+                id={"passkey-#{cred.id}"}
+                class="flex items-center justify-between gap-2 rounded-lg border border-base-300 px-3 py-2 text-sm"
+              >
+                <span>
+                  Added {Calendar.strftime(cred.inserted_at, "%Y-%m-%d")}
+                  <span :if={cred.last_used_at} class="opacity-60">
+                    · last used {Calendar.strftime(cred.last_used_at, "%Y-%m-%d")}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  phx-click="revoke_passkey"
+                  phx-value-id={cred.id}
+                  data-confirm="Remove this passkey?"
+                >
+                  Remove
+                </button>
+              </li>
+            </ul>
+            <p :if={@passkeys == []} id="passkeys-empty" class="text-sm opacity-70">
+              No passkeys yet.
+            </p>
+
+            <p :if={!@passkey_supported?} class="text-sm opacity-70">
+              This browser does not support passkeys.
+            </p>
+            <.button
+              :if={@passkey_supported?}
+              id="add-passkey-button"
+              type="button"
+              phx-click="passkey_register"
+              disabled={@passkey_ceremony != nil}
+            >
+              Add a passkey
+            </.button>
+          </section>
         </div>
 
         <div :if={@live_action == :users} id="settings-users" class="space-y-8">
@@ -367,6 +424,9 @@ defmodule PinventoryWeb.UserLive.Settings do
      |> assign(:latest_email, nil)
      |> assign(:latest_invite_id, nil)
      |> assign(:activity_edits, [])
+     |> assign(:passkeys, [])
+     |> assign(:passkey_supported?, true)
+     |> assign(:passkey_ceremony, nil)
      |> stream(:invites, [])
      |> stream(:users, [])}
   end
@@ -406,7 +466,9 @@ defmodule PinventoryWeb.UserLive.Settings do
   end
 
   defp load_tab(socket, :edit) do
-    assign(socket, :page_title, "Settings")
+    socket
+    |> assign(:page_title, "Settings")
+    |> assign(:passkeys, Accounts.list_passkey_credentials(socket.assigns.current_scope.user))
   end
 
   defp load_tab(socket, :users) do
@@ -573,6 +635,69 @@ defmodule PinventoryWeb.UserLive.Settings do
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Could not revoke invite.")}
+    end
+  end
+
+  # Passkey enrollment. Sudo is checked at start and finish; the challenge
+  # lives in this LiveView process.
+  def handle_event("passkey_register", _params, socket) do
+    user = socket.assigns.current_scope.user
+
+    if Accounts.sudo_mode?(user) do
+      {options, ceremony} = Accounts.begin_passkey_registration(user)
+
+      {:noreply,
+       socket
+       |> assign(:passkey_ceremony, ceremony)
+       |> push_event("passkey:register", %{options: options})}
+    else
+      {:noreply, require_sudo_redirect(socket)}
+    end
+  end
+
+  def handle_event("passkey_attestation", params, socket) do
+    user = socket.assigns.current_scope.user
+    ceremony = socket.assigns.passkey_ceremony
+    socket = assign(socket, :passkey_ceremony, nil)
+
+    with true <- Accounts.sudo_mode?(user) || :sudo,
+         %Accounts.Passkey.Ceremony{} <- ceremony,
+         {:ok, attestation} <- Wire.attestation(params["credential"]),
+         {:ok, _cred} <- Accounts.finish_passkey_registration(user, ceremony, attestation) do
+      {:noreply,
+       socket
+       |> assign(:passkeys, Accounts.list_passkey_credentials(user))
+       |> put_flash(:info, "Passkey added.")}
+    else
+      :sudo -> {:noreply, require_sudo_redirect(socket)}
+      {:error, :duplicate} -> {:noreply, put_flash(socket, :error, "That passkey is already registered.")}
+      _ -> {:noreply, put_flash(socket, :error, "Could not add passkey.")}
+    end
+  end
+
+  def handle_event("passkey_cancel", _params, socket) do
+    {:noreply, assign(socket, :passkey_ceremony, nil)}
+  end
+
+  def handle_event("passkey_unsupported", _params, socket) do
+    {:noreply, assign(socket, passkey_supported?: false, passkey_ceremony: nil)}
+  end
+
+  def handle_event("revoke_passkey", %{"id" => id}, socket) do
+    user = socket.assigns.current_scope.user
+
+    cond do
+      not Accounts.sudo_mode?(user) ->
+        {:noreply, require_sudo_redirect(socket)}
+
+      match?({:ok, _}, Accounts.revoke_passkey_credential(user, id)) ->
+        {:noreply,
+         socket
+         |> assign(:passkeys, Accounts.list_passkey_credentials(user))
+         |> put_flash(:info, "Passkey removed.")}
+
+      true ->
+        {:noreply, put_flash(socket, :error, "Could not remove passkey.")}
     end
   end
 end
