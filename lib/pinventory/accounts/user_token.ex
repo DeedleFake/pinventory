@@ -13,6 +13,8 @@ defmodule Pinventory.Accounts.UserToken do
   # session controller. The browser posts them immediately.
   @passkey_login_validity_in_seconds 60
 
+  @type t :: %__MODULE__{}
+
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
   schema "users_tokens" do
