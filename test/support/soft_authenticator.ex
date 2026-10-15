@@ -52,7 +52,8 @@ defmodule Pinventory.SoftAuthenticator do
     challenge = Keyword.get(opts, :challenge, options_value(options, :challenge))
 
     client_data = client_data("webauthn.get", challenge, origin)
-    auth_data = auth_data(rp_id, 0x05, sign_count)
+    # 0x05 = user present + user verified; pass flags: 0x01 for presence only.
+    auth_data = auth_data(rp_id, Keyword.get(opts, :flags, 0x05), sign_count)
 
     sig =
       :crypto.sign(:ecdsa, :sha256, auth_data <> :crypto.hash(:sha256, client_data), [

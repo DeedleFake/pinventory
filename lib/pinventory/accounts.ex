@@ -549,8 +549,9 @@ defmodule Pinventory.Accounts do
 
   Without `:user`, the browser may offer any discoverable passkey for this
   site (no email needed, nothing to enumerate). With `:user` (sudo reauth),
-  only that user's active passkeys are allowed and finishing as anyone else
-  fails.
+  only that user's active passkeys are allowed, finishing as anyone else
+  fails, and user verification (PIN or biometric) is required: possessing
+  the device alone must not grant sudo.
   """
   @spec begin_passkey_authentication(keyword()) :: {map(), Ceremony.t()}
   def begin_passkey_authentication(opts \\ []) do
@@ -564,13 +565,16 @@ defmodule Pinventory.Accounts do
           ),
         else: []
 
-    challenge = Wax.new_authentication_challenge(rp_opts())
+    user_verification = if user, do: "required", else: "preferred"
+
+    challenge =
+      Wax.new_authentication_challenge([user_verification: user_verification] ++ rp_opts())
 
     options = %{
       challenge: b64(challenge.bytes),
       rpId: challenge.rp_id,
       timeout: challenge.timeout * 1000,
-      userVerification: "preferred",
+      userVerification: user_verification,
       allowCredentials:
         Enum.map(
           allowed,
@@ -608,6 +612,9 @@ defmodule Pinventory.Accounts do
              challenge,
              [{cred.credential_id, PasskeyCredential.cose_key(cred)}]
            ),
+         # Wax already enforces this from the challenge; checked again so a
+         # bound (sudo) ceremony can never pass on presence alone.
+         true <- is_nil(bound_user_id) or auth_data.flag_user_verified,
          :ok <- advance_sign_count(cred, auth_data.sign_count) do
       {:ok, Repo.get!(User, cred.user_id)}
     else

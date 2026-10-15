@@ -206,6 +206,37 @@ defmodule Pinventory.AccountsPasskeyTest do
       assert {:ok, _} = assert_with(auth, [], user: user)
       assert {:error, :invalid} = assert_with(other_auth, [], user: user)
     end
+
+    test "sudo (user-bound) ceremonies require user verification" do
+      user = user_fixture()
+      {auth, _} = register(user)
+
+      {options, _} = Accounts.begin_passkey_authentication(user: user)
+      assert options.userVerification == "required"
+      assert {:error, :invalid} = assert_with(auth, [flags: 0x01], user: user)
+      assert {:ok, _} = assert_with(auth, [sign_count: 2], user: user)
+    end
+
+    test "bound ceremonies reject missing UV even if the challenge did not require it" do
+      user = user_fixture()
+      {auth, _} = register(user)
+      {options, ceremony} = Accounts.begin_passkey_authentication()
+      ceremony = %{ceremony | user_id: user.id}
+
+      {:ok, assertion} =
+        auth |> SoftAuthenticator.get(options, flags: 0x01) |> Wire.assertion()
+
+      assert {:error, :invalid} = Accounts.finish_passkey_authentication(ceremony, assertion)
+    end
+
+    test "discoverable login prefers but does not require user verification" do
+      user = user_fixture()
+      {auth, _} = register(user)
+
+      {options, _} = Accounts.begin_passkey_authentication()
+      assert options.userVerification == "preferred"
+      assert {:ok, _} = assert_with(auth, flags: 0x01)
+    end
   end
 
   describe "revoke_passkey_credential/2" do
