@@ -113,7 +113,7 @@ defmodule Pinventory.MixProject do
         "deps.unlock --unused",
         "format",
         "test",
-        "cmd node --test assets/js/hooks/floor_plan_geometry.test.js assets/js/hooks/placement_list_hover.test.js"
+        "cmd node --test assets/js/hooks/floor_plan_geometry.test.js assets/js/hooks/placement_list_hover.test.js assets/js/hooks/passkey_codec.test.js"
       ]
     ]
   end
