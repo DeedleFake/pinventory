@@ -432,6 +432,37 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       assert Accounts.list_passkey_credentials(user) == []
     end
 
+    test "an open page whose session was deleted loses sudo", %{
+      conn: conn,
+      user: user
+    } do
+      {_, cred} = passkey_fixture(user)
+      other_token = Accounts.generate_user_session_token(user)
+
+      other_conn =
+        build_conn()
+        |> init_test_session(%{
+          user_token: other_token,
+          live_socket_id: "user_sessions:#{Base.url_encode64(other_token)}"
+        })
+
+      {:ok, other_lv, _} = live(other_conn, ~p"/user/settings")
+
+      {:ok, lv, _} = live(conn, ~p"/user/settings")
+      lv |> element("#passkey-#{cred.id} button", "Remove") |> render_click()
+
+      # LiveViewTest does not deliver the socket-id disconnect broadcast, so
+      # this exercises the fallback: the still-mounted page holds a user with
+      # a fresh authenticated_at, yet sudo-gated events now fail.
+      {_, second} = passkey_fixture(user)
+
+      other_lv
+      |> element("#passkeys-section")
+      |> render_hook("revoke_passkey", %{"id" => second.id})
+
+      assert [_] = Accounts.list_passkey_credentials(user)
+    end
+
     test "removing a passkey signs out other sessions only", %{conn: conn, user: user} do
       {_, cred} = passkey_fixture(user)
       other = Accounts.generate_user_session_token(user)

@@ -442,7 +442,7 @@ defmodule PinventoryWeb.UserLive.Settings do
   # confirm-email is handled in mount and does not use this path.
   defp prepare_tab(%{assigns: %{live_action: action}} = socket)
        when action in [:edit, :users, :activity] do
-    if Accounts.sudo_mode?(socket.assigns.current_scope.user) do
+    if sudo?(socket) do
       load_tab(socket, action)
     else
       require_sudo_redirect(socket)
@@ -535,7 +535,7 @@ defmodule PinventoryWeb.UserLive.Settings do
     %{"user" => user_params} = params
     user = socket.assigns.current_scope.user
 
-    if Accounts.sudo_mode?(user) do
+    if sudo?(socket) do
       case Accounts.change_user_email(user, user_params) do
         %{valid?: true} = changeset ->
           Accounts.deliver_user_update_email_instructions(
@@ -571,7 +571,7 @@ defmodule PinventoryWeb.UserLive.Settings do
     %{"user" => user_params} = params
     user = socket.assigns.current_scope.user
 
-    if Accounts.sudo_mode?(user) do
+    if sudo?(socket) do
       case Accounts.change_user_password(user, user_params) do
         %{valid?: true} = changeset ->
           {:noreply, assign(socket, trigger_submit: true, password_form: to_form(changeset))}
@@ -645,7 +645,7 @@ defmodule PinventoryWeb.UserLive.Settings do
   def handle_event("passkey_register", _params, socket) do
     user = socket.assigns.current_scope.user
 
-    if Accounts.sudo_mode?(user) do
+    if sudo?(socket) do
       {options, ceremony} = Accounts.begin_passkey_registration(user)
 
       {:noreply,
@@ -662,7 +662,7 @@ defmodule PinventoryWeb.UserLive.Settings do
     ceremony = socket.assigns.passkey_ceremony
     socket = assign(socket, :passkey_ceremony, nil)
 
-    with true <- Accounts.sudo_mode?(user) || :sudo,
+    with true <- sudo?(socket) || :sudo,
          %Accounts.Passkey.Ceremony{} <- ceremony,
          {:ok, attestation} <- Wire.attestation(params["credential"]),
          {:ok, _cred} <- Accounts.finish_passkey_registration(user, ceremony, attestation) do
@@ -694,7 +694,7 @@ defmodule PinventoryWeb.UserLive.Settings do
     user = socket.assigns.current_scope.user
 
     cond do
-      not Accounts.sudo_mode?(user) ->
+      not sudo?(socket) ->
         {:noreply, require_sudo_redirect(socket)}
 
       true ->
@@ -713,6 +713,19 @@ defmodule PinventoryWeb.UserLive.Settings do
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Could not remove passkey.")}
         end
+    end
+  end
+
+  # Sudo is re-checked against the database, not the user loaded at mount:
+  # if this session was deleted (password change, passkey removal, log out)
+  # and the disconnect broadcast has not landed, gated events still fail.
+  defp sudo?(socket) do
+    with token when is_binary(token) <- socket.assigns[:session_token],
+         {%{id: id} = user, _} <- Accounts.get_user_by_session_token(token),
+         true <- id == socket.assigns.current_scope.user.id do
+      Accounts.sudo_mode?(user)
+    else
+      _ -> false
     end
   end
 end
