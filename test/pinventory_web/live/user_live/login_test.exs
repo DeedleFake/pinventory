@@ -109,4 +109,92 @@ defmodule PinventoryWeb.UserLive.LoginTest do
       refute conn.resp_cookies["_pinventory_web_user_remember_me"]
     end
   end
+
+  describe "user login - passkey" do
+    alias Pinventory.SoftAuthenticator
+
+    defp passkey_login(lv, auth, opts \\ []) do
+      lv |> element("#passkey-login-button") |> render_click()
+      assert_push_event lv, "passkey:authenticate", %{options: options}
+
+      lv
+      |> element("#passkey-login")
+      |> render_hook("passkey_assertion", %{credential: SoftAuthenticator.get(auth, options, opts)})
+    end
+
+    test "logs in with a discoverable passkey and no email", %{conn: conn} do
+      user = user_fixture()
+      {auth, _} = passkey_fixture(user)
+      {:ok, lv, _html} = live(conn, ~p"/user/log-in")
+
+      passkey_login(lv, auth, user_handle: Ecto.UUID.dump!(user.id))
+
+      conn = follow_trigger_action(form(lv, "#passkey_login_form"), conn)
+      assert redirected_to(conn) == ~p"/"
+      assert conn.resp_cookies["_pinventory_web_user_remember_me"]
+      {session_user, _} = Pinventory.Accounts.get_user_by_session_token(get_session(conn, :user_token))
+      assert session_user.id == user.id
+    end
+
+    test "shows one generic error for unknown and invalid passkeys", %{conn: conn} do
+      user = user_fixture()
+      {auth, _} = passkey_fixture(user)
+      {:ok, lv, _html} = live(conn, ~p"/user/log-in")
+
+      unknown = passkey_login(lv, SoftAuthenticator.new())
+      bad_origin = passkey_login(lv, auth, origin: "https://evil.example")
+
+      for html <- [unknown, bad_origin] do
+        assert html =~ "Passkey sign-in failed"
+        refute html =~ user.email
+      end
+
+      refute has_element?(lv, ~s|#passkey_login_form[phx-trigger-action]|)
+    end
+
+    test "an assertion cannot be replayed after the ceremony is consumed", %{conn: conn} do
+      user = user_fixture()
+      {auth, _} = passkey_fixture(user)
+      {:ok, lv, _html} = live(conn, ~p"/user/log-in")
+
+      lv |> element("#passkey-login-button") |> render_click()
+      assert_push_event lv, "passkey:authenticate", %{options: options}
+      credential = SoftAuthenticator.get(auth, options, sign_count: 0)
+
+      lv |> element("#passkey-login") |> render_hook("passkey_cancel", %{})
+      html = lv |> element("#passkey-login") |> render_hook("passkey_assertion", %{credential: credential})
+      assert html =~ "Passkey sign-in failed"
+    end
+
+    test "rejects malformed payloads", %{conn: conn} do
+      _user = user_fixture()
+      {:ok, lv, _html} = live(conn, ~p"/user/log-in")
+      lv |> element("#passkey-login-button") |> render_click()
+
+      html = lv |> element("#passkey-login") |> render_hook("passkey_assertion", %{credential: %{"rawId" => "!!"}})
+      assert html =~ "Passkey sign-in failed"
+    end
+
+    test "reauth only accepts the session user's passkey", %{conn: conn} do
+      user = user_fixture()
+      {auth, _} = passkey_fixture(user)
+      {other_auth, _} = passkey_fixture(user_fixture())
+      conn = log_in_user(conn, user)
+      {:ok, lv, html} = live(conn, ~p"/user/log-in")
+      assert html =~ "Confirm with a passkey"
+
+      assert passkey_login(lv, other_auth) =~ "Passkey sign-in failed"
+
+      passkey_login(lv, auth)
+      conn = follow_trigger_action(form(lv, "#passkey_login_form"), conn)
+      assert redirected_to(conn) == ~p"/user/settings"
+    end
+
+    test "hides the button when the browser has no WebAuthn", %{conn: conn} do
+      _user = user_fixture()
+      {:ok, lv, _html} = live(conn, ~p"/user/log-in")
+      lv |> element("#passkey-login") |> render_hook("passkey_unsupported", %{})
+      refute has_element?(lv, "#passkey-login-button")
+    end
+  end
 end
