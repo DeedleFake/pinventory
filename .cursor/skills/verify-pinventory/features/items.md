@@ -1,6 +1,6 @@
 # Items
 
-Items is the home list. A user creates a named item, sets quantities per location, filters the list, and reopens the same item from the row.
+Items is the home list. A user creates a named item, sets quantities per location, keeps notes, filters the list, and reopens the same item from the row.
 
 ## Sub-features
 
@@ -8,6 +8,8 @@ Items is the home list. A user creates a named item, sets quantities per locatio
 - `items-new` opens `/item` from `#new-item`.
 - `items-save` persists a name of at least two characters.
 - `items-stock` changes quantity at a location and updates `#item-total-value`.
+- `items-notes` saves free text in `#item_notes`. Dirty notes show `#item-notes-hint` with `Unsaved note change`.
+- `items-notes-history` shows `#note-edited-menu` after a second saved version and opens `#note-history`.
 - `items-list` shows the saved row with a stock label.
 - `items-filter` narrows the list by name substring (`#q`).
 
@@ -23,14 +25,16 @@ Items is the home list. A user creates a named item, sets quantities per locatio
 Preconditions:
 
 - Doctor is green. `browser login` has landed on `#items-page`.
-- A location named `Verify Garage` exists. If not, run the add step from [Locations](./locations.md) first (`goto /locations`, fill `#location-new_name`, click `#location-add-button`).
+- A location from [Locations](./locations.md) exists. Its name is `Verify Garage`, or `Verify Shed` after the rename step. Use the name you created in the sqlite lookup below. If none exists, run the add step from [Locations](./locations.md) first (`goto /locations`, fill `#location-new_name`, click `#location-add-button`).
 - No item is named `Verify Hammer`.
 
 - **Empty or list chrome.** On `/`, run `verify-pinventory browser wait '#items-page'`. `#new-item` is visible. `#nav-items` is current. `#items-empty` text includes `No items yet`.
 - **Open editor.** Choose New Item. Run `verify-pinventory browser click '#new-item'`. Wait for `#item-page`. Heading is `New item`. `browser enabled '#item-save'` prints `disabled`. `#item-delete` count is 0.
 - **Name.** Type the name. Run `verify-pinventory browser fill '#item_name' 'Verify Hammer'`. Run `verify-pinventory browser wait-enabled '#item-save'`.
-- **Stock.** Read the location id. Run `verify-pinventory sqlite "select id from locations where name = 'Verify Garage';"`. Click plus. Run `verify-pinventory browser click '#quantity-inc-<location-id>'` with that id. `#item-total-value` reads `1`. `#item-total` has `data-stock-dirty="true"`.
+- **Stock.** Read the location id. Run `verify-pinventory sqlite "select id from locations where name = '<your location>';"`. Click plus. Run `verify-pinventory browser click '#quantity-inc-<location-id>'` with that id. `#item-total-value` reads `1`. `#item-total` has `data-stock-dirty="true"`.
+- **Notes.** Run `verify-pinventory browser fill '#item_notes' 'Top shelf'`. `#item-notes-hint` contains `Unsaved note change`.
 - **Save.** Choose Save. Run `verify-pinventory browser click '#item-save'`. Wait for `#flash-info` with `Item created` and `#item-activity`. Heading is `Edit item`.
+- **Note history.** Run `verify-pinventory browser fill '#item_notes' 'Bottom shelf'`. Wait for `#item-save` to enable, then click it. Click `#note-edited-menu`. It reads `edited 1 time`. Choose a version link and wait for `#note-history`. Close it with `#note-history-close`.
 - **List.** Return home. Run `verify-pinventory browser click '#nav-items'`. Wait for `#items-page`. A link contains `Verify Hammer`. Stock text includes `1 total in 1 location`.
 - **Filter match.** Type in the filter. Run `verify-pinventory browser fill '#q' 'hammer'`. Wait until `#items a` still contains `Verify Hammer`. `#q` value is `hammer`.
 - **Filter miss.** Replace the query. Run `verify-pinventory browser fill '#q' 'no-such-item'`. `#items-empty` contains `No items match.`
@@ -39,7 +43,7 @@ Preconditions:
 
 ## Gotchas
 
-- Save stays disabled until the name or stock is dirty. Wait for enabled. Do not click a disabled `#item-save`. Use `browser enabled`, not `attr disabled` (boolean attributes print blank either way).
+- Save enables when the name, stock, or notes are dirty. Otherwise it stays disabled. Wait for enabled. Do not click a disabled `#item-save`. Use `browser enabled`, not `attr disabled` (boolean attributes print blank either way).
 - `#items-empty` stays in the DOM (`hidden only:block`) when rows exist. Assert row text or empty copy, not that the node is gone.
 - `#item_name` debounces 300ms. `wait-enabled '#item-save'` is the signal, not a sleep.
 - Stock plus/minus ids include the location uuid, not the name. Query sqlite first.

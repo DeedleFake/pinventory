@@ -62,7 +62,7 @@ It must print `ok` for all of:
 - Chromium PID still alive
 - `GET http://127.0.0.1:4010/user/log-in` → 200
 - CDP `GET http://127.0.0.1:5010/json/version` → 200
-- SQLite file exists and contains `verify@example.com`
+- SQLite file exists and contains `verify@example.com` (needs the `sqlite3` CLI on PATH)
 - port 4010 is listening
 - port is not 4000
 
@@ -110,11 +110,13 @@ Stable handles:
 | Surface | Handle |
 |---|---|
 | Login form | `#login_form_password`, `#user_email`, `#user_password`, `#user_remember_me` |
+| Passkey login | `#passkey-login`, `#passkey-login-button`, `#passkey_login_form` |
 | First-account register | `#registration_form` (only when `users` is empty; launch seeds a user, so this path is closed) |
 | Invite accept | `#invite_registration_form` on `/user/invite/<token>` |
 | Header | `#nav-items`, `#nav-locations`, `#nav-settings`, `#app-nav`, `a[aria-label="Log out"]` |
 | Items list | `#items-page`, `#new-item`, `#items-empty`, `#items-filter-form`, `#q`, `#location`, `#items-<item-id>` |
 | Item editor | `#item-page`, `#item_name`, `#item-save`, `#item-stock-form`, `#quantity-<location-id>`, `#quantity-inc-<location-id>`, `#item-delete` |
+| Item notes | `#item-notes-section`, `#item_notes`, `#item-notes-hint`, `#note-edited-menu`, `#note-history` |
 | Locations list | `#locations-page`, `#location-new-form`, `#location-new_name`, `#location-add-button`, `#location-<location-id>` |
 | Locations browse (plan on) | `#locations-workspace`, `#locations-floor-canvas`, `#locations-floor-rail`, `#floor-plan-edit` |
 | Location editor | `#location-page`, `#location_name`, `#location-save`, `#location-delete`, `#location-item-<item-id>` |
@@ -122,6 +124,7 @@ Stable handles:
 | Delete modals | `#item-delete-modal`, `#item-delete-confirm`, `#item-delete-confirm-submit`, `#location-delete-modal`, `#location-delete-confirm`, `#location-delete-confirm-submit` |
 | Flash | `#flash-info`, `#flash-error` |
 | Settings | `#settings-page`, `#settings-tab-account`, `#settings-tab-users`, `#settings-tab-activity`, `#generate-invite-form` |
+| Settings passkeys | `#passkeys-section`, `#passkeys`, `#passkeys-empty`, `#add-passkey-button` |
 
 Stream ids:
 
@@ -178,6 +181,6 @@ Executable: `.cursor/skills/verify-pinventory/scripts/verify-pinventory`
 
 It wraps `verify-pinventory.mjs`. `npm install --omit=dev` runs automatically when `scripts/node_modules/playwright-core` is missing. `./.cursor/skills/verify-pinventory/scripts/verify-pinventory` with no args prints the command list.
 
-Chromium binary order: `PINVENTORY_CHROME`, then `~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome`, then `/usr/bin/chromium`.
+Chromium binary order: `PINVENTORY_CHROME`, then `~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome`, then `/usr/bin/chromium`, `/usr/bin/google-chrome`, `/usr/bin/google-chrome-stable`.
 
 State file: `tmp/verify-pinventory/run/state.json` (PID, URL, DB path, seeded password). Scratch. Not evidence.

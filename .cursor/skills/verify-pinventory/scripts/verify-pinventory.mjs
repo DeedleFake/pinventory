@@ -127,7 +127,13 @@ function findChrome() {
       if (existsSync(candidate)) return candidate;
     }
   }
-  if (existsSync("/usr/bin/chromium")) return "/usr/bin/chromium";
+  for (const bin of [
+    "/usr/bin/chromium",
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+  ]) {
+    if (existsSync(bin)) return bin;
+  }
   throw new Error("no Chromium binary; set PINVENTORY_CHROME or install Chromium");
 }
 
@@ -357,11 +363,20 @@ async function cmdDoctor() {
       [state.databasePath, "select email from users order by email;"],
       { encoding: "utf8" },
     );
+    if (emails.error || emails.status !== 0) {
+      check(
+        false,
+        "sqlite3 CLI failed; install sqlite3 and put it on PATH (" +
+          (emails.error?.message || (emails.stderr || "").trim() || `exit ${emails.status}`) +
+          ")",
+      );
+    } else {
     const list = (emails.stdout || "").trim();
     check(
       emails.status === 0 && list.includes(EMAIL),
       `user ${EMAIL} in sqlite (${list || "empty"})`,
     );
+    }
   }
   const listen = listeningPid(state.port);
   check(

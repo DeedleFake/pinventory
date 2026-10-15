@@ -5,6 +5,7 @@ Settings holds account, user invites, and the global activity feed. Opening it r
 ## Sub-features
 
 - `settings-account` shows email and password forms on `/user/settings`.
+- `settings-passkeys` shows `#passkeys-section`, `#passkeys-empty`, and `#add-passkey-button` on Account. Presence only.
 - `settings-users` lists users and pending invites on `/user/settings/users`.
 - `settings-invite` mints a URL in `#latest-invite-url`.
 - `settings-invite-register` opens `/user/invite/<token>` after logout (`#invite_registration_form`, heading `Accept invite`) and creates the invited account.
@@ -24,7 +25,7 @@ Preconditions:
 - Doctor is green. `browser login` succeeded inside the last 20 minutes.
 - For activity cards, at least one item or location change exists (run a save from [Items](./items.md) or [Locations](./locations.md) first).
 
-- **Account tab.** Run `verify-pinventory browser goto /user/settings`. Wait for `#settings-page`. `#settings-tab-account` is visible. `#email_form` and `#password_form` are visible. If the heading is `Confirm your password`, sudo expired. Log in again, then retry.
+- **Account tab.** Run `verify-pinventory browser goto /user/settings`. Wait for `#settings-page`. `#settings-tab-account` is visible. `#email_form` and `#password_form` are visible. If the heading is `Confirm your password`, sudo expired. Log in again, then retry. `#passkeys-section` is visible. It shows `#passkeys-empty` (`No passkeys yet.`) or `This browser does not support passkeys.` Do not click `#add-passkey-button`.
 - **Users tab.** Run `verify-pinventory browser click '#settings-tab-users'`. Wait for `#settings-users`. `#users-section` lists `verify@example.com`.
 - **Invite.** Fill the invite email and generate. Run `verify-pinventory browser fill '#invite_email' 'guest@example.com'` and `verify-pinventory browser click '#generate-invite'`. Wait for `#latest-invite-url`. The value includes `/user/invite/`. Copy the path (`/user/invite/<token>`). The printed host may be `localhost` even when the instance is `127.0.0.1`; use an origin-relative `goto`.
 - **Invite accept.** Dismiss any flash first (`#flash-error` intercepts header clicks). Click `a[aria-label="Log out"]`. Wait for `#login_form_password`. Run `verify-pinventory browser goto /user/invite/<token>`. Wait for `#invite_registration_form`. Heading is `Accept invite`. Fill `#user_email` with the invited address, `#user_password` and `#user_password_confirmation` (min 12). Click `#invite_registration_form button`. Wait for `#items-page`. Sqlite `users` includes the guest email.
@@ -40,3 +41,5 @@ Preconditions:
 - Flash alerts sit over the header. Dismiss `#flash-error` before clicking Log out.
 - Do not use `/dev/mailbox` as proof that an invite was shared. The UI prints the URL. Swoosh local adapter is incidental.
 - `/user/settings/confirm-email/:token` is the email-change continuation. Do not drive it on the seeded `verify@example.com` account.
+- The sudo reauth page may offer `Confirm with a passkey` beside the password form. Use the password.
+- Revoking a passkey signs out other sessions. Do not drive revoke. No authenticator means no passkey to revoke.
