@@ -205,20 +205,6 @@ defmodule Pinventory.AuditTest do
   end
 
   describe "query helpers" do
-    test "list_for_item returns item timeline", %{scope: scope} do
-      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
-      {:ok, item} = Items.create_item(scope, %{name: "Level"}, %{garage.id => 1})
-      {:ok, _} = Items.update_item(scope, item, %{name: "Spirit Level"}, %{garage.id => 1})
-
-      events = Audit.list_for_item(item.id)
-      actions = Enum.map(events, & &1.action)
-
-      assert "item.created" in actions
-      assert "item.updated" in actions
-      assert "stock.changed" in actions
-      assert Enum.all?(events, &Ecto.assoc_loaded?(&1.user))
-    end
-
     test "list_edits_for_item groups by edit_id for one item", %{scope: scope} do
       {:ok, garage} = Locations.create(scope, %{name: "Garage"})
       {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})

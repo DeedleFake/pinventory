@@ -3,6 +3,7 @@ defmodule PinventoryWeb.FloorPlanLive do
 
   alias Pinventory.FloorPlans
   alias Pinventory.FloorPlans.Floor
+  alias Pinventory.Locations
 
   import PinventoryWeb.FloorPlanComponents
 
@@ -1097,7 +1098,7 @@ defmodule PinventoryWeb.FloorPlanLive do
     placements = FloorPlans.placement_index()
 
     socket
-    |> assign(:locations, FloorPlans.list_locations())
+    |> assign(:locations, Locations.list())
     |> assign(:placement_by_location, placements)
   end
 
