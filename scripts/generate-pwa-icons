@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Regenerates the PWA icon PNGs in priv/static/images from priv/static/favicon.svg.
+#
+# The only tool needed is headless Chrome or Chromium. Set PINVENTORY_CHROME to
+# pick a binary, otherwise the first of chromium, google-chrome and
+# google-chrome-stable on PATH is used. Run from anywhere:
+#
+#     scripts/generate-pwa-icons
+#
+# Output:
+#   icon-192.png, icon-512.png   purpose "any": the pin on a transparent background
+#   icon-maskable-512.png        purpose "maskable": the pin inside the 80% safe zone
+#   apple-touch-icon.png         180px, opaque, because iOS fills transparency with black
+#
+# The PNGs are committed. Re-run this only when favicon.svg changes. Output can
+# differ by a few bytes between Chrome versions.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+svg="$root/priv/static/favicon.svg"
+out="$root/priv/static/images"
+# The favicon's light line color. Used as the opaque icon background.
+background="#eef2ff"
+
+chrome="${PINVENTORY_CHROME:-}"
+if [[ -z "$chrome" ]]; then
+  for candidate in chromium google-chrome google-chrome-stable; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      chrome="$candidate"
+      break
+    fi
+  done
+fi
+if [[ -z "$chrome" ]]; then
+  echo "no Chrome or Chromium found; set PINVENTORY_CHROME" >&2
+  exit 1
+fi
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+# render <size> <pin-scale-percent> <background-css> <output-file>
+render() {
+  local size="$1" scale="$2" bg="$3" file="$4"
+  cat >"$work/icon.html" <<HTML
+<!doctype html>
+<html>
+  <body style="margin:0;width:${size}px;height:${size}px;background:${bg};display:grid;place-items:center">
+    <img src="file://${svg}" style="width:${scale}%;height:${scale}%;display:block">
+  </body>
+</html>
+HTML
+  "$chrome" --headless=new --no-sandbox --disable-gpu --hide-scrollbars \
+    --default-background-color=00000000 --window-size="${size},${size}" \
+    --screenshot="$out/$file" "file://$work/icon.html" >/dev/null 2>&1
+}
+
+mkdir -p "$out"
+render 192 100 transparent icon-192.png
+render 512 100 transparent icon-512.png
+render 512 60 "$background" icon-maskable-512.png
+render 180 76 "$background" apple-touch-icon.png
+echo "wrote icons to $out"
