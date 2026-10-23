@@ -2,7 +2,7 @@
 // One-off PWA proof over CDP: installability, service worker control, cache contents,
 // and the offline fallback. The harness `browser` commands cannot do this (no JS eval,
 // no offline toggle, and each command reconnects, which drops offline mode).
-// Run: ./.cursor/skills/verify-pinventory/scripts/verify-pinventory pwa-check
+// Run: node ./.cursor/skills/verify-pinventory/scripts/pwa-check.mjs
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
