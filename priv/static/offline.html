@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Offline · Pinventory</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f8f8f8;
+        --fg: #1a1a1c;
+        --muted: #5b5b66;
+        --accent: #4f46e5;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #292f37;
+          --fg: #f1f5fd;
+          --muted: #aab3c2;
+          --accent: #818cf8;
+        }
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 1.5rem;
+        box-sizing: border-box;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, sans-serif;
+        text-align: center;
+      }
+      main {
+        max-width: 24rem;
+      }
+      svg {
+        width: 4rem;
+        height: 4rem;
+        color: var(--accent);
+      }
+      h1 {
+        margin: 1rem 0 0.5rem;
+        font-size: 1.5rem;
+      }
+      p {
+        margin: 0 0 1.5rem;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+      button {
+        font: inherit;
+        padding: 0.6rem 1.25rem;
+        border: 0;
+        border-radius: 0.5rem;
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="offline-page">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M16 1C9.925 1 5 5.925 5 12c0 8.284 10.125 18.375 10.556 18.806a.625.625 0 0 0 .888 0C16.875 30.375 27 20.284 27 12 27 5.925 22.075 1 16 1Z"
+        />
+      </svg>
+      <h1>You're offline</h1>
+      <p>Pinventory needs a connection to show your inventory. Check your network and try again.</p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </main>
+  </body>
+</html>

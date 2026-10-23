@@ -45,6 +45,18 @@ window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 // connect if there are any LiveViews on the page
 liveSocket.connect()
 
+// Register the service worker (priv/static/sw.js) so the app is installable and
+// shows an offline page when the network is down. It is served from "/" so its
+// scope covers the whole app. updateViaCache "none" makes the browser always
+// revalidate the script, so a new version is picked up on the next load.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/sw.js", {scope: "/", updateViaCache: "none"})
+      .catch(error => console.warn("service worker registration failed", error))
+  })
+}
+
 // expose liveSocket on window for web console debug logs and latency simulation:
 // >> liveSocket.enableDebug()
 // >> liveSocket.enableLatencySim(1000)  // enabled for duration of browser session

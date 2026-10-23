@@ -9,12 +9,37 @@
     </.live_title>
     <link rel="icon" href={~p"/favicon.svg"} type="image/svg+xml" />
     <link rel="icon" href={~p"/favicon.ico"} sizes="any" />
+    <link rel="apple-touch-icon" href={~p"/images/apple-touch-icon.png"} />
+    <%!-- A plain path, not ~p: in prod ~p links a digested name that Plug.Static's `only` list doesn't serve. --%>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <%!-- Colors are the base-100 of the light and dark daisyUI themes in app.css. The theme script below overrides both when the theme is forced. --%>
+    <meta
+      name="theme-color"
+      content="#f8f8f8"
+      media="(prefers-color-scheme: light)"
+      data-theme-color="light"
+    />
+    <meta
+      name="theme-color"
+      content="#292f37"
+      media="(prefers-color-scheme: dark)"
+      data-theme-color="dark"
+    />
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
     </script>
     <script>
       (() => {
+        const themeColors = {};
+        const themeColorMetas = document.querySelectorAll('meta[name="theme-color"][data-theme-color]');
+        themeColorMetas.forEach((meta) => (themeColors[meta.dataset.themeColor] = meta.content));
+        const setThemeColor = (theme) => {
+          themeColorMetas.forEach((meta) => {
+            meta.content = themeColors[theme === "system" ? meta.dataset.themeColor : theme] || meta.content;
+          });
+        };
         const setTheme = (theme) => {
+          setThemeColor(theme);
           if (theme === "system") {
             localStorage.removeItem("phx:theme");
             document.documentElement.removeAttribute("data-theme");

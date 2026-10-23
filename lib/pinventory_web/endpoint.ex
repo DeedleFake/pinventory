@@ -15,6 +15,16 @@ defmodule PinventoryWeb.Endpoint do
     websocket: [connect_info: [session: @session_options]],
     longpoll: [connect_info: [session: @session_options]]
 
+  # The service worker and manifest are always revalidated so updates reach
+  # installed apps. Reference them by their plain paths (not ~p, which links a
+  # digested name in prod). The worker is registered from app.js as "/sw.js".
+  plug Plug.Static,
+    at: "/",
+    from: :pinventory,
+    gzip: not code_reloading?,
+    only: ~w(sw.js manifest.webmanifest),
+    cache_control_for_etags: "no-cache"
+
   # Serve at "/" the static files from "priv/static" directory.
   #
   # When code reloading is disabled (e.g., in production),
