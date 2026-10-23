@@ -1,6 +1,6 @@
 ---
 name: verify-pinventory
-description: Drive the Pinventory Phoenix LiveView web UI in a real Chromium session against an isolated local server. Use when proving a Pinventory UI change, running /verify-pinventory, or checking login, items, locations, delete, or settings as a user would.
+description: Drive the Pinventory Phoenix LiveView web UI in a real Chromium session against an isolated local server. Use when proving a Pinventory UI change, running /verify-pinventory, or checking login, items, locations, floor plan, delete, settings, or install, offline, and theme behavior as a user would.
 ---
 
 # Verify Pinventory
@@ -35,6 +35,8 @@ What launch does:
 2. Creates a fresh SQLite file. Migrates it. Inserts `verify@example.com` / `verify-pass-12` (password min 12).
 3. Starts `mix phx.server` with `PORT=4010` and `DATABASE_PATH` pointing at that file.
 4. Starts headless Chromium with a CDP port on `5010`.
+
+Pages must render styled. Doctor cannot see a missing stylesheet, so open one screenshot after launch. If it is unstyled, `mix assets.setup` could not download the Tailwind binary. Copy `tailwind-linux-x64-4.1.7` into `_build/` and relaunch.
 
 Never pass `PORT=4000`. Never point `DATABASE_PATH` at `priv/repo/pinventory_dev.db`.
 
@@ -103,7 +105,7 @@ $H browser hover '#location-<id>'
 
 `goto` paths are origin-relative (`/locations`, `/item`, `/user/settings`). After LiveView clicks, `wait` the destination root id. Do not sleep a fixed number of seconds except for documented debounce (name/filter `phx-debounce="300"`). After those fills, wait 400ms by running `browser wait-enabled` or `browser wait` on the result.
 
-`click-at <selector> <x> <y>` clicks CSS pixels from the element's top-left. Prefer `#floor-plan-canvas [data-floor-plan-svg]` and keep y below the Reset view overlay. `click-box <selector> <fx> <fy>` clicks a 0–1 fraction of the bounding box (use this for existing wall/impassable geometry). `wait-attached` is for SVG nodes such as `[data-wall-id]`; Playwright treats a transparent stroke as not visible. `enabled` prints `enabled` or `disabled` (boolean `attr disabled`/`checked` is ambiguous). `hover` leaves the pointer there so a following `attr class` can see `.is-list-hover`. Flash alerts intercept clicks; dismiss `#flash-error` / `#flash-info` first.
+`click-at <selector> <x> <y>` clicks CSS pixels from the element's top-left. Prefer `#floor-plan-canvas [data-floor-plan-svg]` and keep y below the Reset view overlay. `click-box <selector> <fx> <fy>` clicks a 0–1 fraction of the bounding box (use this for existing wall/impassable geometry). `wait-attached` is for SVG nodes such as `[data-wall-id]`; Playwright treats a transparent stroke as not visible. `enabled` prints `enabled` or `disabled` (boolean `attr disabled`/`checked` is ambiguous). `hover` leaves the pointer there so a following `attr class` can see `.is-list-hover`. Flash toasts sit over the header and intercept clicks (the Log out link included); dismiss them first by clicking `#flash-info` / `#flash-error`. `exists` counts DOM nodes, hidden ones too (`#polygon-finish` exists while it has the `hidden` class). `click-at` coordinates must stay inside the target's box. Check it with `browser box '#floor-plan-canvas'`.
 
 Stable handles:
 
@@ -124,6 +126,8 @@ Stable handles:
 | Delete modals | `#item-delete-modal`, `#item-delete-confirm`, `#item-delete-confirm-submit`, `#location-delete-modal`, `#location-delete-confirm`, `#location-delete-confirm-submit` |
 | Flash | `#flash-info`, `#flash-error` |
 | Settings | `#settings-page`, `#settings-tab-account`, `#settings-tab-users`, `#settings-tab-activity`, `#generate-invite-form` |
+| Theme toggle | `button[aria-label="System theme"]`, `button[aria-label="Light theme"]`, `button[aria-label="Dark theme"]` (no ids), `meta[data-theme-color=light]`, `meta[data-theme-color=dark]` |
+| PWA | `link[rel=manifest]`, `/manifest.webmanifest`, `/sw.js`, `/offline.html`, `#offline-page` |
 | Settings passkeys | `#passkeys-section`, `#passkeys`, `#passkeys-empty`, `#add-passkey-button` |
 
 Stream ids:
@@ -180,6 +184,16 @@ Executable: `.cursor/skills/verify-pinventory/scripts/verify-pinventory`
 ```
 
 It wraps `verify-pinventory.mjs`. `npm install --omit=dev` runs automatically when `scripts/node_modules/playwright-core` is missing. `./.cursor/skills/verify-pinventory/scripts/verify-pinventory` with no args prints the command list.
+
+One-off PWA proof (installability, service worker control, cache contents, offline fallback), which `browser` commands cannot do because each command reconnects over CDP and drops offline mode:
+
+```bash
+node ./.cursor/skills/verify-pinventory/scripts/pwa-check.mjs
+```
+
+It reads `tmp/verify-pinventory/run/state.json`, prints `ok` or `fail` per check, and exits 1 on any failure. It imports `playwright-core` from `scripts/node_modules/`, so run `verify-pinventory` once first if that directory is missing. Run it against a launched instance after `doctor`. See [PWA](./features/pwa.md).
+
+The harness has no select-option, current-URL, or JS-eval command. For the items location filter use `goto '/?location=<location-id>&q=<text>'`.
 
 Chromium binary order: `PINVENTORY_CHROME`, then `~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome`, then `/usr/bin/chromium`, `/usr/bin/google-chrome`, `/usr/bin/google-chrome-stable`.
 

@@ -47,3 +47,4 @@ Each feature file starts with an H1 and one paragraph. Then exactly four H2 sect
 - [Floor plan](./floor-plan.md) covers optional multi-floor walls, gaps, impassable areas, pins, list badges, and delete-plan.
 - [Delete](./delete.md) covers type-the-name item delete and empty-only location delete.
 - [Settings](./settings.md) covers sudo settings tabs, passkeys on Account, invite minting, invite accept, and the activity feed.
+- [PWA](./pwa.md) covers the manifest and icons, installability, the service worker and offline page, and the light, dark and system theme toggle with its theme-color tags.

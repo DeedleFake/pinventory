@@ -7,7 +7,7 @@ Delete removes an item or an empty location after the user types the saved name.
 - `delete-item-modal` opens from `#item-delete` on an edit item page.
 - `delete-item-confirm` enables submit only when the typed name matches.
 - `delete-item-gone` removes the item and returns to `/`.
-- `delete-location-blocked` disables `#location-delete` when the location has items.
+- `delete-location-blocked` disables `#location-delete` when the location has items. It is also disabled while the name is edited but unsaved.
 - `delete-location-empty` deletes an empty location after name confirm and returns to `/locations`.
 
 ## How to get to it (user POV)
@@ -25,11 +25,11 @@ Preconditions:
 - For empty location delete, a location named `Verify Empty` has no `item_locations` rows.
 
 - **Location blocked.** Open `Verify Full`. `browser enabled '#location-delete'` prints `disabled`. `#location-delete-reason` is `Remove items from this location first.` Run `verify-pinventory sqlite "select count(*) as n from item_locations il join locations l on l.id = il.location_id where l.name = 'Verify Full';"`. `n` is > 0. Do not click the disabled button.
-- **Item modal.** Open the item. Run `verify-pinventory browser click '#item-delete'`. Wait for `#item-delete-modal`. `browser enabled '#item-delete-confirm-submit'` prints `disabled`.
-- **Wrong name.** Type a mismatch. Run `verify-pinventory browser fill '#item-delete-confirm' 'nope'`. Submit stays `disabled`.
+- **Item modal.** Open the item. Run `verify-pinventory browser click '#item-delete'`. Wait for `#item-delete-modal`. `browser enabled '#item-delete-confirm-submit'` prints `disabled`. `#item-delete-impact-total` reads `Total quantity: <n>` and `#item-delete-impact-locations` reads `Locations with stock: <n>`, from saved stock.
+- **Wrong name.** Type a mismatch. Run `verify-pinventory browser fill '#item-delete-confirm' 'nope'`. Submit stays `disabled`. `verify disposable` (wrong case) also keeps it `disabled`.
 - **Confirm.** Type the saved name. Run `verify-pinventory browser fill '#item-delete-confirm' 'Verify Disposable'`. Run `verify-pinventory browser wait-enabled '#item-delete-confirm-submit'`. Click it. Wait for `#items-page` and `#flash-info` `Item deleted`.
 - **Item gone.** Run `verify-pinventory browser exists '#items-empty'` or confirm the list has no `Verify Disposable`. Run `verify-pinventory sqlite "select count(*) as n from items where name = 'Verify Disposable';"`. `n` is `0`.
-- **Location empty delete.** Open `Verify Empty`. `#location-delete` is enabled. Click it. Wait for `#location-delete-modal`. Fill `#location-delete-confirm` with `Verify Empty`. Click `#location-delete-confirm-submit`. Wait for `#locations-page` and flash `Location deleted`. Sqlite has no row named `Verify Empty`.
+- **Location empty delete.** Open `Verify Empty`. `#location-delete` is enabled. Click it. Wait for `#location-delete-modal`. Fill `#location-delete-confirm` with `Verify Empty`. Click `#location-delete-confirm-submit`. Wait for `#locations-page` and flash `Location deleted` (the flash needs a database with no floor plan, see [Locations](./locations.md)). Sqlite has no row named `Verify Empty`. A floor-plan placement for that location is deleted with it.
 - **Proof.** Screenshot the items list after item delete (`delete/items-after.png`) and the locations list after location delete (`delete/locations-after.png`). Keep the sqlite counts.
 
 ## Gotchas
