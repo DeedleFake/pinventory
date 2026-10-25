@@ -827,14 +827,27 @@ defmodule Pinventory.Accounts do
   end
 
   @doc """
-  Makes a new token with the same name as one of `user`'s tokens, in any
-  state. The old token is left as it is.
+  Makes a new token with the same name as one of `user`'s tokens.
+
+  An active token is rolled: it is revoked and the new token is made in one
+  transaction, so either both happen or neither does. A revoked or expired
+  token is left as it is.
   """
   @spec replace_api_token(User.t(), binary()) ::
           {:ok, {String.t(), ApiToken.t()}} | {:error, :not_found | Ecto.Changeset.t()}
   def replace_api_token(%User{} = user, id) when is_binary(id) do
-    with {:ok, old} <- fetch_api_token(user, id) do
-      create_api_token(user, old.name)
+    Repo.transact(fn ->
+      with {:ok, old} <- fetch_api_token(user, id),
+           {:ok, _} <- revoke_if_active(old, DateTime.utc_now(:second)) do
+        create_api_token(user, old.name)
+      end
+    end)
+  end
+
+  defp revoke_if_active(%ApiToken{} = token, now) do
+    case ApiToken.status(token, now) do
+      :active -> token |> Ecto.Changeset.change(revoked_at: now) |> Repo.update()
+      _ -> {:ok, token}
     end
   end
 

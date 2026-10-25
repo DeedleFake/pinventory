@@ -593,6 +593,29 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
       assert has_element?(lv, "#api-token-#{old.id}-status", "Revoked")
     end
 
+    test "roll gives an active token a new secret and revokes the old one", %{
+      conn: conn,
+      user: user
+    } do
+      {:ok, {old_secret, old}} = Accounts.create_api_token(user, "Claude on phone")
+
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+      assert has_element?(lv, "#replace-api-token-#{old.id}", "Roll")
+
+      assert lv |> element("#replace-api-token-#{old.id}") |> render_click() =~
+               "Token rolled. The old secret no longer works."
+
+      assert :error = Accounts.fetch_scope_for_api_token(old_secret)
+      assert {:ok, %{api_token: new}} = Accounts.fetch_scope_for_api_token(shown_secret(lv))
+      assert new.name == "Claude on phone"
+      assert has_element?(lv, "#replace-api-token-#{new.id}", "Roll")
+      refute has_element?(lv, "#api-token-#{old.id}")
+
+      toggle(lv)
+      assert has_element?(lv, "#api-token-#{old.id}-status", "Revoked")
+      assert has_element?(lv, "#replace-api-token-#{old.id}", "Make replacement")
+    end
+
     test "cannot revoke another user's token", %{conn: conn} do
       {:ok, {secret, other}} = Accounts.create_api_token(user_fixture(), "theirs")
       {:ok, lv, _html} = live(conn, ~p"/user/settings")

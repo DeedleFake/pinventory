@@ -317,8 +317,12 @@ defmodule PinventoryWeb.UserLive.Settings do
                     class="btn btn-sm btn-ghost"
                     phx-click="replace_api_token"
                     phx-value-id={token.id}
+                    data-confirm={
+                      token_status(token) == :active &&
+                        "Roll this token? The old secret stops working right away."
+                    }
                   >
-                    Make replacement
+                    {if token_status(token) == :active, do: "Roll", else: "Make replacement"}
                   </button>
                   <button
                     :if={token_status(token) == :active}
@@ -942,15 +946,17 @@ defmodule PinventoryWeb.UserLive.Settings do
   def handle_event("replace_api_token", %{"id" => id}, socket) do
     user = socket.assigns.current_scope.user
 
+    rolled? = Enum.any?(socket.assigns.api_tokens, &(&1.id == id and token_status(&1) == :active))
+
     with true <- sudo?(socket) || :sudo,
          {:ok, {secret, token}} <- Accounts.replace_api_token(user, id) do
-      {:noreply,
-       show_new_api_token(
-         socket,
-         secret,
-         token,
-         "Replacement created. Copy it now. It will not be shown again."
-       )}
+      message =
+        if rolled?,
+          do:
+            "Token rolled. The old secret no longer works. Copy the new one now. It will not be shown again.",
+          else: "Replacement created. Copy it now. It will not be shown again."
+
+      {:noreply, show_new_api_token(socket, secret, token, message)}
     else
       :sudo -> {:noreply, require_sudo_redirect(socket)}
       _ -> {:noreply, put_flash(socket, :error, "Could not make a replacement.")}

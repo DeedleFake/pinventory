@@ -128,12 +128,31 @@ defmodule Pinventory.AccountsApiTokenTest do
       assert :error = Accounts.fetch_scope_for_api_token(old_secret)
     end
 
-    test "leaves an active original working" do
+    test "rolls an active token: the old secret stops working and the new one works" do
       user = user_fixture()
       {:ok, {old_secret, old}} = Accounts.create_api_token(user, "agent")
-      {:ok, _} = Accounts.replace_api_token(user, old.id)
 
-      assert {:ok, _} = Accounts.fetch_scope_for_api_token(old_secret)
+      assert {:ok, {new_secret, new}} = Accounts.replace_api_token(user, old.id)
+
+      assert new.name == "agent"
+      assert :error = Accounts.fetch_scope_for_api_token(old_secret)
+      assert {:ok, %{api_token: %{id: id}}} = Accounts.fetch_scope_for_api_token(new_secret)
+      assert id == new.id
+      assert %ApiToken{revoked_at: %DateTime{}} = Repo.get!(ApiToken, old.id)
+    end
+
+    test "leaves a revoked or expired original as it is" do
+      user = user_fixture()
+      {:ok, {_, revoked}} = Accounts.create_api_token(user, "revoked")
+      {:ok, revoked} = Accounts.revoke_api_token(user, revoked.id)
+      {:ok, {_, expired}} = Accounts.create_api_token(user, "expired")
+      set_token(expired, expires_at: DateTime.add(DateTime.utc_now(:second), -60))
+
+      {:ok, _} = Accounts.replace_api_token(user, revoked.id)
+      {:ok, _} = Accounts.replace_api_token(user, expired.id)
+
+      assert Repo.get!(ApiToken, revoked.id).revoked_at == revoked.revoked_at
+      assert Repo.get!(ApiToken, expired.id).revoked_at == nil
     end
 
     test "does not replace another user's token" do
