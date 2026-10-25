@@ -38,6 +38,9 @@ config :pinventory, PinventoryWeb.Endpoint,
   pubsub_server: Pinventory.PubSub,
   live_view: [signing_salt: "SBG8PVGC"]
 
+# Phantom (the MCP server) answers with server-sent events.
+config :mime, :types, %{"text/event-stream" => ["sse"]}
+
 # Configures the mailer
 #
 # By default it uses the "Local" adapter which stores the emails

@@ -18,6 +18,19 @@ defmodule PinventoryWeb.Router do
     plug :accepts, ["json"]
   end
 
+  # Agents authenticate with an API token in connect/2 of the MCP router, so
+  # this pipeline has no session, CSRF, or browser plugs. The endpoint has
+  # already parsed the JSON body.
+  pipeline :mcp do
+    plug :accepts, ["json", "sse"]
+  end
+
+  scope "/mcp" do
+    pipe_through :mcp
+
+    forward "/", Phantom.Plug, router: PinventoryWeb.MCPRouter
+  end
+
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:pinventory, :dev_routes) do
     # If you want to use the LiveDashboard in production, you should put
