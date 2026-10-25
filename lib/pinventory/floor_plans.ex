@@ -15,7 +15,6 @@ defmodule Pinventory.FloorPlans do
 
   alias Ecto.Multi
   alias Pinventory.FloorPlans.{Floor, Geometry, ImpassableArea, LocationPlacement, Wall}
-  alias Pinventory.Locations.Location
   alias Pinventory.Repo
 
   @default_floor_name "Floor 1"
@@ -353,13 +352,6 @@ defmodule Pinventory.FloorPlans do
     )
     |> Repo.all()
     |> Map.new()
-  end
-
-  @doc """
-  Returns all locations ordered by name (for the place picker).
-  """
-  def list_locations do
-    from(l in Location, order_by: [asc: l.name]) |> Repo.all()
   end
 
   @doc """
