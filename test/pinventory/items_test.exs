@@ -241,7 +241,7 @@ defmodule Pinventory.ItemsTest do
       refute "Hammer" in names
     end
 
-    test "treats LIKE/FTS special characters in the query as literals", %{scope: scope} do
+    test "treats LIKE special characters in the query as literals", %{scope: scope} do
       assert {:ok, _} = Items.create_item(scope, %{name: "100% wool"})
       assert {:ok, _} = Items.create_item(scope, %{name: "100x wool"})
       assert {:ok, _} = Items.create_item(scope, %{name: "under_score"})
@@ -249,11 +249,9 @@ defmodule Pinventory.ItemsTest do
       assert {:ok, _} = Items.create_item(scope, %{name: "plain item"})
       assert {:ok, _} = Items.create_item(scope, %{name: "quote\"mark"})
 
-      # Short query (< 3 chars) uses LIKE with escaping; "%" is not a wildcard.
       percent_only = Enum.map(Items.suggest_items("%"), & &1.name)
       assert percent_only == ["100% wool"]
 
-      # Longer query uses FTS5; special chars are phrase-escaped, not wildcards.
       percent_names = Enum.map(Items.suggest_items("100%"), & &1.name)
       assert "100% wool" in percent_names
       refute "100x wool" in percent_names
@@ -269,7 +267,7 @@ defmodule Pinventory.ItemsTest do
       assert "quote\"mark" in quote_names
     end
 
-    test "matches short prefixes with LIKE fallback", %{scope: scope} do
+    test "matches short prefixes", %{scope: scope} do
       assert {:ok, _} = Items.create_item(scope, %{name: "Saw"})
       assert {:ok, _} = Items.create_item(scope, %{name: "Sandpaper"})
       assert {:ok, _} = Items.create_item(scope, %{name: "Hammer"})
@@ -290,7 +288,7 @@ defmodule Pinventory.ItemsTest do
       assert names == ["Screwdriver", "Phillips screwdriver set"]
     end
 
-    test "ranks prefix matches above non-prefix contains for short LIKE queries", %{scope: scope} do
+    test "ranks prefix matches above non-prefix contains for short queries", %{scope: scope} do
       assert {:ok, _} = Items.create_item(scope, %{name: "Saw"})
       assert {:ok, _} = Items.create_item(scope, %{name: "Handsaw"})
 
@@ -308,7 +306,7 @@ defmodule Pinventory.ItemsTest do
       assert names == ["Hex Bolt"]
     end
 
-    test "rename updates FTS so old name no longer matches", %{scope: scope} do
+    test "a renamed item matches its new name and not its old one", %{scope: scope} do
       assert {:ok, item} = Items.create_item(scope, %{name: "Old Widget"})
 
       assert Enum.map(Items.suggest_items("old"), & &1.name) == ["Old Widget"]
@@ -320,7 +318,7 @@ defmodule Pinventory.ItemsTest do
       assert Enum.map(Items.suggest_items("gadget"), & &1.name) == ["New Gadget"]
     end
 
-    test "delete removes the item from FTS results", %{scope: scope} do
+    test "a deleted item no longer matches", %{scope: scope} do
       assert {:ok, item} = Items.create_item(scope, %{name: "Disposable Widget"})
 
       assert Enum.map(Items.suggest_items("disposable"), & &1.name) == ["Disposable Widget"]
@@ -328,6 +326,131 @@ defmodule Pinventory.ItemsTest do
       assert {:ok, _} = Items.delete_item(scope, item)
 
       assert Items.suggest_items("disposable") == []
+    end
+  end
+
+  describe "name search" do
+    defp create_items(scope, names) do
+      for name <- names, do: {:ok, _} = Items.create_item(scope, %{name: name})
+    end
+
+    defp suggest(text), do: Enum.map(Items.suggest_items(text), & &1.name)
+
+    test "matches typed letters in order, with gaps across words and symbols", %{scope: scope} do
+      create_items(scope, ["Paint brush", "Paper towels", "Handsaw", "Candles", "Candy"])
+
+      assert suggest("pntbrsh") == ["Paint brush"]
+      assert suggest("pant brsh") == ["Paint brush"]
+      assert suggest("candy") == ["Candy"]
+    end
+
+    test "does not match letters typed out of order", %{scope: scope} do
+      create_items(scope, ["Paper towels", "Towel rack"])
+
+      assert suggest("towle") == []
+    end
+
+    test "requires every term, in any order", %{scope: scope} do
+      create_items(scope, ["Bolt 10mm hex", "Bolt, 10mm", "Hex key"])
+
+      assert suggest("hex bolt") == ["Bolt 10mm hex"]
+      assert suggest("bolt hex") == ["Bolt 10mm hex"]
+    end
+
+    test "matches short terms mixed with longer ones", %{scope: scope} do
+      create_items(scope, ["Bolt 10mm hex", "Bolt, 10mm", ~s(Screws, #8 x 1/2"), "Hammer"])
+
+      assert Enum.sort(suggest("10 bo")) == ["Bolt 10mm hex", "Bolt, 10mm"]
+      assert suggest("x 8") == [~s(Screws, #8 x 1/2")]
+    end
+
+    test "ranks an exact word above the same letters inside a word", %{scope: scope} do
+      create_items(scope, ["Handsaw", "Saw", "Saw blade set"])
+
+      assert suggest("saw") == ["Saw", "Saw blade set", "Handsaw"]
+      assert suggest("sa") == ["Saw", "Saw blade set", "Handsaw"]
+    end
+
+    test "ranks whole words above a run inside one word", %{scope: scope} do
+      create_items(scope, ["Papertowel", "Paper towels"])
+
+      assert suggest("towel paper") == ["Paper towels", "Papertowel"]
+      assert suggest("papr towl") == ["Paper towels", "Papertowel"]
+    end
+
+    test "treats symbols in names as word boundaries when ranking", %{scope: scope} do
+      create_items(scope, ["fuzzyfinder", "fuzzy-finder", "1000 screws", "100% wool socks"])
+
+      assert suggest("ff") == ["fuzzy-finder", "fuzzyfinder"]
+      assert suggest("100") == ["100% wool socks", "1000 screws"]
+    end
+
+    test "requires symbols that were typed", %{scope: scope} do
+      create_items(scope, ["Bolt, 10mm", "Bolt 10mm hex", "O'Brien wrench", ~s(Screws, #8 x 1/2")])
+
+      assert suggest("bolt,") == ["Bolt, 10mm"]
+      assert Enum.sort(suggest("bolt")) == ["Bolt 10mm hex", "Bolt, 10mm"]
+      assert suggest("obrien") == ["O'Brien wrench"]
+      assert suggest("o'brien") == ["O'Brien wrench"]
+      assert suggest("#8 screw") == [~s(Screws, #8 x 1/2")]
+    end
+
+    test "ranks terms with symbols by the same word boundaries", %{scope: scope} do
+      create_items(scope, [
+        ~s(Screws, #8 x 1/2"),
+        "1 inch / 2 pack",
+        "x100% y",
+        "Big 100% cotton tee"
+      ])
+
+      assert suggest("1/2") == [~s(Screws, #8 x 1/2"), "1 inch / 2 pack"]
+      assert suggest("100%") == ["Big 100% cotton tee", "x100% y"]
+    end
+
+    test "treats wildcards, backslashes, and quotes as plain characters", %{scope: scope} do
+      create_items(scope, [
+        "100% wool",
+        "100x wool",
+        "under_score",
+        "underscore",
+        "path\\to",
+        ~s(quote"mark),
+        "size [m]",
+        "what?",
+        "a*b",
+        "plain item"
+      ])
+
+      assert suggest("1%w") == ["100% wool"]
+      assert suggest("_") == ["under_score"]
+      assert suggest("u_s") == ["under_score"]
+      assert suggest("\\") == ["path\\to"]
+      assert suggest(~s(")) == [~s(quote"mark)]
+      assert suggest("(") == []
+      assert suggest("*") == ["a*b"]
+      assert suggest("?") == ["what?"]
+      assert suggest("[m") == ["size [m]"]
+      assert suggest("t?") == ["what?"]
+      assert suggest("' OR 1=1 --") == []
+    end
+
+    test "folds ASCII case only", %{scope: scope} do
+      create_items(scope, ["Café", "HEX bolt"])
+
+      assert suggest("hex") == ["HEX bolt"]
+      assert suggest("café") == ["Café"]
+      assert suggest("CAFÉ") == []
+      assert suggest("cafe") == []
+    end
+
+    test "list_items filters with the same matching and keeps name order", %{scope: scope} do
+      create_items(scope, ["Paint brush", "Brush paint", "Hammer"])
+
+      filter = fn text -> Enum.map(Items.list_items(filter: text), & &1.name) end
+
+      assert filter.("pnt brsh") == ["Brush paint", "Paint brush"]
+      assert filter.("pntbrsh") == ["Paint brush"]
+      assert filter.("candy") == []
     end
   end
 
