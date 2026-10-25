@@ -12,7 +12,7 @@ defmodule PinventoryWeb.MCPRouter do
   @instructions """
   Pinventory is a household inventory. Items are stored at locations, with a count at each location.
 
-  - Before deciding an item isn't in Pinventory, search with several wordings in one list_items call: synonyms, brand names, and singular forms. If that finds nothing, call list_items with no terms to see everything.
+  - list_items searches item names only, not notes. Before deciding an item isn't in Pinventory, search with several wordings in one list_items call: synonyms, brand names, and singular forms. If that finds nothing, call list_items with no terms to see everything.
   - When more than one item or location could be the one the user means, ask the user. Don't guess. If the user didn't say which location, ask.
   - Use the ids from list_items and list_locations for changes.
   - To move stock between locations, use move_stock, not two change_stock calls.
@@ -36,7 +36,7 @@ defmodule PinventoryWeb.MCPRouter do
   alias Pinventory.Locations
   alias Pinventory.Repo
 
-  @no_match_hint "No items matched these terms. Try other names, brands, or singular forms, " <>
+  @no_match_hint "No item names matched these terms. Try other names, brands, or singular forms, " <>
                    "or call list_items with no terms to see everything, " <>
                    "before telling the user it isn't in Pinventory."
 
@@ -72,7 +72,7 @@ defmodule PinventoryWeb.MCPRouter do
   end
 
   @description """
-  Search items. An item matches when any one term matches its name or notes, ignoring case and plurals. Pass several wordings at once, for example ["paper towel", "kitchen roll", "bounty"]: synonyms, brand names, and singular forms. Results come best match first, with notes, the count at each location, and the item's page url.
+  Search items. An item matches when any one term matches its name, ignoring case and plurals. Notes are not searched. Pass several wordings at once, for example ["paper towel", "kitchen roll", "bounty"]: synonyms, brand names, and singular forms. Results come best match first, with notes, the count at each location, and the item's page url.
   Leave out terms only as a last resort, to list every item.
   If more than one item could be the one the user means, ask the user.
   """

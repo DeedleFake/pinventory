@@ -130,13 +130,13 @@ defmodule PinventoryWeb.MCPRouterTest do
   end
 
   describe "list_items" do
-    test "searches names and notes by any term, with stock per location", %{
+    test "searches names by any term, with stock per location", %{
       secret: secret,
       towels: towels,
       garage: garage
     } do
       %{"items" => [item]} =
-        call(secret, "list_items", %{terms: ["kitchen roll", "bounty"]})["structuredContent"]
+        call(secret, "list_items", %{terms: ["kitchen roll", "paper towel"]})["structuredContent"]
 
       assert item["id"] == towels.id
       assert item["notes"] == "Bounty, 6-roll packs"
@@ -148,6 +148,12 @@ defmodule PinventoryWeb.MCPRouterTest do
 
       assert %{"items" => [%{"name" => "AA batteries"}]} =
                call(secret, "list_items", %{terms: ["battery"]})["structuredContent"]
+    end
+
+    test "does not search notes", %{secret: secret} do
+      assert call(secret, "list_items", %{terms: ["bounty"]})["structuredContent"] == %{
+               "items" => []
+             }
     end
 
     test "tells the agent to keep looking when nothing matches", %{secret: secret} do
