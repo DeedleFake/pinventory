@@ -4,6 +4,7 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
   alias Pinventory.Accounts
   import Phoenix.LiveViewTest
   import Pinventory.AccountsFixtures
+  import Ecto.Query, only: [from: 2]
 
   describe "Settings page" do
     test "renders settings page", %{conn: conn} do
@@ -483,6 +484,145 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
 
       assert html =~ "Could not remove passkey."
       assert Pinventory.Repo.get!(Accounts.PasskeyCredential, cred.id).revoked_at == nil
+    end
+  end
+
+  describe "agent access" do
+    alias Pinventory.Accounts.ApiToken
+    alias Pinventory.Repo
+
+    setup %{conn: conn} do
+      user = user_fixture()
+      %{conn: log_in_user(conn, user), user: user}
+    end
+
+    defp create_token(lv, name) do
+      lv |> form("#api-token-form", api_token: %{name: name}) |> render_change()
+      lv |> form("#api-token-form", api_token: %{name: name}) |> render_submit()
+    end
+
+    defp shown_secret(lv) do
+      lv
+      |> element("#latest-api-token-value")
+      |> render()
+      |> then(&Regex.run(~r/value="([^"]+)"/, &1))
+      |> List.last()
+    end
+
+    defp toggle(lv), do: lv |> element("#show-inactive-api-tokens") |> render_click()
+
+    test "creates a token and shows its secret once", %{conn: conn, user: user} do
+      {:ok, lv, html} = live(conn, ~p"/user/settings")
+      assert html =~ "No active tokens."
+
+      assert create_token(lv, "Claude on phone") =~ "Token created."
+      secret = shown_secret(lv)
+
+      assert {:ok, %{user: %{id: id}, api_token: token}} =
+               Accounts.fetch_scope_for_api_token(secret)
+
+      assert id == user.id
+      assert has_element?(lv, "#api-token-#{token.id}", "Claude on phone")
+      assert has_element?(lv, "#api-token-#{token.id}", "expires")
+      refute lv |> element("#api_token_name") |> render() =~ ~s(value="Claude on phone")
+
+      lv |> element("#revoke-api-token-#{token.id}") |> render_click()
+      refute has_element?(lv, "#latest-api-token")
+    end
+
+    test "a blank name shows an error", %{conn: conn, user: user} do
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+      assert create_token(lv, " ") =~ "can&#39;t be blank"
+      assert Accounts.list_api_tokens(user) == []
+    end
+
+    test "revoked and expired tokens are hidden until the toggle is on", %{conn: conn, user: user} do
+      {:ok, {_, active}} = Accounts.create_api_token(user, "active one")
+      {:ok, {_, expired}} = Accounts.create_api_token(user, "expired one")
+
+      Repo.update_all(from(t in ApiToken, where: t.id == ^expired.id),
+        set: [expires_at: DateTime.add(DateTime.utc_now(:second), -60)]
+      )
+
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+      lv |> element("#revoke-api-token-#{active.id}") |> render_click()
+
+      refute has_element?(lv, "#api-token-#{active.id}")
+      refute has_element?(lv, "#api-token-#{expired.id}")
+      assert has_element?(lv, "#api-tokens-empty", "No active tokens.")
+
+      toggle(lv)
+      assert has_element?(lv, "#api-token-#{active.id}-status", "Revoked")
+      assert has_element?(lv, "#api-token-#{expired.id}-status", "Expired")
+      refute has_element?(lv, "#revoke-api-token-#{active.id}")
+      refute has_element?(lv, "#revoke-api-token-#{expired.id}")
+
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+      refute has_element?(lv, "#api-token-#{active.id}")
+    end
+
+    test "revoke all revokes every active token", %{conn: conn, user: user} do
+      {:ok, {a, _}} = Accounts.create_api_token(user, "a")
+      {:ok, {b, _}} = Accounts.create_api_token(user, "b")
+
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+      assert lv |> element("#revoke-all-api-tokens") |> render_click() =~ "Revoked 2 tokens."
+
+      assert :error = Accounts.fetch_scope_for_api_token(a)
+      assert :error = Accounts.fetch_scope_for_api_token(b)
+      refute has_element?(lv, "#revoke-all-api-tokens")
+      assert length(Accounts.list_api_tokens(user)) == 2
+    end
+
+    test "make replacement gives a revoked token a new secret under the same name", %{
+      conn: conn,
+      user: user
+    } do
+      {:ok, {_, old}} = Accounts.create_api_token(user, "Claude on phone")
+      {:ok, _} = Accounts.revoke_api_token(user, old.id)
+
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+      toggle(lv)
+
+      assert lv |> element("#replace-api-token-#{old.id}") |> render_click() =~
+               "Replacement created."
+
+      assert {:ok, %{api_token: new}} = Accounts.fetch_scope_for_api_token(shown_secret(lv))
+      assert new.name == "Claude on phone"
+      assert has_element?(lv, "#revoke-api-token-#{new.id}")
+      assert has_element?(lv, "#api-token-#{old.id}-status", "Revoked")
+    end
+
+    test "cannot revoke another user's token", %{conn: conn} do
+      {:ok, {secret, other}} = Accounts.create_api_token(user_fixture(), "theirs")
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+
+      assert render_click(lv, "revoke_api_token", %{"id" => other.id}) =~
+               "Could not revoke token."
+
+      assert {:ok, _} = Accounts.fetch_scope_for_api_token(secret)
+    end
+
+    test "token actions need sudo mode", %{conn: conn, user: user} do
+      {:ok, {secret, token}} = Accounts.create_api_token(user, "agent")
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+
+      [{session_token, _}] =
+        Repo.all(
+          from t in Accounts.UserToken,
+            where: t.user_id == ^user.id and t.context == "session",
+            select: {t.token, t.id}
+        )
+
+      override_token_authenticated_at(
+        session_token,
+        DateTime.add(DateTime.utc_now(:second), -21, :minute)
+      )
+
+      assert {:error, {:redirect, %{to: "/user/log-in"}}} =
+               lv |> element("#revoke-api-token-#{token.id}") |> render_click()
+
+      assert {:ok, _} = Accounts.fetch_scope_for_api_token(secret)
     end
   end
 end

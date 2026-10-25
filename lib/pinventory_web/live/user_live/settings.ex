@@ -2,6 +2,7 @@ defmodule PinventoryWeb.UserLive.Settings do
   use PinventoryWeb, :live_view
 
   alias Pinventory.Accounts
+  alias Pinventory.Accounts.ApiToken
   alias Pinventory.Audit
   alias PinventoryWeb.Passkey.Wire
   alias PinventoryWeb.UserAuth
@@ -166,6 +167,180 @@ defmodule PinventoryWeb.UserLive.Settings do
             >
               Add a passkey
             </.button>
+          </section>
+
+          <div class="divider" />
+
+          <section id="agent-access-section" class="space-y-3" aria-labelledby="agent-access-heading">
+            <div>
+              <h2 id="agent-access-heading" class="text-lg font-semibold tracking-tight">
+                Agent access
+              </h2>
+              <p class="mt-1 text-sm opacity-70">
+                Tokens let an AI agent read your inventory and change stock counts. Each token lasts 6 months.
+              </p>
+            </div>
+
+            <.form
+              for={@api_token_form}
+              id="api-token-form"
+              phx-submit="create_api_token"
+              phx-change="validate_api_token"
+              class="space-y-1.5"
+            >
+              <label class="label" for="api_token_name">Token name</label>
+              <div class="join w-full">
+                <input
+                  type="text"
+                  id="api_token_name"
+                  name={@api_token_form[:name].name}
+                  value={@api_token_form[:name].value}
+                  placeholder="Claude on phone"
+                  autocomplete="off"
+                  maxlength="80"
+                  required
+                  class="input join-item min-w-0 grow"
+                />
+                <button
+                  id="create-api-token"
+                  type="submit"
+                  class="btn btn-primary join-item shrink-0"
+                  phx-disable-with="Creating..."
+                >
+                  <.icon name="hero-plus" class="size-4" /> Create token
+                </button>
+              </div>
+              <p
+                :for={msg <- Enum.map(@api_token_form[:name].errors, &translate_error/1)}
+                class="mt-1 flex items-center gap-2 text-sm text-error"
+              >
+                <.icon name="hero-exclamation-circle" class="size-5" />
+                {msg}
+              </p>
+            </.form>
+
+            <div
+              :if={@latest_api_token}
+              id="latest-api-token"
+              class="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3"
+            >
+              <div>
+                <p class="text-sm font-medium">New token for {@latest_api_token.name}</p>
+                <p class="text-xs opacity-70 mt-0.5">
+                  Copy this token now. It cannot be shown again after you leave this page.
+                </p>
+              </div>
+              <div class="join w-full">
+                <input
+                  id="latest-api-token-value"
+                  type="text"
+                  readonly
+                  value={@latest_api_token.secret}
+                  class="input join-item min-w-0 grow font-mono text-xs"
+                />
+                <button
+                  type="button"
+                  id="copy-latest-api-token"
+                  class="btn btn-primary join-item shrink-0"
+                  phx-hook=".ClipboardCopy"
+                  data-copy={@latest_api_token.secret}
+                >
+                  <.icon name="hero-clipboard-document" class="size-4" /> Copy
+                </button>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <label class="label cursor-pointer gap-2 text-sm">
+                <input
+                  id="show-inactive-api-tokens"
+                  type="checkbox"
+                  class="toggle toggle-sm"
+                  checked={@show_inactive_api_tokens?}
+                  phx-click="toggle_inactive_api_tokens"
+                /> Show revoked and expired
+              </label>
+              <button
+                :if={Enum.any?(@api_tokens, &(token_status(&1) == :active))}
+                id="revoke-all-api-tokens"
+                type="button"
+                class="btn btn-sm btn-error btn-soft"
+                phx-click="revoke_all_api_tokens"
+                data-confirm="Revoke every active token? Agents using them lose access."
+              >
+                Revoke all
+              </button>
+            </div>
+
+            <ul id="api-tokens" class="space-y-2">
+              <li
+                :for={token <- visible_api_tokens(@api_tokens, @show_inactive_api_tokens?)}
+                id={"api-token-#{token.id}"}
+                class={[
+                  "flex flex-col gap-2 rounded-xl border border-base-300 bg-base-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between",
+                  token_status(token) != :active && "opacity-70"
+                ]}
+              >
+                <div class="min-w-0 space-y-0.5">
+                  <p class="flex items-center gap-2 text-sm font-medium">
+                    <span class="truncate">{token.name}</span>
+                    <span
+                      :if={token_status(token) == :revoked}
+                      id={"api-token-#{token.id}-status"}
+                      class="badge badge-sm badge-error badge-soft"
+                    >
+                      Revoked {Calendar.strftime(token.revoked_at, "%Y-%m-%d")}
+                    </span>
+                    <span
+                      :if={token_status(token) == :expired}
+                      id={"api-token-#{token.id}-status"}
+                      class="badge badge-sm badge-warning badge-soft"
+                    >
+                      Expired
+                    </span>
+                  </p>
+                  <p class="text-xs opacity-70">
+                    Created {Calendar.strftime(token.inserted_at, "%Y-%m-%d")} · expires {Calendar.strftime(
+                      token.expires_at,
+                      "%Y-%m-%d"
+                    )}
+                    <span :if={token.last_used_at}>
+                      · last used {Calendar.strftime(token.last_used_at, "%Y-%m-%d")}
+                    </span>
+                    <span :if={!token.last_used_at}>· never used</span>
+                  </p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    id={"replace-api-token-#{token.id}"}
+                    class="btn btn-sm btn-ghost"
+                    phx-click="replace_api_token"
+                    phx-value-id={token.id}
+                  >
+                    Make replacement
+                  </button>
+                  <button
+                    :if={token_status(token) == :active}
+                    type="button"
+                    id={"revoke-api-token-#{token.id}"}
+                    class="btn btn-sm btn-error btn-soft"
+                    phx-click="revoke_api_token"
+                    phx-value-id={token.id}
+                    data-confirm="Revoke this token? The agent using it loses access."
+                  >
+                    Revoke
+                  </button>
+                </div>
+              </li>
+            </ul>
+            <p
+              :if={visible_api_tokens(@api_tokens, @show_inactive_api_tokens?) == []}
+              id="api-tokens-empty"
+              class="text-sm opacity-70"
+            >
+              {if @show_inactive_api_tokens?, do: "No tokens yet.", else: "No active tokens."}
+            </p>
           </section>
         </div>
 
@@ -429,6 +604,10 @@ defmodule PinventoryWeb.UserLive.Settings do
      |> assign(:passkeys, [])
      |> assign(:passkey_supported?, true)
      |> assign(:passkey_ceremony, nil)
+     |> assign(:api_tokens, [])
+     |> assign(:api_token_form, api_token_form())
+     |> assign(:latest_api_token, nil)
+     |> assign(:show_inactive_api_tokens?, false)
      |> stream(:invites, [])
      |> stream(:users, [])}
   end
@@ -471,6 +650,7 @@ defmodule PinventoryWeb.UserLive.Settings do
     socket
     |> assign(:page_title, "Settings")
     |> assign(:passkeys, Accounts.list_passkey_credentials(socket.assigns.current_scope.user))
+    |> assign(:api_tokens, Accounts.list_api_tokens(socket.assigns.current_scope.user))
   end
 
   defp load_tab(socket, :users) do
@@ -484,6 +664,22 @@ defmodule PinventoryWeb.UserLive.Settings do
     socket
     |> assign(:page_title, "Activity")
     |> assign(:activity_edits, Audit.list_recent_edits(limit: 50))
+  end
+
+  defp api_token_form(params \\ %{}, errors \\ []),
+    do: to_form(params, as: :api_token, errors: errors)
+
+  defp token_status(token), do: ApiToken.status(token, DateTime.utc_now())
+
+  defp visible_api_tokens(tokens, true), do: tokens
+  defp visible_api_tokens(tokens, false), do: Enum.filter(tokens, &(token_status(&1) == :active))
+
+  defp show_new_api_token(socket, secret, token, message) do
+    socket
+    |> assign(:latest_api_token, %{id: token.id, name: token.name, secret: secret})
+    |> assign(:api_token_form, api_token_form())
+    |> assign(:api_tokens, Accounts.list_api_tokens(socket.assigns.current_scope.user))
+    |> put_flash(:info, message)
   end
 
   defp activity_navigate_path({:item, item_id}), do: ~p"/item/#{item_id}"
@@ -714,6 +910,87 @@ defmodule PinventoryWeb.UserLive.Settings do
             {:noreply, put_flash(socket, :error, "Could not remove passkey.")}
         end
     end
+  end
+
+  # Tracking the typed name lets the form clear after a token is created.
+  def handle_event("validate_api_token", %{"api_token" => params}, socket) do
+    {:noreply, assign(socket, :api_token_form, api_token_form(params))}
+  end
+
+  def handle_event("create_api_token", %{"api_token" => params}, socket) do
+    user = socket.assigns.current_scope.user
+
+    if sudo?(socket) do
+      case Accounts.create_api_token(user, params["name"]) do
+        {:ok, {secret, token}} ->
+          {:noreply,
+           show_new_api_token(
+             socket,
+             secret,
+             token,
+             "Token created. Copy it now. It will not be shown again."
+           )}
+
+        {:error, %Ecto.Changeset{errors: errors}} ->
+          {:noreply, assign(socket, :api_token_form, api_token_form(params, errors))}
+      end
+    else
+      {:noreply, require_sudo_redirect(socket)}
+    end
+  end
+
+  def handle_event("replace_api_token", %{"id" => id}, socket) do
+    user = socket.assigns.current_scope.user
+
+    with true <- sudo?(socket) || :sudo,
+         {:ok, {secret, token}} <- Accounts.replace_api_token(user, id) do
+      {:noreply,
+       show_new_api_token(
+         socket,
+         secret,
+         token,
+         "Replacement created. Copy it now. It will not be shown again."
+       )}
+    else
+      :sudo -> {:noreply, require_sudo_redirect(socket)}
+      _ -> {:noreply, put_flash(socket, :error, "Could not make a replacement.")}
+    end
+  end
+
+  def handle_event("revoke_api_token", %{"id" => id}, socket) do
+    user = socket.assigns.current_scope.user
+
+    with true <- sudo?(socket) || :sudo,
+         {:ok, token} <- Accounts.revoke_api_token(user, id) do
+      {:noreply,
+       socket
+       |> update(:latest_api_token, &if(&1 && &1.id == token.id, do: nil, else: &1))
+       |> assign(:api_tokens, Accounts.list_api_tokens(user))
+       |> put_flash(:info, "Token revoked.")}
+    else
+      :sudo -> {:noreply, require_sudo_redirect(socket)}
+      _ -> {:noreply, put_flash(socket, :error, "Could not revoke token.")}
+    end
+  end
+
+  def handle_event("revoke_all_api_tokens", _params, socket) do
+    user = socket.assigns.current_scope.user
+
+    if sudo?(socket) do
+      count = Accounts.revoke_all_api_tokens(user)
+
+      {:noreply,
+       socket
+       |> assign(:latest_api_token, nil)
+       |> assign(:api_tokens, Accounts.list_api_tokens(user))
+       |> put_flash(:info, "Revoked #{count} #{if count == 1, do: "token", else: "tokens"}.")}
+    else
+      {:noreply, require_sudo_redirect(socket)}
+    end
+  end
+
+  def handle_event("toggle_inactive_api_tokens", _params, socket) do
+    {:noreply, update(socket, :show_inactive_api_tokens?, &(!&1))}
   end
 
   # Sudo is re-checked against the database, not the user loaded at mount:
