@@ -19,7 +19,6 @@ defmodule Pinventory.Items do
   alias Pinventory.Audit.Event
   alias Pinventory.Repo
 
-  alias Pinventory.Items.DraftStock
   alias Pinventory.Items.Item
   alias Pinventory.Items.ItemLocation
   alias Pinventory.Items.NoteVersion
@@ -512,11 +511,8 @@ defmodule Pinventory.Items do
 
   defp normalize_desired_stock(quantities) do
     quantities
-    |> Enum.map(fn {location_id, quantity} ->
-      {to_string(location_id), DraftStock.parse_non_neg_int(quantity)}
-    end)
-    |> Enum.filter(fn {_location_id, quantity} -> quantity > 0 end)
-    |> Map.new()
+    |> Enum.reject(fn {_location_id, quantity} -> quantity == 0 end)
+    |> Map.new(fn {location_id, quantity} -> {to_string(location_id), quantity} end)
   end
 
   defp location_names(_repo, []), do: %{}
