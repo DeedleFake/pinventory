@@ -80,9 +80,16 @@ defmodule Pinventory.Items.NameSearch do
   """
   @spec where_matches(Ecto.Queryable.t(), [Term.t(), ...]) :: Ecto.Query.t()
   def where_matches(query, terms) do
-    Enum.reduce(terms, query, fn term, query ->
-      where(query, [item: item], fragment(@match_sql, item.name, ^term.match))
-    end)
+    where(query, ^all_match(terms))
+  end
+
+  @doc """
+  Keeps only rows of the `:item` binding whose name matches every term of at
+  least one group.
+  """
+  @spec where_matches_any(Ecto.Queryable.t(), [[Term.t(), ...], ...]) :: Ecto.Query.t()
+  def where_matches_any(query, groups) do
+    where(query, ^(groups |> Enum.map(&all_match/1) |> Enum.reduce(&dynamic(^&2 or ^&1))))
   end
 
   @doc """
@@ -91,14 +98,39 @@ defmodule Pinventory.Items.NameSearch do
   """
   @spec order_by_rank(Ecto.Queryable.t(), [Term.t(), ...]) :: Ecto.Query.t()
   def order_by_rank(query, terms) do
-    score =
-      terms
-      |> Enum.map(&rank/1)
-      |> Enum.reduce(fn rank, sum -> dynamic(^sum + ^rank) end)
+    order_by_score(query, score(terms))
+  end
 
+  @doc """
+  Orders rows of the `:item` binding by how many groups fully match, then by
+  the summed match quality of those groups, then by shorter name, then by
+  name.
+  """
+  @spec order_by_groups(Ecto.Queryable.t(), [[Term.t(), ...], ...]) :: Ecto.Query.t()
+  def order_by_groups(query, groups) do
+    # A fully matched group adds 1000, which outweighs any quality sum (at most 6 per term).
+    groups
+    |> Enum.map(fn terms ->
+      dynamic(fragment("CASE WHEN ? THEN 1000 + ? ELSE 0 END", ^all_match(terms), ^score(terms)))
+    end)
+    |> Enum.reduce(&dynamic(^&2 + ^&1))
+    |> then(&order_by_score(query, &1))
+  end
+
+  defp order_by_score(query, score) do
     query
     |> order_by(^[desc: score])
     |> order_by([item: item], asc: fragment("length(?)", item.name), asc: item.name)
+  end
+
+  defp all_match(terms) do
+    terms
+    |> Enum.map(&dynamic([item: item], fragment(@match_sql, item.name, ^&1.match)))
+    |> Enum.reduce(&dynamic(^&2 and ^&1))
+  end
+
+  defp score(terms) do
+    terms |> Enum.map(&rank/1) |> Enum.reduce(&dynamic(^&2 + ^&1))
   end
 
   defp rank(%Term{} = term) do
