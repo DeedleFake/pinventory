@@ -102,6 +102,16 @@ defmodule Pinventory.ItemsTest do
       assert Repo.aggregate(ItemLocation, :count) == 0
     end
 
+    test "rejects a negative quantity instead of clearing the stock", %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, item} = Items.create_item(scope, %{name: "Tape"}, %{garage.id => 2})
+
+      assert {:error, %Ecto.Changeset{}} =
+               Items.update_item(scope, item, %{name: "Tape"}, %{garage.id => -3})
+
+      assert Items.stock_map(Items.get_item!(item.id)) == %{garage.id => 2}
+    end
+
     test "returns an ItemLocation changeset when stock references a missing location", %{
       scope: scope
     } do

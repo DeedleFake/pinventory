@@ -185,6 +185,48 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert has_element?(view, "#item-total-value", "13")
   end
 
+  for raw <- ["-3", "1.5", "", "abc", "1000001"] do
+    test "rejects quantity #{inspect(raw)} instead of clearing that location's stock", %{
+      conn: conn,
+      scope: scope
+    } do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, item} = Items.create_item(scope, %{name: "Towels"}, %{garage.id => 5})
+
+      {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+      set_quantity(view, garage.id, unquote(raw))
+
+      view |> form("#item-form", item: %{name: "Paper towels"}) |> render_submit()
+
+      updated = Items.get_item!(item.id)
+      assert Items.stock_map(updated) == %{garage.id => 5}
+      assert updated.name == "Towels"
+
+      assert has_element?(view, "#quantity-error-#{garage.id}", "Enter a whole number")
+      assert has_element?(view, ~s(#quantity-#{garage.id}[aria-invalid="true"]))
+      assert has_element?(view, "#item-save[disabled]")
+
+      set_quantity(view, garage.id, 6)
+
+      refute has_element?(view, "#quantity-error-#{garage.id}")
+      assert has_element?(view, "#item-total-value", "6")
+    end
+  end
+
+  test "a typed 0 still removes stock at that location", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, item} = Items.create_item(scope, %{name: "Towels"}, %{garage.id => 5})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    set_quantity(view, garage.id, 0)
+    refute has_element?(view, "#quantity-error-#{garage.id}")
+    view |> form("#item-form") |> render_submit()
+
+    assert Items.stock_map(Items.get_item!(item.id)) == %{}
+  end
+
   test "stock controls live in a stock form separate from the name form", %{
     conn: conn,
     scope: scope
