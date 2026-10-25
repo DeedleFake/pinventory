@@ -107,7 +107,7 @@ defmodule PinventoryWeb.MCPRouterTest do
         })
 
       assert result["serverInfo"]["name"] == "Pinventory"
-      assert result["instructions"] =~ "synonyms, brand names, and singular forms"
+      assert result["instructions"] =~ ~s("towel" finds "Paper Towels")
       assert result["instructions"] =~ "ask the user. Don't guess."
       assert result["instructions"] =~ "happen in the Pinventory web UI"
     end
@@ -146,8 +146,11 @@ defmodule PinventoryWeb.MCPRouterTest do
                %{"location_id" => garage.id, "location" => "Garage", "quantity" => 4}
              ]
 
-      assert %{"items" => [%{"name" => "AA batteries"}]} =
+      assert %{"items" => []} =
                call(secret, "list_items", %{terms: ["battery"]})["structuredContent"]
+
+      assert %{"items" => [%{"name" => "AA batteries"}]} =
+               call(secret, "list_items", %{terms: ["battery", "batteries"]})["structuredContent"]
     end
 
     test "does not search notes", %{secret: secret} do
@@ -160,7 +163,10 @@ defmodule PinventoryWeb.MCPRouterTest do
       result = call(secret, "list_items", %{terms: ["light bulb"]})
 
       assert result["structuredContent"] == %{"items" => []}
-      assert text(result) =~ "Try other names, brands, or singular forms"
+
+      assert text(result) =~
+               ~s(Try singular forms, irregular forms such as both "knife" and "knives")
+
       assert text(result) =~ "call list_items with no terms"
     end
 
