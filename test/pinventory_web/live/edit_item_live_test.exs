@@ -290,6 +290,40 @@ defmodule PinventoryWeb.EditItemLiveTest do
     assert_redirect(view, "/item/#{existing.id}")
   end
 
+  test "suggests names by typed letters in order, best match first", %{conn: conn, scope: scope} do
+    {:ok, handsaw} = Items.create_item(scope, %{name: "Handsaw"})
+    {:ok, saw} = Items.create_item(scope, %{name: "Saw"})
+    {:ok, brush} = Items.create_item(scope, %{name: "Paint brush"})
+
+    {:ok, view, _html} = live(conn, ~p"/item")
+
+    view
+    |> element("#item_name")
+    |> render_focus()
+
+    view
+    |> form("#item-form", item: %{name: "pntbrsh"})
+    |> render_change()
+
+    assert has_element?(view, "#item-suggestion-#{brush.id}", "Paint brush")
+    refute has_element?(view, "#item-suggestion-#{saw.id}")
+
+    view
+    |> form("#item-form", item: %{name: "saw"})
+    |> render_change()
+
+    suggestions = view |> element("#item-suggestions") |> render()
+    refute has_element?(view, "#item-suggestion-#{brush.id}")
+
+    assert [{saw_at, _}, {handsaw_at, _}] =
+             Enum.map(
+               ["item-suggestion-#{saw.id}", "item-suggestion-#{handsaw.id}"],
+               &:binary.match(suggestions, &1)
+             )
+
+    assert saw_at < handsaw_at
+  end
+
   test "hides name suggestions when the name field is blurred", %{conn: conn, scope: scope} do
     {:ok, _existing} = Items.create_item(scope, %{name: "Screwdriver set"})
 
