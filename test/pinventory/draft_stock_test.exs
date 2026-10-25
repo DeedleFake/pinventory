@@ -38,10 +38,13 @@ defmodule Pinventory.Items.DraftStockTest do
     refute DraftStock.dirty?(baseline, baseline)
   end
 
-  test "parse_non_neg_int normalizes user input" do
-    assert DraftStock.parse_non_neg_int(" 12 ") == 12
-    assert DraftStock.parse_non_neg_int("-3") == 0
-    assert DraftStock.parse_non_neg_int("nope") == 0
-    assert DraftStock.parse_non_neg_int(4) == 4
+  test "parse_quantity accepts only whole numbers in range" do
+    assert DraftStock.parse_quantity(" 12 ") == {:ok, 12}
+    assert DraftStock.parse_quantity("0") == {:ok, 0}
+    assert DraftStock.parse_quantity("1000000") == {:ok, 1_000_000}
+
+    for raw <- ["-3", "1.5", "", "nope", "4abc", "1000001"] do
+      assert DraftStock.parse_quantity(raw) == :error
+    end
   end
 end

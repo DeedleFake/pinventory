@@ -54,17 +54,22 @@ defmodule Pinventory.Items.DraftStock do
   """
   def dirty?(quantities, baseline), do: quantities != baseline
 
-  @doc """
-  Parses a user-entered value into a non-negative integer (default 0).
-  """
-  def parse_non_neg_int(value) when is_integer(value), do: max(value, 0)
+  @max_quantity 1_000_000
 
-  def parse_non_neg_int(value) when is_binary(value) do
+  @doc """
+  Largest quantity a user can enter for one location.
+  """
+  def max_quantity, do: @max_quantity
+
+  @doc """
+  Parses a user-entered quantity. Only a whole number from 0 to
+  `max_quantity/0` is accepted. Anything else is `:error`, never 0, because 0
+  removes the stock at that location.
+  """
+  def parse_quantity(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
-      {int, _} -> max(int, 0)
-      :error -> 0
+      {int, ""} when int in 0..@max_quantity -> {:ok, int}
+      _ -> :error
     end
   end
-
-  def parse_non_neg_int(_), do: 0
 end

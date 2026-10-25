@@ -161,6 +161,7 @@ defmodule PinventoryWeb.EditItemLive do
                 :for={location <- @locations}
                 location={location}
                 quantity={DraftStock.get(@quantities, location.id)}
+                invalid_raw={Map.get(@invalid_quantities, location.id)}
                 dirty?={Map.get(@location_dirty, location.id, false)}
               />
             </div>
@@ -172,7 +173,7 @@ defmodule PinventoryWeb.EditItemLive do
               form="item-form"
               id="item-save"
               variant="primary"
-              disabled={not @dirty?}
+              disabled={not @dirty? or @invalid_quantities != %{}}
             >
               Save
             </.button>
@@ -473,6 +474,7 @@ defmodule PinventoryWeb.EditItemLive do
 
   attr :location, :map, required: true
   attr :quantity, :integer, required: true
+  attr :invalid_raw, :string, default: nil, doc: "typed text that is not a valid quantity"
   attr :dirty?, :boolean, required: true
 
   defp location_row(assigns) do
@@ -510,10 +512,15 @@ defmodule PinventoryWeb.EditItemLive do
             type="number"
             id={"quantity-#{@location.id}"}
             name={"quantities[#{@location.id}]"}
-            value={@quantity}
+            value={@invalid_raw || @quantity}
             min="0"
             step="1"
-            class="input input-sm no-spinner w-20 text-center tabular-nums"
+            class={[
+              "input input-sm no-spinner w-20 text-center tabular-nums",
+              @invalid_raw && "input-error"
+            ]}
+            aria-invalid={to_string(@invalid_raw != nil)}
+            aria-describedby={@invalid_raw && "quantity-error-#{@location.id}"}
             phx-change="set_quantity"
           />
 
@@ -530,6 +537,13 @@ defmodule PinventoryWeb.EditItemLive do
           </button>
         </div>
       </div>
+      <p
+        :if={@invalid_raw}
+        id={"quantity-error-#{@location.id}"}
+        class="px-1 pt-1 text-right text-xs text-error"
+      >
+        Enter a whole number from 0 to {DraftStock.max_quantity()}.
+      </p>
     </div>
     """
   end
@@ -550,6 +564,7 @@ defmodule PinventoryWeb.EditItemLive do
      |> assign(:total_current, 0)
      |> assign(:total_baseline, 0)
      |> assign(:location_dirty, %{})
+     |> assign(:invalid_quantities, %{})
      |> assign(:item_edits, [])
      |> assign(:note_versions, [])
      |> assign(:notes_dirty?, false)
@@ -590,6 +605,7 @@ defmodule PinventoryWeb.EditItemLive do
       |> assign(:baseline_name, "")
       |> assign(:baseline_quantities, quantities)
       |> assign(:quantities, quantities)
+      |> assign(:invalid_quantities, %{})
       |> assign(:form, to_item_form(Items.change_item(item)))
       |> assign(:item_edits, [])
       |> assign(:note_versions, [])
@@ -650,13 +666,7 @@ defmodule PinventoryWeb.EditItemLive do
   def handle_event("set_quantity", params, socket) do
     case quantity_change_from_params(params) do
       {:ok, location_id, raw} ->
-        quantity = DraftStock.parse_non_neg_int(raw)
-        quantities = DraftStock.put(socket.assigns.quantities, location_id, quantity)
-
-        {:noreply,
-         socket
-         |> assign(:quantities, quantities)
-         |> sync_dirty()}
+        {:noreply, put_typed_quantity(socket, location_id, DraftStock.parse_quantity(raw), raw)}
 
       :error ->
         {:noreply, socket}
@@ -671,6 +681,7 @@ defmodule PinventoryWeb.EditItemLive do
         {:noreply,
          socket
          |> assign(:quantities, quantities)
+         |> update(:invalid_quantities, &Map.delete(&1, location_id))
          |> sync_dirty()}
 
       :error ->
@@ -793,6 +804,11 @@ defmodule PinventoryWeb.EditItemLive do
   # Stock form only exists so LiveView can serialize inputs; Enter must not navigate.
   def handle_event("stock_noop", _params, socket), do: {:noreply, socket}
 
+  # The disabled Save button is only a browser hint; refuse a save that still arrives.
+  def handle_event("save", _params, socket) when socket.assigns.invalid_quantities != %{} do
+    {:noreply, socket}
+  end
+
   def handle_event("save", params, socket) do
     name = get_in(params, ["item", "name"]) || current_name(socket)
     notes = get_in(params, ["item", "notes"]) || current_notes(socket.assigns)
@@ -895,6 +911,7 @@ defmodule PinventoryWeb.EditItemLive do
     |> assign(:baseline_name, item.name)
     |> assign(:baseline_quantities, quantities)
     |> assign(:quantities, quantities)
+    |> assign(:invalid_quantities, %{})
     |> assign(:form, to_item_form(Items.change_item(item)))
     |> assign(:item_edits, Audit.list_edits_for_item(item.id))
     |> assign(:note_versions, Items.note_versions(item.id))
@@ -984,6 +1001,18 @@ defmodule PinventoryWeb.EditItemLive do
   defp parse_adjust_delta("1"), do: {:ok, 1}
   defp parse_adjust_delta("-1"), do: {:ok, -1}
   defp parse_adjust_delta(_), do: :error
+
+  # A typo keeps the last valid quantity and blocks Save. Saving 0 would remove the stock.
+  defp put_typed_quantity(socket, location_id, {:ok, quantity}, _raw) do
+    socket
+    |> assign(:quantities, DraftStock.put(socket.assigns.quantities, location_id, quantity))
+    |> update(:invalid_quantities, &Map.delete(&1, location_id))
+    |> sync_dirty()
+  end
+
+  defp put_typed_quantity(socket, location_id, :error, raw) do
+    update(socket, :invalid_quantities, &Map.put(&1, location_id, raw))
+  end
 
   # Browser form change events send quantities[id] and _target, not phx-value-location-id.
   defp quantity_change_from_params(%{
