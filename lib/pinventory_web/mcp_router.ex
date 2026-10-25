@@ -12,7 +12,7 @@ defmodule PinventoryWeb.MCPRouter do
   @instructions """
   Pinventory is a household inventory. Items are stored at locations, with a count at each location.
 
-  - list_items matches words as written inside item names, ignoring case. Notes are not searched. A singular word also finds its regular plural ("towel" finds "Paper Towels"), but a plural doesn't find the singular.
+  - list_items matches the letters of each word in order inside item names, ignoring case, with gaps allowed. A singular word also finds its regular plural ("towel" finds "Paper Towels"), but a plural doesn't find the singular. Gaps mean loose matches too ("towel" also finds "Tool wheel"), so check the names before using a result. Notes are not searched.
   - Before deciding an item isn't in Pinventory, search with several wordings in one list_items call: singular forms, irregular forms (both "knife" and "knives"), synonyms, and brand names. If that finds nothing, call list_items with no terms to see everything.
   - When more than one item or location could be the one the user means, ask the user. Don't guess. If the user didn't say which location, ask.
   - Use the ids from list_items and list_locations for changes.
@@ -74,7 +74,7 @@ defmodule PinventoryWeb.MCPRouter do
   end
 
   @description """
-  Search items by name. An item matches when every word of any one term appears in its name as written, ignoring case. Notes are not searched. A singular word also finds its regular plural ("towel" finds "Paper Towels"). Pass several wordings at once, for example ["paper towel", "kitchen roll", "bounty"], and pass irregular forms yourself, such as both "knife" and "knives". Results come best match first, with notes, the count at each location, and the item's page url.
+  Search items by name. An item matches when, for any one term, the letters of every word appear in its name in order, ignoring case, with gaps allowed. Expect some loose matches. Notes are not searched. A singular word also finds its regular plural ("towel" finds "Paper Towels"). Pass several wordings at once, for example ["paper towel", "kitchen roll", "bounty"], and pass irregular forms yourself, such as both "knife" and "knives". Results come best match first, with notes, the count at each location, and the item's page url.
   Leave out terms only as a last resort, to list every item.
   If more than one item could be the one the user means, ask the user.
   """
