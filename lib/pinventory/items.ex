@@ -80,6 +80,37 @@ defmodule Pinventory.Items do
   end
 
   @doc """
+  Finds items whose names match any of `terms`, best match first.
+
+  Each term is typed text matched by `Pinventory.Items.NameSearch`, the same
+  loose matching as the Items page filter, so "towel" finds "Paper Towels" and
+  also "Tool wheel". Notes are not searched. Items that match more terms come
+  first, then better matches.
+
+  Blank terms are ignored, so `[]` or only blank terms return `[]`.
+
+  Options:
+
+    * `:limit` - max items returned (default 50)
+  """
+  def search_items(terms, opts \\ []) when is_list(terms) do
+    opts = Keyword.validate!(opts, limit: 50)
+
+    case terms |> Enum.map(&NameSearch.parse(to_string(&1))) |> Enum.reject(&is_nil/1) do
+      [] ->
+        []
+
+      groups ->
+        Item
+        |> from(as: :item)
+        |> NameSearch.where_matches_any(groups)
+        |> NameSearch.order_by_groups(groups)
+        |> limit(^opts[:limit])
+        |> Repo.all()
+    end
+  end
+
+  @doc """
   Lists items stored at one location, ordered by name.
 
   Each item includes virtual `quantity` for **this location only**.
