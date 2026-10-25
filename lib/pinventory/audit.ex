@@ -27,6 +27,23 @@ defmodule Pinventory.Audit do
   end
 
   @doc """
+  Marks events written through an agent's API token with the token's id and
+  name in `metadata`. Events from a browser session are returned as they are.
+  """
+  def with_actor(events, %Scope{api_token: %{id: id, name: name}}) do
+    Enum.map(events, fn event ->
+      Map.update(
+        event,
+        :metadata,
+        %{},
+        &Map.merge(&1, %{"via_token_id" => id, "via_token_name" => name})
+      )
+    end)
+  end
+
+  def with_actor(events, %Scope{}), do: events
+
+  @doc """
   Inserts event attribute maps with the given repo (for use inside Multi.run).
 
   Each map should already include `edit_id`, `action`, `entity_type`,

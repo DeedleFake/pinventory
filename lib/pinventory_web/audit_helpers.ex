@@ -16,6 +16,15 @@ defmodule PinventoryWeb.AuditHelpers do
   def actor_label(_), do: "Unknown user"
 
   @doc """
+  Like `actor_label/1`, plus "via <token name>" when the event was written by
+  an agent with an API token.
+  """
+  def actor_label(user, %{metadata: %{"via_token_name" => name}}) when is_binary(name),
+    do: "#{actor_label(user)} via #{name}"
+
+  def actor_label(user, _event), do: actor_label(user)
+
+  @doc """
   Formats an event timestamp for UI.
   """
   def format_event_time(%DateTime{} = dt) do
@@ -150,7 +159,7 @@ defmodule PinventoryWeb.AuditHelpers do
   Heading for an edit group (`list_recent_edits/1` map).
   """
   def edit_heading(%{user: user, events: events}) do
-    who = actor_label(user)
+    who = actor_label(user, List.first(events))
     subject = edit_subject(events)
     summary = edit_summary(events)
 
@@ -165,7 +174,7 @@ defmodule PinventoryWeb.AuditHelpers do
   Compact "user · when" label for last stock change on the items list.
   """
   def last_stock_label(event) do
-    "#{actor_label(event.user)} · #{format_event_time(event.inserted_at)}"
+    "#{actor_label(event.user, event)} · #{format_event_time(event.inserted_at)}"
   end
 
   attr :id, :string, required: true

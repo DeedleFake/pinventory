@@ -18,6 +18,7 @@ defmodule Pinventory.Items do
   alias Pinventory.Audit.Event
   alias Pinventory.Repo
 
+  alias Pinventory.Items.DraftStock
   alias Pinventory.Items.Item
   alias Pinventory.Items.ItemLocation
   alias Pinventory.Items.NameSearch
@@ -303,7 +304,7 @@ defmodule Pinventory.Items do
               start_seq: length(item_events)
             )
 
-          Audit.insert_events(repo, item_events ++ stock_events)
+          Audit.insert_events(repo, Audit.with_actor(item_events ++ stock_events, scope))
         end)
         |> Multi.run(:result, fn repo, %{item: updated} ->
           {:ok, repo.preload(updated, :item_locations, force: true)}
@@ -311,6 +312,135 @@ defmodule Pinventory.Items do
         |> Repo.transaction()
         |> unwrap_item_transaction()
     end
+  end
+
+  @type stock_error ::
+          :item_not_found
+          | :location_not_found
+          | :same_location
+          | :too_many
+          | {:below_zero, non_neg_integer()}
+          | {:not_enough, non_neg_integer()}
+
+  @doc """
+  Changes one item's count at one location, leaving its other locations as
+  they are.
+
+  `{:add, n}` adds `n`, which may be negative. `{:set, n}` replaces the count.
+  The count is read fresh inside the write transaction, so a concurrent save
+  can't land between the read and the write. The change goes through
+  `update_item/4`, so it records in Activity like an edit-page save.
+
+  Returns the updated item and the count before and after. Nothing is
+  written when the result would be below 0 or above
+  `Pinventory.Items.DraftStock.max_quantity/0`.
+  """
+  @spec change_stock(Scope.t(), binary(), binary(), {:add, integer()} | {:set, integer()}) ::
+          {:ok, %{item: %Item{}, from: non_neg_integer(), to: non_neg_integer()}}
+          | {:error, stock_error()}
+  def change_stock(%Scope{} = scope, item_id, location_id, {op, n} = change)
+      when op in [:add, :set] and is_integer(n) do
+    with {:ok, %{item: item, counts: %{^location_id => counts}}} <-
+           write_stock(scope, item_id, [location_id], &changed_count(&1, location_id, change)) do
+      {:ok, Map.put(counts, :item, item)}
+    end
+  end
+
+  @doc """
+  Moves `quantity` of one item from one location to another as one edit.
+
+  Both counts change in one transaction, so either both apply or neither
+  does. Activity shows one edit with a line per location.
+  """
+  @spec move_stock(Scope.t(), binary(), binary(), binary(), pos_integer()) ::
+          {:ok, %{item: %Item{}, from: map(), to: map()}} | {:error, stock_error()}
+  def move_stock(%Scope{}, _item_id, location_id, location_id, _quantity),
+    do: {:error, :same_location}
+
+  def move_stock(%Scope{} = scope, item_id, from_id, to_id, quantity)
+      when is_integer(quantity) and quantity > 0 do
+    with {:ok, %{item: item, counts: counts}} <-
+           write_stock(
+             scope,
+             item_id,
+             [from_id, to_id],
+             &moved_counts(&1, from_id, to_id, quantity)
+           ) do
+      {:ok, %{item: item, from: counts[from_id], to: counts[to_id]}}
+    end
+  end
+
+  defp changed_count(stock, location_id, change) do
+    current = Map.get(stock, location_id, 0)
+
+    new =
+      case change do
+        {:add, delta} -> current + delta
+        {:set, count} -> count
+      end
+
+    cond do
+      new < 0 -> {:error, {:below_zero, current}}
+      new > DraftStock.max_quantity() -> {:error, :too_many}
+      true -> {:ok, %{location_id => new}}
+    end
+  end
+
+  defp moved_counts(stock, from_id, to_id, quantity) do
+    from = Map.get(stock, from_id, 0)
+    to = Map.get(stock, to_id, 0)
+
+    cond do
+      quantity > from -> {:error, {:not_enough, from}}
+      to + quantity > DraftStock.max_quantity() -> {:error, :too_many}
+      true -> {:ok, %{from_id => from - quantity, to_id => to + quantity}}
+    end
+  end
+
+  # Reads the item and computes the new counts inside the write transaction.
+  # The repo uses immediate transactions, so SQLite holds the write lock from
+  # the read on and no other save can change the counts in between.
+  defp write_stock(scope, item_id, location_ids, compute) do
+    Repo.transact(fn ->
+      with {:ok, item} <- fetch_item_for_stock(item_id),
+           :ok <- check_locations(location_ids),
+           before = stock_map(item),
+           {:ok, updates} <- compute.(before),
+           {:ok, updated} <- update_item(scope, item, %{}, Map.merge(before, updates)) do
+        counts =
+          Map.new(updates, fn {id, to} -> {id, %{from: Map.get(before, id, 0), to: to}} end)
+
+        {:ok, %{item: updated, counts: counts}}
+      end
+    end)
+  end
+
+  defp fetch_item_for_stock(item_id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(item_id),
+         %Item{} = item <- get_item(uuid) do
+      {:ok, item}
+    else
+      _ -> {:error, :item_not_found}
+    end
+  end
+
+  defp check_locations(location_ids) do
+    with {:ok, uuids} <- cast_uuids(location_ids),
+         count when count == length(uuids) <-
+           Repo.aggregate(from(l in Location, where: l.id in ^uuids), :count) do
+      :ok
+    else
+      _ -> {:error, :location_not_found}
+    end
+  end
+
+  defp cast_uuids(ids) do
+    Enum.reduce_while(ids, {:ok, []}, fn id, {:ok, acc} ->
+      case Ecto.UUID.cast(id) do
+        {:ok, uuid} -> {:cont, {:ok, [uuid | acc]}}
+        :error -> {:halt, :error}
+      end
+    end)
   end
 
   @doc """

@@ -641,4 +641,62 @@ defmodule Pinventory.ItemsTest do
       assert length(Items.search_items(["screw"], limit: 2)) == 2
     end
   end
+
+  describe "change_stock/4 and move_stock/5" do
+    setup %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
+      {:ok, item} = Items.create_item(scope, %{name: "Screws"}, %{garage.id => 5})
+      %{garage: garage, shelf: shelf, item: item}
+    end
+
+    test "changes one location and keeps the others", %{scope: scope} = ctx do
+      {:ok, _} = Items.change_stock(scope, ctx.item.id, ctx.shelf.id, {:set, 3})
+
+      assert {:ok, %{from: 5, to: 2}} =
+               Items.change_stock(scope, ctx.item.id, ctx.garage.id, {:add, -3})
+
+      assert Items.stock_map(Items.get_item!(ctx.item.id)) == %{
+               ctx.garage.id => 2,
+               ctx.shelf.id => 3
+             }
+    end
+
+    test "a browser edit carries no agent marker", %{scope: scope} = ctx do
+      {:ok, _} = Items.change_stock(scope, ctx.item.id, ctx.garage.id, {:add, 1})
+
+      [edit | _] = Audit.list_edits_for_item(ctx.item.id, limit: 1)
+      assert [%{metadata: metadata}] = edit.events
+      refute Map.has_key?(metadata, "via_token_name")
+    end
+
+    test "an agent edit records the token", ctx do
+      {:ok, {_, token}} = Pinventory.Accounts.create_api_token(ctx.scope.user, "Claude on phone")
+      agent = Pinventory.Accounts.Scope.for_api_token(ctx.scope.user, token)
+
+      {:ok, _} = Items.move_stock(agent, ctx.item.id, ctx.garage.id, ctx.shelf.id, 2)
+
+      [edit | _] = Audit.list_edits_for_item(ctx.item.id, limit: 1)
+      assert length(edit.events) == 2
+
+      assert Enum.all?(edit.events, fn event ->
+               event.metadata["via_token_id"] == token.id and
+                 event.metadata["via_token_name"] == "Claude on phone"
+             end)
+
+      assert PinventoryWeb.AuditHelpers.last_stock_label(hd(edit.events)) =~
+               "#{ctx.scope.user.email} via Claude on phone · "
+    end
+
+    test "a refused move writes nothing", %{scope: scope} = ctx do
+      assert {:error, {:not_enough, 5}} =
+               Items.move_stock(scope, ctx.item.id, ctx.garage.id, ctx.shelf.id, 6)
+
+      assert {:error, :same_location} =
+               Items.move_stock(scope, ctx.item.id, ctx.garage.id, ctx.garage.id, 1)
+
+      assert Items.stock_map(Items.get_item!(ctx.item.id)) == %{ctx.garage.id => 5}
+      assert length(Audit.list_edits_for_item(ctx.item.id)) == 1
+    end
+  end
 end
