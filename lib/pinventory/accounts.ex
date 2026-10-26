@@ -12,7 +12,16 @@ defmodule Pinventory.Accounts do
   import Ecto.Query, warn: false
   alias Pinventory.Repo
 
-  alias Pinventory.Accounts.{Invite, PasskeyCredential, Scope, User, UserToken, UserNotifier}
+  alias Pinventory.Accounts.{
+    ApiToken,
+    Invite,
+    PasskeyCredential,
+    Scope,
+    User,
+    UserToken,
+    UserNotifier
+  }
+
   alias Pinventory.Accounts.Passkey.{Assertion, Attestation, Ceremony, RP}
 
   ## Database getters
@@ -762,6 +771,123 @@ defmodule Pinventory.Accounts do
   end
 
   defp b64(bin), do: Base.url_encode64(bin, padding: false)
+
+  ## API tokens
+
+  @doc """
+  Makes a new API token for `user` named `name`.
+
+  Returns the raw secret, which is never stored and can't be shown again.
+  """
+  @spec create_api_token(User.t(), String.t() | nil) ::
+          {:ok, {String.t(), ApiToken.t()}} | {:error, Ecto.Changeset.t()}
+  def create_api_token(%User{id: user_id}, name) do
+    {secret, changeset} = ApiToken.build(user_id, name, DateTime.utc_now(:second))
+
+    with {:ok, token} <- Repo.insert(changeset) do
+      {:ok, {secret, token}}
+    end
+  end
+
+  @doc "Every API token of `user`, revoked and expired ones too, newest first."
+  @spec list_api_tokens(User.t()) :: [ApiToken.t()]
+  def list_api_tokens(%User{id: user_id}) do
+    Repo.all(
+      from t in ApiToken,
+        where: t.user_id == ^user_id,
+        order_by: [desc: t.inserted_at, desc: t.id]
+    )
+  end
+
+  @doc """
+  Revokes one of `user`'s API tokens. Revoking an already revoked token
+  keeps its first revocation time. Other users' ids are `:not_found`.
+  """
+  @spec revoke_api_token(User.t(), binary()) :: {:ok, ApiToken.t()} | {:error, :not_found}
+  def revoke_api_token(%User{} = user, id) when is_binary(id) do
+    with {:ok, token} <- fetch_api_token(user, id) do
+      if token.revoked_at do
+        {:ok, token}
+      else
+        token |> Ecto.Changeset.change(revoked_at: DateTime.utc_now(:second)) |> Repo.update()
+      end
+    end
+  end
+
+  @doc "Revokes every API token of `user` that isn't revoked yet. Returns how many."
+  @spec revoke_all_api_tokens(User.t()) :: non_neg_integer()
+  def revoke_all_api_tokens(%User{id: user_id}) do
+    {count, _} =
+      Repo.update_all(
+        from(t in ApiToken, where: t.user_id == ^user_id and is_nil(t.revoked_at)),
+        set: [revoked_at: DateTime.utc_now(:second)]
+      )
+
+    count
+  end
+
+  @doc """
+  Makes a new token with the same name as one of `user`'s tokens.
+
+  An active token is rolled: it is revoked and the new token is made in one
+  transaction, so either both happen or neither does. A revoked or expired
+  token is left as it is.
+  """
+  @spec replace_api_token(User.t(), binary()) ::
+          {:ok, {String.t(), ApiToken.t()}} | {:error, :not_found | Ecto.Changeset.t()}
+  def replace_api_token(%User{} = user, id) when is_binary(id) do
+    Repo.transact(fn ->
+      with {:ok, old} <- fetch_api_token(user, id),
+           {:ok, _} <- revoke_if_active(old, DateTime.utc_now(:second)) do
+        create_api_token(user, old.name)
+      end
+    end)
+  end
+
+  defp revoke_if_active(%ApiToken{} = token, now) do
+    case ApiToken.status(token, now) do
+      :active -> token |> Ecto.Changeset.change(revoked_at: now) |> Repo.update()
+      _ -> {:ok, token}
+    end
+  end
+
+  @doc """
+  Looks up the scope for a raw bearer token.
+
+  Only a token that isn't revoked and hasn't expired works. A hit records
+  `last_used_at`.
+  """
+  @spec fetch_scope_for_api_token(String.t()) :: {:ok, Scope.t()} | :error
+  def fetch_scope_for_api_token(secret) when is_binary(secret) do
+    now = DateTime.utc_now(:second)
+
+    query =
+      from t in ApiToken,
+        join: u in assoc(t, :user),
+        where: t.token_hash == ^ApiToken.hash(secret),
+        where: is_nil(t.revoked_at) and t.expires_at > ^now,
+        select: {t, u}
+
+    case Repo.one(query) do
+      {token, user} ->
+        Repo.update_all(from(t in ApiToken, where: t.id == ^token.id), set: [last_used_at: now])
+        {:ok, Scope.for_api_token(user, %{token | last_used_at: now})}
+
+      nil ->
+        :error
+    end
+  end
+
+  def fetch_scope_for_api_token(_), do: :error
+
+  defp fetch_api_token(%User{id: user_id}, id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(id),
+         %ApiToken{} = token <- Repo.get_by(ApiToken, id: uuid, user_id: user_id) do
+      {:ok, token}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
 
   ## Token helper
 

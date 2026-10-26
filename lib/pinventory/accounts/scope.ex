@@ -16,9 +16,13 @@ defmodule Pinventory.Accounts.Scope do
   growing application requirements.
   """
 
-  alias Pinventory.Accounts.User
+  alias Pinventory.Accounts.{ApiToken, User}
 
-  defstruct user: nil
+  # `api_token` is set when an agent authenticated with a bearer token, and
+  # nil for browser sessions.
+  defstruct user: nil, api_token: nil
+
+  @type t :: %__MODULE__{user: User.t() | nil, api_token: ApiToken.t() | nil}
 
   @doc """
   Creates a scope for the given user.
@@ -30,4 +34,11 @@ defmodule Pinventory.Accounts.Scope do
   end
 
   def for_user(nil), do: nil
+
+  @doc """
+  Creates a scope for a user acting through one of their API tokens.
+  """
+  def for_api_token(%User{} = user, %ApiToken{} = api_token) do
+    %__MODULE__{user: user, api_token: api_token}
+  end
 end
