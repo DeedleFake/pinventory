@@ -1,6 +1,6 @@
 # Agent access
 
-Agent access lets an AI agent act as a user. The user makes an API token under Settings, Account. The agent sends it as a Bearer token to the MCP endpoint at `/mcp`, where it can list locations and items and change stock counts. Every change the agent makes shows in Activity as `<email> via <token name>`.
+Agent access lets an AI agent act as a user. The user makes an API token under Settings, Account. The agent sends it as a Bearer token to the MCP endpoint at `/mcp`, where it can list locations and items, create and rename items, rename locations, and change stock counts. Every change the agent makes shows in Activity as `<email> via <token name>`.
 
 ## Sub-features
 
@@ -10,8 +10,9 @@ Agent access lets an AI agent act as a user. The user makes an API token under S
 - `agent-token-replace` is `Make replacement` on a revoked or expired token. No confirm dialog. Flash `Replacement created. Copy it now. It will not be shown again.`
 - `agent-token-revoke` is `#revoke-api-token-<id>` (confirm dialog, flash `Token revoked.`). `#revoke-all-api-tokens` (confirm dialog, flash `Revoked <n> token(s).`) shows only while a token is active.
 - `mcp-auth` answers 401 with `www-authenticate: Bearer realm="pinventory"` for a missing, wrong, revoked, or expired token.
-- `mcp-tools` lists four tools: `list_locations`, `list_items`, `change_stock`, `move_stock`. `initialize` returns `serverInfo.name` `Pinventory` and agent instructions.
-- `mcp-list-items` matches each term like the Items filter (letters in order, gaps allowed). Any one term matching is enough. No match returns `items: []` plus a hint to try other wordings. No terms lists every item.
+- `mcp-tools` lists seven tools: `list_locations`, `list_items`, `create_item`, `rename_item`, `rename_location`, `change_stock`, `move_stock`. `initialize` returns `serverInfo.name` `Pinventory` and agent instructions.
+- `mcp-list-items` matches each term like the Items filter (letters in order, gaps allowed). Any one term matching is enough. No match returns `items: []` plus a hint to try other wordings. `location_id` limits results to items with stock there, with or without terms. Neither lists every item. An unknown or malformed `location_id` is a tool error `No location has that id.…`.
+- `mcp-create-rename` covers `create_item` (`name`, optional `notes`, no stock), `rename_item` (`item_id`, `name`), and `rename_location` (`location_id`, `name`). Each goes through the same save as the web UI, so the item or location Activity shows the edit. Bad names are tool errors starting `Nothing was changed:`. Item name uniqueness is case-sensitive, so `paper towels` is allowed next to `Paper towels`.
 - `mcp-change-stock` takes exactly one of `add` or `set`. `move_stock` moves between two locations in one change. Refusals are tool errors that change nothing: `below zero: …`, `not enough: …`, `Send exactly one of add or set.`, `No location has that id.…`, `No item has that id.…`.
 - `mcp-activity` marks agent changes. The Items row `#items-<id>-last-stock` and the Activity card heading read `verify@example.com via <token name>`.
 
@@ -54,4 +55,4 @@ Preconditions:
 - A secret is shown once. Leaving the page loses it. Sqlite stores only a hash, so save it from `#latest-api-token-value` before navigating.
 - Create with a blank name does nothing. The browser's `required` check blocks the submit, so no flash or error shows.
 - Dates on the token rows are UTC.
-- The agent cannot create, rename, or delete items or locations, or edit notes. Those tools do not exist.
+- The agent cannot create or delete locations, delete items, or edit notes of existing items. Those tools do not exist.

@@ -112,9 +112,11 @@ defmodule PinventoryWeb.MCPRouterTest do
       assert result["instructions"] =~ "happen in the Pinventory web UI"
     end
 
-    test "lists the four tools", %{secret: secret} do
+    test "lists the tools", %{secret: secret} do
       names = rpc(secret, "tools/list")["tools"] |> Enum.map(& &1["name"]) |> Enum.sort()
-      assert names == ~w[change_stock list_items list_locations move_stock]
+
+      assert names ==
+               ~w[change_stock create_item list_items list_locations move_stock rename_item rename_location]
     end
   end
 
@@ -173,6 +175,215 @@ defmodule PinventoryWeb.MCPRouterTest do
     test "lists every item without terms", %{secret: secret} do
       %{"items" => items} = call(secret, "list_items", %{})["structuredContent"]
       assert Enum.map(items, & &1["name"]) == ["AA batteries", "Paper towels"]
+    end
+
+    test "lists every item at one location, with stock at every location", %{
+      secret: secret,
+      garage: garage,
+      drawer: drawer
+    } do
+      %{"items" => [item]} =
+        call(secret, "list_items", %{location_id: drawer.id})["structuredContent"]
+
+      assert item["name"] == "AA batteries"
+
+      assert item["stock"] == [
+               %{"location_id" => garage.id, "location" => "Garage", "quantity" => 24},
+               %{"location_id" => drawer.id, "location" => "Kitchen drawer", "quantity" => 8}
+             ]
+
+      %{"items" => items} =
+        call(secret, "list_items", %{location_id: garage.id})["structuredContent"]
+
+      assert Enum.map(items, & &1["name"]) == ["AA batteries", "Paper towels"]
+    end
+
+    test "searches names only at one location", %{secret: secret, garage: garage, drawer: drawer} do
+      terms = ["paper towel", "batteries"]
+
+      assert %{"items" => [%{"name" => "AA batteries"}]} =
+               call(secret, "list_items", %{terms: terms, location_id: drawer.id})[
+                 "structuredContent"
+               ]
+
+      %{"items" => items} =
+        call(secret, "list_items", %{terms: terms, location_id: garage.id})["structuredContent"]
+
+      assert items |> Enum.map(& &1["name"]) |> Enum.sort() == ["AA batteries", "Paper towels"]
+
+      result = call(secret, "list_items", %{terms: ["towel"], location_id: drawer.id})
+      assert result["structuredContent"] == %{"items" => []}
+      assert text(result) =~ "Try singular forms"
+    end
+
+    test "refuses an unknown or malformed location id", %{secret: secret} do
+      for id <- [Ecto.UUID.generate(), "garage", ""] do
+        result = call(secret, "list_items", %{location_id: id})
+        assert result["isError"]
+        assert text(result) == "No location has that id. Call list_locations for ids."
+      end
+
+      result = call(secret, "list_items", %{terms: ["towel"], location_id: Ecto.UUID.generate()})
+      assert result["isError"]
+    end
+  end
+
+  describe "create_item" do
+    test "creates an item that change_stock can then stock, marked as via the agent", %{
+      secret: secret,
+      user: user,
+      garage: garage
+    } do
+      %{"item" => item} =
+        call(secret, "create_item", %{name: " Light bulbs ", notes: "E26, warm white"})[
+          "structuredContent"
+        ]
+
+      assert %{"name" => "Light bulbs", "notes" => "E26, warm white", "stock" => []} = item
+      assert item["url"] =~ "/item/#{item["id"]}"
+      assert Items.get_item!(item["id"]).name == "Light bulbs"
+
+      [edit] = Audit.list_edits_for_item(item["id"])
+      assert AuditHelpers.edit_heading(edit) =~ "#{user.email} via Claude on phone"
+      assert List.last(Items.note_versions(item["id"])).text == "E26, warm white"
+
+      assert %{"from" => 0, "to" => 3} =
+               call(secret, "change_stock", %{item_id: item["id"], location_id: garage.id, add: 3})[
+                 "structuredContent"
+               ]
+
+      assert %{"items" => [%{"name" => "Light bulbs"}]} =
+               call(secret, "list_items", %{terms: ["bulb"], location_id: garage.id})[
+                 "structuredContent"
+               ]
+    end
+
+    test "refuses a duplicate or too-short name and writes nothing", %{secret: secret} do
+      before = event_count()
+
+      for {name, message} <- [
+            {"Paper towels", "name has already been taken"},
+            {" x ", "name should be at least 2 character(s)"},
+            {"", "name can't be blank"}
+          ] do
+        result = call(secret, "create_item", %{name: name})
+        assert result["isError"]
+        assert text(result) == "Nothing was changed: #{message}."
+      end
+
+      assert event_count() == before
+    end
+  end
+
+  describe "rename_item" do
+    test "renames an item, keeps its notes and stock, and records the edit", %{
+      secret: secret,
+      user: user,
+      batteries: batteries,
+      garage: garage,
+      drawer: drawer
+    } do
+      before = Items.get_item!(batteries.id)
+
+      %{"item" => item} =
+        call(secret, "rename_item", %{item_id: batteries.id, name: "AA batteries (Eneloop)"})[
+          "structuredContent"
+        ]
+
+      assert item["name"] == "AA batteries (Eneloop)"
+      assert stock(batteries) == %{garage.id => 24, drawer.id => 8}
+
+      renamed = Items.get_item!(batteries.id)
+      assert renamed.notes == before.notes
+      assert renamed.lock_version == before.lock_version + 1
+
+      [edit | _] = Audit.list_edits_for_item(batteries.id, limit: 1)
+      assert AuditHelpers.edit_heading(edit) =~ "#{user.email} via Claude on phone"
+
+      assert Enum.map(edit.events, & &1.changes) == [
+               %{"name" => %{"from" => "AA batteries", "to" => "AA batteries (Eneloop)"}}
+             ]
+    end
+
+    test "refuses an unknown item or a bad name and writes nothing", %{
+      secret: secret,
+      batteries: batteries
+    } do
+      before = event_count()
+
+      for {args, message} <- [
+            {%{item_id: Ecto.UUID.generate(), name: "Batteries"},
+             "No item has that id. Call list_items for ids."},
+            {%{item_id: "batteries", name: "Batteries"},
+             "No item has that id. Call list_items for ids."},
+            {%{item_id: batteries.id, name: "Paper towels"},
+             "Nothing was changed: name has already been taken."},
+            {%{item_id: batteries.id, name: "A"},
+             "Nothing was changed: name should be at least 2 character(s)."}
+          ] do
+        result = call(secret, "rename_item", args)
+        assert result["isError"]
+        assert text(result) == message
+      end
+
+      assert event_count() == before
+      assert Items.get_item!(batteries.id).name == "AA batteries"
+    end
+  end
+
+  describe "rename_location" do
+    test "renames a location, keeps its stock, and records the edit", %{
+      secret: secret,
+      user: user,
+      garage: garage,
+      towels: towels
+    } do
+      assert %{"location" => %{"id" => id, "name" => "Shed", "url" => url}} =
+               call(secret, "rename_location", %{location_id: garage.id, name: " Shed "})[
+                 "structuredContent"
+               ]
+
+      assert id == garage.id
+      assert url =~ "/location/#{garage.id}"
+      assert Locations.get(garage.id).name == "Shed"
+      assert stock(towels) == %{garage.id => 4}
+
+      # Setup's stock edits can share the rename's timestamp, so find the rename by action.
+      edit =
+        Enum.find(
+          Audit.list_edits_for_location(garage.id),
+          &Enum.any?(&1.events, fn event -> event.action == "location.updated" end)
+        )
+
+      assert AuditHelpers.edit_heading(edit) =~ "#{user.email} via Claude on phone"
+
+      assert Enum.map(edit.events, & &1.changes) == [
+               %{"name" => %{"from" => "Garage", "to" => "Shed"}}
+             ]
+    end
+
+    test "refuses an unknown location or a bad name and writes nothing", %{
+      secret: secret,
+      garage: garage
+    } do
+      before = event_count()
+
+      for {args, message} <- [
+            {%{location_id: Ecto.UUID.generate(), name: "Shed"},
+             "No location has that id. Call list_locations for ids."},
+            {%{location_id: "garage", name: "Shed"},
+             "No location has that id. Call list_locations for ids."},
+            {%{location_id: garage.id, name: "Kitchen drawer"},
+             "Nothing was changed: name has already been taken."},
+            {%{location_id: garage.id, name: "  "}, "Nothing was changed: name can't be blank."}
+          ] do
+        result = call(secret, "rename_location", args)
+        assert result["isError"]
+        assert text(result) == message
+      end
+
+      assert event_count() == before
+      assert Locations.get(garage.id).name == "Garage"
     end
   end
 

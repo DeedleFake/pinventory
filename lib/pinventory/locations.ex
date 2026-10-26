@@ -70,16 +70,22 @@ defmodule Pinventory.Locations do
         Multi.new()
         |> Multi.update(:location, changeset)
         |> Multi.run(:audit_events, fn repo, %{location: location} ->
-          Audit.insert_events(repo, [
-            Audit.location_event_attrs(
-              action: "location.updated",
-              edit_id: edit_id,
-              user_id: user_id,
-              location: location,
-              changes: %{"name" => name_change},
-              edit_seq: 0
+          Audit.insert_events(
+            repo,
+            Audit.with_actor(
+              [
+                Audit.location_event_attrs(
+                  action: "location.updated",
+                  edit_id: edit_id,
+                  user_id: user_id,
+                  location: location,
+                  changes: %{"name" => name_change},
+                  edit_seq: 0
+                )
+              ],
+              scope
             )
-          ])
+          )
         end)
         |> Multi.run(:result, fn _repo, %{location: location} -> {:ok, location} end)
         |> Repo.transaction()

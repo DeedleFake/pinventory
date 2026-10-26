@@ -1,8 +1,8 @@
 defmodule PinventoryWeb.MCPRouter do
   @moduledoc """
-  MCP server that lets an agent read the inventory and change stock counts
-  of existing items at existing locations, acting as the user who owns the
-  API token.
+  MCP server that lets an agent read the inventory, create and rename items,
+  rename locations, and change stock counts of items at existing locations,
+  acting as the user who owns the API token.
 
   The agent decides which item and location the user means. The server only
   checks what it can know for certain: the ids exist, counts stay within
@@ -17,7 +17,8 @@ defmodule PinventoryWeb.MCPRouter do
   - When more than one item or location could be the one the user means, ask the user. Don't guess. If the user didn't say which location, ask.
   - Use the ids from list_items and list_locations for changes.
   - To move stock between locations, use move_stock, not two change_stock calls.
-  - You can only change counts of existing items at existing locations. Creating, renaming, or deleting items or locations, and editing notes, happen in the Pinventory web UI. Send the user the item's or location's url.
+  - To add a new item, search with list_items first so you don't make a duplicate, then create_item, then change_stock to record how many and where.
+  - You can only change counts at existing locations. Deleting items, creating or deleting locations, and editing notes of existing items happen in the Pinventory web UI. Send the user the item's or location's url.
   """
 
   use Phantom.Router,
@@ -75,31 +76,116 @@ defmodule PinventoryWeb.MCPRouter do
 
   @description """
   Search items by name. An item matches when, for any one term, the letters of every word appear in its name in order, ignoring case, with gaps allowed. Expect some loose matches. Notes are not searched. A singular word also finds its regular plural ("towel" finds "Paper Towels"). Pass several wordings at once, for example ["paper towel", "kitchen roll", "bounty"], and pass irregular forms yourself, such as both "knife" and "knives". Results come best match first, with notes, the count at each location, and the item's page url.
-  Leave out terms only as a last resort, to list every item.
+  Pass location_id to only get items that have stock at that location. To list everything at one location, pass location_id without terms.
+  To list every item, leave out both terms and location_id. Do this only when a more focused query does not accomplish the goal.
   If more than one item could be the one the user means, ask the user.
   """
   tool :list_items, read_only: true do
     field :terms, {:array, :string},
       description: "Words to search for. Any one term matching is enough."
+
+    field :location_id, :string, description: "Location id from list_locations."
   end
 
   def list_items(params, session) do
-    case params["terms"] do
-      terms when is_list(terms) and terms != [] ->
-        case Items.search_items(terms) do
-          [] ->
-            {:reply,
-             %{structuredContent: %{items: []}, content: [%{type: :text, text: @no_match_hint}]},
-             session}
+    case fetch_location_filter(params["location_id"]) do
+      {:ok, location_id} ->
+        {:reply, list_items_reply(params["terms"], location_id), session}
 
-          items ->
-            {:reply, Tool.structured(%{items: Enum.map(preload_stock(items), &item_json/1)}),
-             session}
-        end
+      :error ->
+        {:reply, Tool.error(error_message(:location_not_found, nil)), session}
+    end
+  end
 
-      _ ->
-        items = Items.list_items(limit: 1000)
-        {:reply, Tool.structured(%{items: Enum.map(preload_stock(items), &item_json/1)}), session}
+  defp fetch_location_filter(nil), do: {:ok, nil}
+
+  defp fetch_location_filter(location_id) do
+    with {:ok, location} <- fetch(location_id, &Locations.get/1), do: {:ok, location.id}
+  end
+
+  defp list_items_reply(terms, location_id) when is_list(terms) and terms != [] do
+    case Items.search_items(terms, location_id: location_id) do
+      [] ->
+        %{structuredContent: %{items: []}, content: [%{type: :text, text: @no_match_hint}]}
+
+      items ->
+        Tool.structured(%{items: Enum.map(preload_stock(items), &item_json/1)})
+    end
+  end
+
+  defp list_items_reply(_terms, location_id) do
+    items = Items.list_items(limit: 1000, location_id: location_id)
+    Tool.structured(%{items: Enum.map(preload_stock(items), &item_json/1)})
+  end
+
+  @description """
+  Create a new item with no stock. Search with list_items first, with several wordings, so you don't make a duplicate of an item that already exists. Names must be unique and at least 2 characters.
+  Returns the item like list_items does. Then use change_stock to record how many there are and where.
+  """
+  tool :create_item, idempotent: false, destructive: false do
+    field :name, :string, required: true, description: "The item's name."
+    field :notes, :string, description: "Notes about the item."
+  end
+
+  def create_item(params, session) do
+    case Items.create_item(session.assigns.scope, Map.take(params, ["name", "notes"])) do
+      {:ok, item} ->
+        {:reply, Tool.structured(%{item: stock_item_json(item)}), session}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:reply, Tool.error(changeset_message(changeset)), session}
+    end
+  end
+
+  @description """
+  Rename one existing item. Names must be unique and at least 2 characters. Notes and stock stay as they are.
+  Use the id from list_items. Returns the item like list_items does.
+  """
+  tool :rename_item, idempotent: true, destructive: false do
+    field :item_id, :string, required: true, description: "Item id from list_items."
+    field :name, :string, required: true, description: "The new name."
+  end
+
+  def rename_item(%{"item_id" => item_id, "name" => name}, session) do
+    with {:ok, item} <- fetch(item_id, &Items.get_item/1),
+         {:ok, item} <-
+           Items.update_item(
+             session.assigns.scope,
+             item,
+             %{"name" => name},
+             Items.stock_map(item)
+           ) do
+      {:reply, Tool.structured(%{item: stock_item_json(item)}), session}
+    else
+      :error -> {:reply, Tool.error(error_message(:item_not_found, nil)), session}
+      {:error, :stale} -> {:reply, Tool.error(error_message(:stale, nil)), session}
+      {:error, changeset} -> {:reply, Tool.error(changeset_message(changeset)), session}
+    end
+  end
+
+  @description """
+  Rename one existing location. Names must be unique. Its items and stock stay as they are.
+  Use the id from list_locations. Returns the location's id, name, and page url.
+  """
+  tool :rename_location, idempotent: true, destructive: false do
+    field :location_id, :string, required: true, description: "Location id from list_locations."
+    field :name, :string, required: true, description: "The new name."
+  end
+
+  def rename_location(%{"location_id" => location_id, "name" => name}, session) do
+    with {:ok, location} <- fetch(location_id, &Locations.get/1),
+         {:ok, location} <- Locations.update(session.assigns.scope, location, %{"name" => name}) do
+      {:reply,
+       Tool.structured(%{
+         location: %{
+           id: location.id,
+           name: location.name,
+           url: url(~p"/location/#{location.id}")
+         }
+       }), session}
+    else
+      :error -> {:reply, Tool.error(error_message(:location_not_found, nil)), session}
+      {:error, changeset} -> {:reply, Tool.error(changeset_message(changeset)), session}
     end
   end
 
@@ -179,6 +265,9 @@ defmodule PinventoryWeb.MCPRouter do
   defp error_message(:location_not_found, _),
     do: "No location has that id. Call list_locations for ids."
 
+  defp error_message(:stale, _),
+    do: "The item changed while renaming it. Nothing was changed. Try again."
+
   defp error_message(:same_location, _), do: "The from and to locations are the same."
 
   defp error_message(:too_many, _),
@@ -190,6 +279,27 @@ defmodule PinventoryWeb.MCPRouter do
 
   defp error_message({:not_enough, count}, location_id),
     do: "not enough: #{location_name(location_id)} has #{count}. Nothing was changed."
+
+  defp fetch(id, get) do
+    with {:ok, uuid} <- Ecto.UUID.cast(id),
+         %{} = record <- get.(uuid) do
+      {:ok, record}
+    else
+      _ -> :error
+    end
+  end
+
+  defp changeset_message(changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {message, opts} ->
+      Enum.reduce(opts, message, fn {key, value}, acc ->
+        String.replace(acc, "%{#{key}}", to_string(value))
+      end)
+    end)
+    |> Enum.flat_map(fn {field, messages} -> Enum.map(messages, &"#{field} #{&1}") end)
+    |> Enum.join(", ")
+    |> then(&"Nothing was changed: #{&1}.")
+  end
 
   defp location_name(location_id), do: Locations.get(location_id).name
 
