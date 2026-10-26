@@ -514,6 +514,7 @@ defmodule PinventoryWeb.EditItemLive do
             name={"quantities[#{@location.id}]"}
             value={@invalid_raw || @quantity}
             min="0"
+            max={DraftStock.max_quantity()}
             step="1"
             class={[
               "input input-sm no-spinner w-20 text-center tabular-nums",
@@ -531,6 +532,7 @@ defmodule PinventoryWeb.EditItemLive do
             phx-click="adjust"
             phx-value-location-id={@location.id}
             phx-value-delta="1"
+            disabled={@quantity >= DraftStock.max_quantity()}
             aria-label={"Increase #{@location.name}"}
           >
             <.icon name="hero-plus" class="size-4" />
@@ -855,16 +857,7 @@ defmodule PinventoryWeb.EditItemLive do
          |> sync_dirty()}
 
       {:error, :stale} ->
-        item = Items.get_item!(socket.assigns.item.id)
-
-        {:noreply,
-         socket
-         |> assign(:form, to_item_form(Items.change_item(socket.assigns.item, attrs)))
-         |> assign(:stale_item, item)
-         |> assign(:stale_edit, item.id |> Audit.list_edits_for_item(limit: 1) |> List.first())
-         |> assign(:item_edits, Audit.list_edits_for_item(item.id))
-         |> assign(:note_versions, Items.note_versions(item.id))
-         |> sync_dirty()}
+        {:noreply, show_stale(socket, Items.get_item(socket.assigns.item.id), attrs)}
 
       {:error, %Ecto.Changeset{data: %Items.ItemLocation{}} = changeset} ->
         {:noreply, put_flash(socket, :error, stock_save_error_message(changeset))}
@@ -872,6 +865,24 @@ defmodule PinventoryWeb.EditItemLive do
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Could not save item stock")}
     end
+  end
+
+  # The save lost a race. A deleted item has nothing left to compare or keep.
+  defp show_stale(socket, nil, _attrs) do
+    socket
+    |> assign_dirty(false)
+    |> put_flash(:error, "This item was deleted, so your changes were not saved.")
+    |> push_navigate(to: ~p"/")
+  end
+
+  defp show_stale(socket, %Item{} = item, attrs) do
+    socket
+    |> assign(:form, to_item_form(Items.change_item(socket.assigns.item, attrs)))
+    |> assign(:stale_item, item)
+    |> assign(:stale_edit, item.id |> Audit.list_edits_for_item(limit: 1) |> List.first())
+    |> assign(:item_edits, Audit.list_edits_for_item(item.id))
+    |> assign(:note_versions, Items.note_versions(item.id))
+    |> sync_dirty()
   end
 
   @impl true

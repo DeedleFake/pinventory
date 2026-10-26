@@ -45,6 +45,9 @@ CONSTANTS
     \* DraftStock.put/3 (used by the edit page's + and - buttons through
     \* DraftStock.adjust/3) caps a draft count at max_quantity.
     AdjustCapsAtMax,
+    \* ItemLocation.changeset/2 refuses a quantity above max_quantity, so
+    \* update_item/4 rolls back any save that would store one.
+    SaveChecksMax,
     \* item_locations.quantity must be positive: ItemLocation.changeset/2
     \* validates it and the migration adds a CHECK constraint. TRUE when
     \* either guard is present.
@@ -52,7 +55,8 @@ CONSTANTS
     \* Locations.delete/2 refuses when any item has stock there.
     LocationDeleteChecksStock,
     \* EditItemLive's {:error, :stale} branch reloads with Items.get_item!/1,
-    \* which raises when the item is gone.
+    \* which raises when the item is gone. When FALSE, the branch reloads
+    \* with Items.get_item/1 and leaves for the items list on nil.
     StaleReloadRaises
 
 ASSUME Max \in Nat /\ Max >= 1 /\ MaxWrites \in Nat
@@ -112,6 +116,8 @@ Outcome(newStock, issued, base) ==
                                             \* validate_locations_exist/3
     ELSE IF QuantityMustBePositive /\ \E l \in Locs : newStock[l] < 0 THEN "error"
                                             \* ItemLocation quantity > 0
+    ELSE IF SaveChecksMax /\ \E l \in Locs : newStock[l] > Max THEN "error"
+                                            \* ItemLocation quantity <= max
     ELSE "ok"
 
 OverMaxChange(newStock) == \E l \in Locs : newStock[l] # stock[l] /\ newStock[l] > Max
@@ -146,7 +152,9 @@ Type(p, l, n) ==
     /\ page' = [page EXCEPT ![p].draft[l] = n]
     /\ UNCHANGED <<itemExists, version, stock, locExists, agent, writes, bad>>
 
-\* handle_event("adjust"): DraftStock.adjust/3 clamps at 0.
+\* handle_event("adjust"): DraftStock.adjust/3 clamps at 0, and at Max when
+\* AdjustCapsAtMax. The + button is also disabled at Max, which the model
+\* leaves out because a client can still send the event.
 Adjust(p, l, d) ==
     LET raw == page[p].draft[l] + d
         lo == IF raw < 0 THEN 0 ELSE raw
@@ -182,6 +190,8 @@ Save(p) ==
              /\ page' = [page EXCEPT ![p] =
                    IF ~itemExists /\ StaleReloadRaises
                    THEN [ClosedPage EXCEPT !.state = "crashed"]
+                   ELSE IF ~itemExists
+                   THEN ClosedPage   \* show_stale/3 with nil: flash, then the list
                    ELSE [pg EXCEPT !.stale = TRUE, !.staleBase = version,
                                    !.staleSeen = writes, !.staleStock = stock]]
              /\ UNCHANGED <<itemExists, version, stock, locExists, writes, bad>>

@@ -214,6 +214,27 @@ defmodule PinventoryWeb.EditItemLiveTest do
     end
   end
 
+  test "+ stops at the max so a save never stores more", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, item} = Items.create_item(scope, %{name: "Rice"}, %{garage.id => 1_000_000})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    assert has_element?(view, "#quantity-inc-#{garage.id}[disabled]")
+
+    render_click(view, "adjust", %{"location-id" => garage.id, "delta" => "1"})
+    assert_quantity(view, garage.id, 1_000_000)
+
+    view |> form("#item-form", item: %{name: "Brown rice"}) |> render_submit()
+
+    updated = Items.get_item!(item.id)
+    assert updated.name == "Brown rice"
+    assert Items.stock_map(updated) == %{garage.id => 1_000_000}
+
+    set_quantity(view, garage.id, 999_999)
+    refute has_element?(view, "#quantity-inc-#{garage.id}[disabled]")
+  end
+
   test "a typed 0 still removes stock at that location", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
     {:ok, item} = Items.create_item(scope, %{name: "Towels"}, %{garage.id => 5})
@@ -911,6 +932,23 @@ defmodule PinventoryWeb.EditItemLiveTest do
       view |> form("#item-form") |> render_submit()
 
       assert Items.get_item!(item.id).notes == "My note"
+    end
+
+    test "saving an item someone deleted goes back to the list with an error", %{
+      conn: conn,
+      scope: scope
+    } do
+      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
+      {:ok, view, _html} = live(conn, ~p"/item/#{item}")
+
+      {:ok, _} = Items.delete_item(scope, item)
+
+      view |> form("#item-form", item: %{name: "Oat milk"}) |> render_submit()
+
+      {path, flash} = assert_redirect(view)
+      assert path == ~p"/"
+      assert flash["error"] =~ "deleted"
+      assert Items.get_item(item.id) == nil
     end
 
     test "loading the newer version drops the unsaved edits", %{conn: conn, scope: scope} do

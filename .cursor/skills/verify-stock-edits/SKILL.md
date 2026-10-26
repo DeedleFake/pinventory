@@ -62,10 +62,17 @@ The script prints `code facts` first. Each is a model constant read from the cod
 | `ChangeStockChecksMax` | `new > DraftStock.max_quantity() -> {:error, :too_many}` in `changed_count/3` |
 | `MoveStockChecksMax` | `to + quantity > DraftStock.max_quantity() -> {:error, :too_many}` in `moved_counts/4` |
 | `MoveStockChecksEnough` | `quantity > from -> {:error, {:not_enough, from}}` in `moved_counts/4` |
-| `QuantityMustBePositive` | `validate_number(:quantity, greater_than: 0)` in `ItemLocation.changeset/2`, or the `quantity_must_be_positive` CHECK in the item_locations migration |
+| `QuantityMustBePositive` | `validate_number(:quantity, greater_than: 0, ...)` in `ItemLocation.changeset/2`, or the `quantity_must_be_positive` CHECK in the item_locations migration |
+| `SaveChecksMax` | `less_than_or_equal_to: DraftStock.max_quantity()` in the same `validate_number(:quantity, ...)`, so `update_item/4` refuses any count above the max |
 | `AdjustCapsAtMax` | `max_quantity` inside `DraftStock.put/3` |
 | `LocationDeleteChecksStock` | the `:empty?` step calling `location_has_items?` in `Locations.delete/2` |
-| `StaleReloadRaises` | `Items.get_item!(` right after `{:error, :stale} ->` in `EditItemLive`'s save handler |
+| `StaleReloadRaises` | `Items.get_item!(` right after `{:error, :stale} ->` in `EditItemLive`'s save handler. FALSE means the branch uses `Items.get_item/1`, and `show_stale/3` sends a deleted item's page to the items list |
+
+Some properties have two guards, so removing only one of them passes:
+
+- `AgentNeverStoresOverMax` fails only when `SaveChecksMax` and `ChangeStockChecksMax` (or `MoveStockChecksMax`) are both FALSE.
+- `EditPageNeverStoresOverMax` fails only when `SaveChecksMax` and `AdjustCapsAtMax` are both FALSE.
+- `StockNeverNegative` fails only when `QuantityMustBePositive` and `ChangeStockChecksBelowZero` (or `MoveStockChecksEnough`) are both FALSE.
 
 When a check fails, compare the facts with a run on `master`:
 
@@ -84,6 +91,7 @@ Each action is one SQLite transaction. The repo runs immediate transactions, so 
 | `Adjust` | `handle_event("adjust")` with `DraftStock.adjust/3` |
 | `EditFields` | typing a new name or notes |
 | `Save`, `Outcome`, `Commit` | `handle_event("save")` calling `Items.update_item/4`: Multi.update with the lock, `sync_stock/3`, `validate_locations_exist/3`, `ItemLocation.changeset/2` |
+| `Save` with a stale outcome | `show_stale/3`: the stale banner, or the items list when the item is gone |
 | `KeepMyEdits`, `LoadLatest` | `handle_event("keep_my_edits")`, `handle_event("load_latest")` |
 | `ChangeStock`, `ChangeCounts` | `Items.change_stock/4`, `changed_count/3`, `write_stock/4` |
 | `MoveStock`, `MoveCounts` | `Items.move_stock/5`, `moved_counts/4`, `write_stock/4` |
@@ -112,14 +120,11 @@ Two ghost variables exist only to state properties. `writes` counts committed ch
 
 ## Findings
 
-These are what the current code does. The check expects them until the code changes.
-
-- `EditPageNeverStoresOverMax`. Open an item with 1,000,000 at a location, press + once, and save. `DraftStock.adjust/3` clamps only at 0, the + button is never disabled, and `update_item/4` has no upper bound, so 1,000,001 is stored. Typed values go through `parse_quantity/1` and are refused.
-- `StaleSaveNeverCrashes`. Open an item, change its name, then someone deletes the item, then save. The UPDATE hits no row and returns `{:error, :stale}`. The stale branch then calls `Items.get_item!/1` on the deleted id, raises `Ecto.NoResultsError`, and the LiveView process crashes.
+None. Every property holds for the current code, and `KNOWN_FINDINGS` in the script is empty. When the check finds a break that can't be fixed in the same change, add the property to `KNOWN_FINDINGS` and describe its shortest path here.
 
 ## Coverage
 
-Sync commit: `1f6237d1672fda186113c212294809bc353028c5`
+Sync commit: `ddfa9f970aa541c19a9afbb98f29a8cf7916d699`
 
 Move the sync commit forward only after you confirm, at the new commit, that the model and the code facts still describe the code below. The script lists covered files changed since the sync commit.
 
@@ -127,7 +132,7 @@ Move the sync commit forward only after you confirm, at the new commit, that the
 - `lib/pinventory/items/draft_stock.ex`: `put/3`, `adjust/3`, `parse_quantity/1`, `max_quantity/0`
 - `lib/pinventory/items/item_location.ex`: `changeset/2`
 - `lib/pinventory/locations.ex`: `delete/2`
-- `lib/pinventory_web/live/edit_item_live.ex`: `handle_event/3` for `save`, `adjust`, `set_quantity`, `keep_my_edits`, `load_latest`
+- `lib/pinventory_web/live/edit_item_live.ex`: `handle_event/3` for `save`, `adjust`, `set_quantity`, `keep_my_edits`, `load_latest`, and `show_stale/3`
 - `lib/pinventory_web/mcp_router.ex`: the `change_stock` and `move_stock` tools
 - `config/config.exs`: `default_transaction_mode`
 - `priv/repo/migrations/20260223042150_create_locations_and_item_locations.exs`: the cascades and the quantity CHECK

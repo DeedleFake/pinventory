@@ -2,6 +2,8 @@ defmodule Pinventory.Items.ItemLocation do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Pinventory.Items.DraftStock
+
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
   schema "item_locations" do
@@ -18,7 +20,10 @@ defmodule Pinventory.Items.ItemLocation do
     item_location
     |> cast(attrs, [:quantity])
     |> validate_required([:quantity, :item_id, :location_id])
-    |> validate_number(:quantity, greater_than: 0)
+    |> validate_number(:quantity,
+      greater_than: 0,
+      less_than_or_equal_to: DraftStock.max_quantity()
+    )
     |> unique_constraint([:item_id, :location_id])
     |> foreign_key_constraint(:item_id)
     |> foreign_key_constraint(:location_id)
