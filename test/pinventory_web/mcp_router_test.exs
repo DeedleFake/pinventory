@@ -174,6 +174,56 @@ defmodule PinventoryWeb.MCPRouterTest do
       %{"items" => items} = call(secret, "list_items", %{})["structuredContent"]
       assert Enum.map(items, & &1["name"]) == ["AA batteries", "Paper towels"]
     end
+
+    test "lists every item at one location, with stock at every location", %{
+      secret: secret,
+      garage: garage,
+      drawer: drawer
+    } do
+      %{"items" => [item]} =
+        call(secret, "list_items", %{location_id: drawer.id})["structuredContent"]
+
+      assert item["name"] == "AA batteries"
+
+      assert item["stock"] == [
+               %{"location_id" => garage.id, "location" => "Garage", "quantity" => 24},
+               %{"location_id" => drawer.id, "location" => "Kitchen drawer", "quantity" => 8}
+             ]
+
+      %{"items" => items} =
+        call(secret, "list_items", %{location_id: garage.id})["structuredContent"]
+
+      assert Enum.map(items, & &1["name"]) == ["AA batteries", "Paper towels"]
+    end
+
+    test "searches names only at one location", %{secret: secret, garage: garage, drawer: drawer} do
+      terms = ["paper towel", "batteries"]
+
+      assert %{"items" => [%{"name" => "AA batteries"}]} =
+               call(secret, "list_items", %{terms: terms, location_id: drawer.id})[
+                 "structuredContent"
+               ]
+
+      %{"items" => items} =
+        call(secret, "list_items", %{terms: terms, location_id: garage.id})["structuredContent"]
+
+      assert items |> Enum.map(& &1["name"]) |> Enum.sort() == ["AA batteries", "Paper towels"]
+
+      result = call(secret, "list_items", %{terms: ["towel"], location_id: drawer.id})
+      assert result["structuredContent"] == %{"items" => []}
+      assert text(result) =~ "Try singular forms"
+    end
+
+    test "refuses an unknown or malformed location id", %{secret: secret} do
+      for id <- [Ecto.UUID.generate(), "garage", ""] do
+        result = call(secret, "list_items", %{location_id: id})
+        assert result["isError"]
+        assert text(result) == "No location has that id. Call list_locations for ids."
+      end
+
+      result = call(secret, "list_items", %{terms: ["towel"], location_id: Ecto.UUID.generate()})
+      assert result["isError"]
+    end
   end
 
   describe "change_stock" do

@@ -92,10 +92,11 @@ defmodule Pinventory.Items do
 
   Options:
 
+    * `:location_id` - only items with stock at this location
     * `:limit` - max items returned (default 50)
   """
   def search_items(terms, opts \\ []) when is_list(terms) do
-    opts = Keyword.validate!(opts, limit: 50)
+    opts = Keyword.validate!(opts, [:location_id, limit: 50])
 
     case terms |> Enum.map(&NameSearch.parse(to_string(&1))) |> Enum.reject(&is_nil/1) do
       [] ->
@@ -105,6 +106,7 @@ defmodule Pinventory.Items do
         Item
         |> from(as: :item)
         |> NameSearch.where_matches_any(groups)
+        |> maybe_filter_location(opts[:location_id])
         |> NameSearch.order_by_groups(groups)
         |> limit(^opts[:limit])
         |> Repo.all()

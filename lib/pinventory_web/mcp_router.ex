@@ -75,32 +75,51 @@ defmodule PinventoryWeb.MCPRouter do
 
   @description """
   Search items by name. An item matches when, for any one term, the letters of every word appear in its name in order, ignoring case, with gaps allowed. Expect some loose matches. Notes are not searched. A singular word also finds its regular plural ("towel" finds "Paper Towels"). Pass several wordings at once, for example ["paper towel", "kitchen roll", "bounty"], and pass irregular forms yourself, such as both "knife" and "knives". Results come best match first, with notes, the count at each location, and the item's page url.
-  Leave out terms only as a last resort, to list every item.
+  Pass location_id to only get items that have stock at that location. To list everything at one location, pass location_id without terms.
+  Leave out both terms and location_id only when neither fits, to list every item.
   If more than one item could be the one the user means, ask the user.
   """
   tool :list_items, read_only: true do
     field :terms, {:array, :string},
       description: "Words to search for. Any one term matching is enough."
+
+    field :location_id, :string, description: "Location id from list_locations."
   end
 
   def list_items(params, session) do
-    case params["terms"] do
-      terms when is_list(terms) and terms != [] ->
-        case Items.search_items(terms) do
-          [] ->
-            {:reply,
-             %{structuredContent: %{items: []}, content: [%{type: :text, text: @no_match_hint}]},
-             session}
+    case fetch_location_filter(params["location_id"]) do
+      {:ok, location_id} ->
+        {:reply, list_items_reply(params["terms"], location_id), session}
 
-          items ->
-            {:reply, Tool.structured(%{items: Enum.map(preload_stock(items), &item_json/1)}),
-             session}
-        end
-
-      _ ->
-        items = Items.list_items(limit: 1000)
-        {:reply, Tool.structured(%{items: Enum.map(preload_stock(items), &item_json/1)}), session}
+      :error ->
+        {:reply, Tool.error(error_message(:location_not_found, nil)), session}
     end
+  end
+
+  defp fetch_location_filter(nil), do: {:ok, nil}
+
+  defp fetch_location_filter(location_id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(location_id),
+         %Locations.Location{} <- Locations.get(uuid) do
+      {:ok, uuid}
+    else
+      _ -> :error
+    end
+  end
+
+  defp list_items_reply(terms, location_id) when is_list(terms) and terms != [] do
+    case Items.search_items(terms, location_id: location_id) do
+      [] ->
+        %{structuredContent: %{items: []}, content: [%{type: :text, text: @no_match_hint}]}
+
+      items ->
+        Tool.structured(%{items: Enum.map(preload_stock(items), &item_json/1)})
+    end
+  end
+
+  defp list_items_reply(_terms, location_id) do
+    items = Items.list_items(limit: 1000, location_id: location_id)
+    Tool.structured(%{items: Enum.map(preload_stock(items), &item_json/1)})
   end
 
   @description """
