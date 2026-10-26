@@ -49,6 +49,7 @@ Browser (Chromium over CDP, persistent until cleanup):
   browser login
   browser goto <path>
   browser click <selector>
+  browser click-confirm <selector>
   browser click-at <selector> <x> <y>
   browser click-box <selector> <fx> <fy>
   browser box <selector>
@@ -471,6 +472,25 @@ async function cmdBrowser(args) {
     await withPage(async (page) => {
       await page.click(selector);
       console.log(`ok clicked ${selector}`);
+    });
+    return;
+  }
+
+  if (action === "click-confirm") {
+    const selector = rest.join(" ").trim();
+    if (!selector) throw new Error("browser click-confirm <selector>");
+    await withPage(async (page) => {
+      const dialog = page.waitForEvent("dialog", { timeout: 5000 });
+      const click = page.click(selector, { noWaitAfter: true });
+      const shown = await dialog.catch(() => null);
+      if (!shown) {
+        await click;
+        throw new Error(`no confirm dialog after clicking ${selector}`);
+      }
+      const message = shown.message();
+      await shown.accept();
+      await click;
+      console.log(`ok accepted "${message}" after clicking ${selector}`);
     });
     return;
   }
