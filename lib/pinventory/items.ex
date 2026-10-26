@@ -2,10 +2,9 @@ defmodule Pinventory.Items do
   @moduledoc """
   The Items context.
 
-  Name search uses SQLite FTS5 trigram matching for longer queries and `LIKE`
-  for short ones. Case folding for both paths follows SQLite defaults: ASCII
-  A–Z only. Non-ASCII letters are case-sensitive unless you add a normalized
-  search column later.
+  Name search matches typed letters in order, like fzf (see
+  `Pinventory.Items.NameSearch`). Case folding is ASCII A–Z only, so non-ASCII
+  letters match only in the same case.
 
   Mutating APIs take an authenticated `Pinventory.Accounts.Scope` as the first
   argument and write audit events in the same transaction as the change.
@@ -21,42 +20,30 @@ defmodule Pinventory.Items do
 
   alias Pinventory.Items.Item
   alias Pinventory.Items.ItemLocation
+  alias Pinventory.Items.NameSearch
   alias Pinventory.Items.NoteVersion
   alias Pinventory.Locations.Location
 
-  # SQLite LIKE escape character. Used by escape_like/1 and embedded as a SQL
-  # literal in LIKE fragments (SQLite rejects bound ESCAPE parameters).
-  @like_escape "\\"
-  @like_escape_sql "'" <> String.replace(@like_escape, "'", "''") <> "'"
-  @like_match_sql "? LIKE ? ESCAPE " <> @like_escape_sql
-  @name_match_rank_sql """
-  CASE
-    WHEN ? LIKE ? ESCAPE #{@like_escape_sql} THEN 3
-    WHEN ? LIKE ? ESCAPE #{@like_escape_sql} THEN 2
-    ELSE 1
-  END
-  """
-
-  # FTS5 trigram needs at least 3 characters for MATCH; shorter queries use LIKE.
-  @fts_min_length 3
-
   @doc """
-  Suggests items by partial name.
+  Suggests items whose names match the typed text, best match first.
 
-  Uses FTS5 trigram MATCH for queries of three or more characters, with a
-  case-insensitive (ASCII) LIKE fallback for shorter queries. Ranking prefers
-  prefix matches, then substring matches, then FTS rank when available.
-
-  Empty or whitespace-only input returns `[]`.
+  Matching and ranking follow `Pinventory.Items.NameSearch`. Blank input
+  returns `[]`.
   """
-  def suggest_items(partial_name, opts \\ []) do
+  def suggest_items(text, opts \\ []) do
     opts = Keyword.validate!(opts, limit: 10)
-    query = partial_name |> to_string() |> String.trim()
 
-    if query == "" do
-      []
-    else
-      suggest_items_query(query, opts[:limit])
+    case text |> to_string() |> NameSearch.parse() do
+      nil ->
+        []
+
+      terms ->
+        Item
+        |> from(as: :item)
+        |> NameSearch.where_matches(terms)
+        |> NameSearch.order_by_rank(terms)
+        |> limit(^opts[:limit])
+        |> Repo.all()
     end
   end
 
@@ -68,8 +55,9 @@ defmodule Pinventory.Items do
 
   Options:
 
-    * `:filter` - ASCII case-insensitive name substring match (trimmed; blank
-      means no filter). Always uses `LIKE`, not FTS.
+    * `:filter` - typed text matched against names by
+      `Pinventory.Items.NameSearch` (blank means no filter). Results stay in
+      name order.
     * `:location_id` - only items with stock at this location
     * `:limit` - max rows (default 100)
   """
@@ -111,77 +99,10 @@ defmodule Pinventory.Items do
 
   def list_items_at_location(_), do: []
 
-  defp suggest_items_query(query, limit) do
-    escaped = escape_like(query)
-    pattern = "%#{escaped}%"
-    prefix = "#{escaped}%"
-    use_fts? = String.length(query) >= @fts_min_length
-
-    Item
-    |> from(as: :item)
-    |> filter_suggest_candidates(query, pattern, use_fts?)
-    |> order_by_name_match_rank(prefix, pattern)
-    |> maybe_order_by_fts_rank(use_fts?)
-    |> order_by([item: item], asc: item.name)
-    |> limit(^limit)
-    |> Repo.all()
-  end
-
-  defp filter_suggest_candidates(queryable, _query, pattern, false) do
-    where(queryable, [item: item], fragment(@like_match_sql, item.name, ^pattern))
-  end
-
-  defp filter_suggest_candidates(queryable, query, _pattern, true) do
-    fts_query = escape_fts(query)
-
-    # One MATCH: join FTS hits (with bm25) to items by stable item_id.
-    # Named :fts binding so bm25 order does not depend on join position.
-    join(
-      queryable,
-      :inner,
-      [item: item],
-      fts in fragment(
-        """
-        (
-          SELECT item_id AS item_id, bm25(items_fts) AS rank
-          FROM items_fts
-          WHERE items_fts MATCH ?
-        )
-        """,
-        ^fts_query
-      ),
-      on: item.id == fragment("?.item_id", fts),
-      as: :fts
-    )
-  end
-
-  # Shared prefix/contains ranking used by both LIKE and FTS suggestion paths.
-  defp order_by_name_match_rank(queryable, prefix, pattern) do
-    order_by(queryable, [item: item],
-      desc: fragment(@name_match_rank_sql, item.name, ^prefix, item.name, ^pattern)
-    )
-  end
-
-  defp maybe_order_by_fts_rank(queryable, true) do
-    # Lower bm25 is a better match.
-    order_by(queryable, [fts: fts], asc: fragment("?.rank", fts))
-  end
-
-  defp maybe_order_by_fts_rank(queryable, false), do: queryable
-
   defp maybe_filter_name(query, filter) when is_binary(filter) do
-    case String.trim(filter) do
-      "" ->
-        query
-
-      trimmed ->
-        pattern = "%#{escape_like(trimmed)}%"
-
-        where(
-          query,
-          [item: item],
-          fragment(@like_match_sql, item.name, ^pattern)
-        )
+    case NameSearch.parse(filter) do
+      nil -> query
+      terms -> NameSearch.where_matches(query, terms)
     end
   end
 
@@ -200,18 +121,6 @@ defmodule Pinventory.Items do
   end
 
   defp maybe_filter_location(query, _), do: query
-
-  defp escape_like(value) do
-    value
-    |> String.replace(@like_escape, @like_escape <> @like_escape)
-    |> String.replace("%", @like_escape <> "%")
-    |> String.replace("_", @like_escape <> "_")
-  end
-
-  # Quote the string as an FTS5 phrase so operators and punctuation are literal.
-  defp escape_fts(value) do
-    "\"" <> String.replace(value, "\"", "\"\"") <> "\""
-  end
 
   def get_item(id) do
     case Repo.get(Item, id) do

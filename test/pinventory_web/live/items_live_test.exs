@@ -80,6 +80,36 @@ defmodule PinventoryWeb.ItemsLiveTest do
     refute has_element?(view, "#items a", "Hammer")
   end
 
+  test "filters items by typed letters in order, in any word order", %{conn: conn, scope: scope} do
+    {:ok, _} = Items.create_item(scope, %{name: "Paint brush"})
+    {:ok, _} = Items.create_item(scope, %{name: "Paper towels"})
+    {:ok, _} = Items.create_item(scope, %{name: "Handsaw"})
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view
+    |> form("#items-filter-form", %{q: "pntbrsh"})
+    |> render_change()
+
+    assert has_element?(view, "#items a", "Paint brush")
+    refute has_element?(view, "#items a", "Paper towels")
+    refute has_element?(view, "#items a", "Handsaw")
+
+    view
+    |> form("#items-filter-form", %{q: "towel paper"})
+    |> render_change()
+
+    assert has_element?(view, "#items a", "Paper towels")
+    refute has_element?(view, "#items a", "Paint brush")
+
+    view
+    |> form("#items-filter-form", %{q: "saw"})
+    |> render_change()
+
+    assert has_element?(view, "#items a", "Handsaw")
+    refute has_element?(view, "#items a", "Paint brush")
+  end
+
   test "filters items by location", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
     {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
