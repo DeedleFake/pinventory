@@ -1,8 +1,8 @@
 defmodule PinventoryWeb.MCPRouter do
   @moduledoc """
   MCP server that lets an agent read the inventory, create and rename items,
-  and change stock counts of items at existing locations, acting as the user
-  who owns the API token.
+  rename locations, and change stock counts of items at existing locations,
+  acting as the user who owns the API token.
 
   The agent decides which item and location the user means. The server only
   checks what it can know for certain: the ids exist, counts stay within
@@ -18,7 +18,7 @@ defmodule PinventoryWeb.MCPRouter do
   - Use the ids from list_items and list_locations for changes.
   - To move stock between locations, use move_stock, not two change_stock calls.
   - To add a new item, search with list_items first so you don't make a duplicate, then create_item, then change_stock to record how many and where.
-  - You can only change counts at existing locations. Deleting items, creating, renaming, or deleting locations, and editing notes of existing items happen in the Pinventory web UI. Send the user the item's or location's url.
+  - You can only change counts at existing locations. Deleting items, creating or deleting locations, and editing notes of existing items happen in the Pinventory web UI. Send the user the item's or location's url.
   """
 
   use Phantom.Router,
@@ -159,6 +159,32 @@ defmodule PinventoryWeb.MCPRouter do
     else
       :error -> {:reply, Tool.error(error_message(:item_not_found, nil)), session}
       {:error, :stale} -> {:reply, Tool.error(error_message(:stale, nil)), session}
+      {:error, changeset} -> {:reply, Tool.error(changeset_message(changeset)), session}
+    end
+  end
+
+  @description """
+  Rename one existing location. Names must be unique. Its items and stock stay as they are.
+  Use the id from list_locations. Returns the location's id, name, and page url.
+  """
+  tool :rename_location, idempotent: true, destructive: false do
+    field :location_id, :string, required: true, description: "Location id from list_locations."
+    field :name, :string, required: true, description: "The new name."
+  end
+
+  def rename_location(%{"location_id" => location_id, "name" => name}, session) do
+    with {:ok, location} <- fetch(location_id, &Locations.get/1),
+         {:ok, location} <- Locations.update(session.assigns.scope, location, %{"name" => name}) do
+      {:reply,
+       Tool.structured(%{
+         location: %{
+           id: location.id,
+           name: location.name,
+           url: url(~p"/location/#{location.id}")
+         }
+       }), session}
+    else
+      :error -> {:reply, Tool.error(error_message(:location_not_found, nil)), session}
       {:error, changeset} -> {:reply, Tool.error(changeset_message(changeset)), session}
     end
   end

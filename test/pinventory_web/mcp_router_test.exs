@@ -116,7 +116,7 @@ defmodule PinventoryWeb.MCPRouterTest do
       names = rpc(secret, "tools/list")["tools"] |> Enum.map(& &1["name"]) |> Enum.sort()
 
       assert names ==
-               ~w[change_stock create_item list_items list_locations move_stock rename_item]
+               ~w[change_stock create_item list_items list_locations move_stock rename_item rename_location]
     end
   end
 
@@ -328,6 +328,62 @@ defmodule PinventoryWeb.MCPRouterTest do
 
       assert event_count() == before
       assert Items.get_item!(batteries.id).name == "AA batteries"
+    end
+  end
+
+  describe "rename_location" do
+    test "renames a location, keeps its stock, and records the edit", %{
+      secret: secret,
+      user: user,
+      garage: garage,
+      towels: towels
+    } do
+      assert %{"location" => %{"id" => id, "name" => "Shed", "url" => url}} =
+               call(secret, "rename_location", %{location_id: garage.id, name: " Shed "})[
+                 "structuredContent"
+               ]
+
+      assert id == garage.id
+      assert url =~ "/location/#{garage.id}"
+      assert Locations.get(garage.id).name == "Shed"
+      assert stock(towels) == %{garage.id => 4}
+
+      # Setup's stock edits can share the rename's timestamp, so find the rename by action.
+      edit =
+        Enum.find(
+          Audit.list_edits_for_location(garage.id),
+          &Enum.any?(&1.events, fn event -> event.action == "location.updated" end)
+        )
+
+      assert AuditHelpers.edit_heading(edit) =~ "#{user.email} via Claude on phone"
+
+      assert Enum.map(edit.events, & &1.changes) == [
+               %{"name" => %{"from" => "Garage", "to" => "Shed"}}
+             ]
+    end
+
+    test "refuses an unknown location or a bad name and writes nothing", %{
+      secret: secret,
+      garage: garage
+    } do
+      before = event_count()
+
+      for {args, message} <- [
+            {%{location_id: Ecto.UUID.generate(), name: "Shed"},
+             "No location has that id. Call list_locations for ids."},
+            {%{location_id: "garage", name: "Shed"},
+             "No location has that id. Call list_locations for ids."},
+            {%{location_id: garage.id, name: "Kitchen drawer"},
+             "Nothing was changed: name has already been taken."},
+            {%{location_id: garage.id, name: "  "}, "Nothing was changed: name can't be blank."}
+          ] do
+        result = call(secret, "rename_location", args)
+        assert result["isError"]
+        assert text(result) == message
+      end
+
+      assert event_count() == before
+      assert Locations.get(garage.id).name == "Garage"
     end
   end
 
