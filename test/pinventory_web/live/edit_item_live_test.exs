@@ -264,6 +264,19 @@ defmodule PinventoryWeb.EditItemLiveTest do
     refute has_element?(view, ~s(#item-stock-form button[type="submit"]))
   end
 
+  test "Save comes before the form on new and edit pages", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, item} = Items.create_item(scope, %{name: "Nails"}, %{garage.id => 5})
+
+    for path <- [~p"/item", ~p"/item/#{item.id}"] do
+      {:ok, _view, html} = live(conn, path)
+
+      {save_at, _} = :binary.match(html, ~s(id="item-save"))
+      {form_at, _} = :binary.match(html, ~s(id="item-form"))
+      assert save_at < form_at, "Save renders above the name form on #{path}"
+    end
+  end
+
   test "stock save failures keep the name form and flash an error", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
 

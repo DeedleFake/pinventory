@@ -29,17 +29,21 @@ defmodule PinventoryWeb.EditItemLive do
         phx-hook="UnsavedChanges"
         data-dirty={to_string(@dirty?)}
       >
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h1 class="text-xl font-semibold tracking-tight">{page_heading(@live_action)}</h1>
-          <div
-            :if={@live_action == :edit}
-            id="item-delete-actions"
-            class="flex flex-wrap items-center justify-end gap-2"
-          >
-            <p :if={@delete_blocked_reason} id="item-delete-reason" class="text-sm opacity-70">
+        <%!-- Save sits up here because a phone keyboard covers the bottom of the page. --%>
+        <div class="flex items-center justify-between gap-3">
+          <h1 class="shrink-0 text-xl font-semibold tracking-tight">
+            {page_heading(@live_action)}
+          </h1>
+          <div id="item-actions" class="flex flex-wrap items-center justify-end gap-2">
+            <p
+              :if={@live_action == :edit and @delete_blocked_reason}
+              id="item-delete-reason"
+              class="w-full text-right text-sm opacity-70 sm:w-auto"
+            >
               {@delete_blocked_reason}
             </p>
             <button
+              :if={@live_action == :edit}
               type="button"
               id="item-delete"
               class="btn btn-ghost text-error hover:bg-error/10"
@@ -48,6 +52,15 @@ defmodule PinventoryWeb.EditItemLive do
             >
               <.icon name="hero-trash" class="size-4" /> Delete
             </button>
+            <.button
+              type="submit"
+              form="item-form"
+              id="item-save"
+              variant="primary"
+              disabled={not @dirty? or @invalid_quantities != %{}}
+            >
+              Save
+            </.button>
           </div>
         </div>
 
@@ -166,18 +179,6 @@ defmodule PinventoryWeb.EditItemLive do
               />
             </div>
           </form>
-
-          <div class="flex justify-end gap-2 pt-2">
-            <.button
-              type="submit"
-              form="item-form"
-              id="item-save"
-              variant="primary"
-              disabled={not @dirty? or @invalid_quantities != %{}}
-            >
-              Save
-            </.button>
-          </div>
         </div>
 
         <section
