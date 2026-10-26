@@ -9,7 +9,7 @@ TLA_SHA256=d15655eeaff4b3f7b3d65c46b838bc0f35d131b2ef4b1e473689b62c98d4726f
 
 # Properties the current code is known to break. The check expects each one
 # to fail. Remove a name here once the code is fixed and the check passes it.
-KNOWN_FINDINGS=(StaleSaveNeverCrashes)
+KNOWN_FINDINGS=()
 
 PROPERTIES=(NoLostUpdate StockNeverNegative AgentNeverStoresOverMax
   EditPageNeverStoresOverMax MoveKeepsTotal LocationDeleteKeepsStock

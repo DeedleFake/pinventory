@@ -55,7 +55,8 @@ CONSTANTS
     \* Locations.delete/2 refuses when any item has stock there.
     LocationDeleteChecksStock,
     \* EditItemLive's {:error, :stale} branch reloads with Items.get_item!/1,
-    \* which raises when the item is gone.
+    \* which raises when the item is gone. When FALSE, the branch reloads
+    \* with Items.get_item/1 and leaves for the items list on nil.
     StaleReloadRaises
 
 ASSUME Max \in Nat /\ Max >= 1 /\ MaxWrites \in Nat
@@ -189,6 +190,8 @@ Save(p) ==
              /\ page' = [page EXCEPT ![p] =
                    IF ~itemExists /\ StaleReloadRaises
                    THEN [ClosedPage EXCEPT !.state = "crashed"]
+                   ELSE IF ~itemExists
+                   THEN ClosedPage   \* show_stale/3 with nil: flash, then the list
                    ELSE [pg EXCEPT !.stale = TRUE, !.staleBase = version,
                                    !.staleSeen = writes, !.staleStock = stock]]
              /\ UNCHANGED <<itemExists, version, stock, locExists, writes, bad>>

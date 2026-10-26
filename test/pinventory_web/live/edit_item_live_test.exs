@@ -934,6 +934,23 @@ defmodule PinventoryWeb.EditItemLiveTest do
       assert Items.get_item!(item.id).notes == "My note"
     end
 
+    test "saving an item someone deleted goes back to the list with an error", %{
+      conn: conn,
+      scope: scope
+    } do
+      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
+      {:ok, view, _html} = live(conn, ~p"/item/#{item}")
+
+      {:ok, _} = Items.delete_item(scope, item)
+
+      view |> form("#item-form", item: %{name: "Oat milk"}) |> render_submit()
+
+      {path, flash} = assert_redirect(view)
+      assert path == ~p"/"
+      assert flash["error"] =~ "deleted"
+      assert Items.get_item(item.id) == nil
+    end
+
     test "loading the newer version drops the unsaved edits", %{conn: conn, scope: scope} do
       sam = user_scope_fixture(user_fixture(%{email: "sam@example.com"}))
       {:ok, item} = Items.create_item(scope, %{name: "Milk"})
