@@ -128,7 +128,8 @@ defmodule Pinventory.Audit do
       from(e in Event,
         where: e.location_id == ^location_id,
         group_by: e.edit_id,
-        order_by: [desc: max(e.inserted_at)],
+        # rowid breaks ties between edits saved in the same second.
+        order_by: [desc: max(e.inserted_at), desc: max(fragment("rowid"))],
         select: %{edit_id: e.edit_id, inserted_at: max(e.inserted_at)}
       )
 
@@ -160,7 +161,8 @@ defmodule Pinventory.Audit do
   defp base_edit_query do
     from(e in Event,
       group_by: e.edit_id,
-      order_by: [desc: max(e.inserted_at)],
+      # rowid breaks ties between edits saved in the same second.
+      order_by: [desc: max(e.inserted_at), desc: max(fragment("rowid"))],
       select: %{edit_id: e.edit_id, inserted_at: max(e.inserted_at)}
     )
   end

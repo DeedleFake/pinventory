@@ -305,6 +305,73 @@ defmodule Pinventory.AuditTest do
       assert length(rename_edit.events) == 1
     end
 
+    test "list_edits_for_location orders edits saved in the same second newest first",
+         %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+
+      garage =
+        Enum.reduce(1..4, garage, fn n, location ->
+          {:ok, location} = Locations.update(scope, location, %{name: "Garage #{n}"})
+          location
+        end)
+
+      # Put every edit in the same second. Without a tie-breaker, SQLite falls
+      # back to edit_id order, so give the oldest edit the largest edit_id.
+      events =
+        from(e in Event,
+          where: e.location_id == ^garage.id,
+          order_by: fragment("rowid"),
+          select: %{id: e.id}
+        )
+        |> Repo.all()
+
+      events
+      |> Enum.reverse()
+      |> Enum.with_index()
+      |> Enum.each(fn {event, i} ->
+        edit_id = "00000000-0000-0000-0000-#{String.pad_leading("#{i}", 12, "0")}"
+
+        from(e in Event, where: e.id == ^event.id)
+        |> Repo.update_all(set: [edit_id: edit_id, inserted_at: ~U[2026-01-01 00:00:00Z]])
+      end)
+
+      ids_newest_first = events |> Enum.map(& &1.id) |> Enum.reverse()
+
+      assert garage.id
+             |> Audit.list_edits_for_location()
+             |> Enum.map(&hd(&1.events).id) == ids_newest_first
+    end
+
+    test "list_recent_edits orders edits saved in the same second newest first",
+         %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+
+      Enum.reduce(1..4, garage, fn n, location ->
+        {:ok, location} = Locations.update(scope, location, %{name: "Garage #{n}"})
+        location
+      end)
+
+      # Put every edit in the same second. Without a tie-breaker, SQLite falls
+      # back to an edit_id order, so give the oldest edit the smallest edit_id.
+      events =
+        from(e in Event, order_by: fragment("rowid"), select: %{id: e.id})
+        |> Repo.all()
+
+      events
+      |> Enum.with_index()
+      |> Enum.each(fn {event, i} ->
+        edit_id = "00000000-0000-0000-0000-#{String.pad_leading("#{i}", 12, "0")}"
+
+        from(e in Event, where: e.id == ^event.id)
+        |> Repo.update_all(set: [edit_id: edit_id, inserted_at: ~U[2026-01-01 00:00:00Z]])
+      end)
+
+      ids_newest_first = events |> Enum.map(& &1.id) |> Enum.reverse()
+
+      assert Audit.list_recent_edits()
+             |> Enum.map(&hd(&1.events).id) == ids_newest_first
+    end
+
     test "list_recent_edits groups by edit_id", %{scope: scope} do
       {:ok, _} = Locations.create(scope, %{name: "A"})
       {:ok, garage} = Locations.create(scope, %{name: "B"})
