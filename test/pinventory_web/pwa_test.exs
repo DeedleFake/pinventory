@@ -133,5 +133,38 @@ defmodule PinventoryWeb.PwaTest do
         assert color =~ ~r/^#[0-9a-f]{6}$/
       end
     end
+
+    test "shares its theme colors with the offline page", %{conn: conn} do
+      theme_colors = fn html ->
+        html
+        |> LazyHTML.from_document()
+        |> LazyHTML.query(~s(meta[name="theme-color"]))
+        |> then(&Enum.zip(LazyHTML.attribute(&1, "media"), LazyHTML.attribute(&1, "content")))
+        |> Map.new()
+      end
+
+      layout = conn |> get(~p"/user/log-in") |> html_response(200) |> theme_colors.()
+      offline = build_conn() |> get("/offline.html") |> response(200) |> theme_colors.()
+
+      assert offline == layout
+    end
+
+    # Manifest colors can't follow the color scheme, and some browsers (Firefox,
+    # and Chrome in dark mode) use them over the page's, so they match dark mode.
+    test "gives the manifest its dark theme color", %{conn: conn} do
+      document = conn |> get(~p"/user/log-in") |> html_response(200) |> LazyHTML.from_document()
+
+      assert [dark] =
+               document
+               |> LazyHTML.query(
+                 ~s{meta[name="theme-color"][media="(prefers-color-scheme: dark)"]}
+               )
+               |> LazyHTML.attribute("content")
+
+      manifest = build_conn() |> get("/manifest.webmanifest") |> response(200) |> JSON.decode!()
+
+      assert manifest["theme_color"] == dark
+      assert manifest["background_color"] == dark
+    end
   end
 end

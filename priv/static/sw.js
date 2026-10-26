@@ -11,10 +11,11 @@
 // through respondWith. Everything else, including the LiveView longpoll
 // fallback, goes straight to the network. Websockets never reach a service worker.
 //
-// Bump VERSION when changing PRECACHE or the caching rules. Activating deletes
-// every pinventory cache that doesn't belong to the current version.
+// Bump VERSION when changing PRECACHE, a precached file, or the caching rules.
+// Activating deletes every pinventory cache that doesn't belong to the current
+// version.
 
-const VERSION = "v1"
+const VERSION = "v2"
 const CACHE = `pinventory-static-${VERSION}`
 const OFFLINE_URL = "/offline.html"
 const PRECACHE = [OFFLINE_URL, "/images/icon-192.png", "/images/icon-512.png"]
