@@ -7,11 +7,11 @@
     <.live_title default="Pinventory" suffix=" · Pinventory">
       {assigns[:page_title]}
     </.live_title>
-    <link rel="icon" href={~p"/favicon.svg"} type="image/svg+xml" />
-    <link rel="icon" href={~p"/favicon.ico"} sizes="any" />
-    <link rel="apple-touch-icon" href={~p"/images/apple-touch-icon.png"} />
-    <%!-- A plain path, not ~p: in prod ~p links a digested name that Plug.Static's `only` list doesn't serve. --%>
+    <%!-- Plain paths, not ~p, for files at the root of priv/static. In prod ~p links a digested name that Plug.Static's `only` list doesn't serve. --%>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href={~p"/images/apple-touch-icon.png"} />
     <%!-- Colors are the base-100 of the light and dark daisyUI themes in app.css. The theme script below overrides both when the theme is forced. --%>
     <meta
       name="theme-color"
