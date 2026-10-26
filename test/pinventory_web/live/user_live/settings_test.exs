@@ -511,6 +511,27 @@ defmodule PinventoryWeb.UserLive.SettingsTest do
 
     defp toggle(lv), do: lv |> element("#show-inactive-api-tokens") |> render_click()
 
+    test "shows the MCP server URL that agents connect to", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/user/settings")
+
+      shown =
+        lv
+        |> element("#mcp-url")
+        |> render()
+        |> then(&Regex.run(~r/value="([^"]+)"/, &1))
+        |> List.last()
+
+      assert shown == PinventoryWeb.Endpoint.url() <> "/mcp"
+      assert has_element?(lv, ~s(#copy-mcp-url[data-copy="#{shown}"]))
+
+      %URI{host: host, path: path} = URI.parse(shown)
+
+      assert %{plug: Phantom.Plug, plug_opts: opts} =
+               Phoenix.Router.route_info(PinventoryWeb.Router, "POST", path, host)
+
+      assert opts[:router] == PinventoryWeb.MCPRouter
+    end
+
     test "creates a token and shows its secret once", %{conn: conn, user: user} do
       {:ok, lv, html} = live(conn, ~p"/user/settings")
       assert html =~ "No active tokens."

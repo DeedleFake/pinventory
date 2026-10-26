@@ -181,6 +181,31 @@ defmodule PinventoryWeb.UserLive.Settings do
               </p>
             </div>
 
+            <div class="space-y-1.5">
+              <label class="label" for="mcp-url">MCP server URL</label>
+              <div class="join w-full">
+                <input
+                  id="mcp-url"
+                  type="text"
+                  readonly
+                  value={@mcp_url}
+                  class="input join-item min-w-0 grow font-mono text-xs"
+                />
+                <button
+                  type="button"
+                  id="copy-mcp-url"
+                  class="btn join-item shrink-0"
+                  phx-hook=".ClipboardCopy"
+                  data-copy={@mcp_url}
+                >
+                  <.icon name="hero-clipboard-document" class="size-4" /> Copy
+                </button>
+              </div>
+              <p class="text-xs opacity-70">
+                Add this URL and a token to your agent's MCP connector.
+              </p>
+            </div>
+
             <.form
               for={@api_token_form}
               id="api-token-form"
@@ -612,6 +637,7 @@ defmodule PinventoryWeb.UserLive.Settings do
      |> assign(:api_token_form, api_token_form())
      |> assign(:latest_api_token, nil)
      |> assign(:show_inactive_api_tokens?, false)
+     |> assign(:mcp_url, url(~p"/mcp"))
      |> stream(:invites, [])
      |> stream(:users, [])}
   end
