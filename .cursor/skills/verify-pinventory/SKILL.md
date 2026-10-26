@@ -36,7 +36,7 @@ What launch does:
 3. Starts `mix phx.server` with `PORT=4010` and `DATABASE_PATH` pointing at that file.
 4. Starts headless Chromium with a CDP port on `5010`.
 
-Pages must render styled. Doctor cannot see a missing stylesheet, so open one screenshot after launch. If it is unstyled, `mix assets.setup` could not download the Tailwind binary. Copy `tailwind-linux-x64-4.1.7` into `_build/` and relaunch.
+Pages must render styled. Doctor cannot see a missing stylesheet, so open one screenshot after launch. If it is unstyled, `mix assets.setup` could not download the Tailwind binary. Copy `tailwind-linux-x64-4.3.3` into `_build/` and relaunch.
 
 Never pass `PORT=4000`. Never point `DATABASE_PATH` at `priv/repo/pinventory_dev.db`.
 

@@ -342,7 +342,7 @@ defmodule PinventoryWeb.NoteHistoryComponents do
 
   defp diff_line(assigns) do
     ~H"""
-    <div class={["min-h-6 whitespace-pre-wrap break-words", @class]} phx-no-format><span
+    <div class={["min-h-6 whitespace-pre-wrap wrap-break-word", @class]} phx-no-format><span
         :for={{op, text} <- @ops}
         class={op_class(op)}
       >{text}</span></div>
