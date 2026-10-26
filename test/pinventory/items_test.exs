@@ -570,4 +570,75 @@ defmodule Pinventory.ItemsTest do
       assert Items.list_items_at_location(empty.id) == []
     end
   end
+
+  describe "search_items/2" do
+    defp item!(scope, name, notes \\ "") do
+      {:ok, item} = Items.create_item(scope, %{name: name, notes: notes})
+      item
+    end
+
+    defp search_names(terms), do: terms |> Items.search_items() |> Enum.map(& &1.name)
+
+    test "matches words as written, so a singular word finds its plural but not the reverse",
+         %{scope: scope} do
+      item!(scope, "Paper Towel")
+      item!(scope, "Paper Towels, select-a-size")
+      item!(scope, "Hammer")
+
+      assert search_names(["towel"]) == ["Paper Towel", "Paper Towels, select-a-size"]
+      assert search_names(["TOWELS"]) == ["Paper Towels, select-a-size"]
+    end
+
+    test "matches words in any order within the name", %{scope: scope} do
+      item!(scope, "Paper towels", "Bounty, 6-roll packs")
+      item!(scope, "Kitchen trash bags", "13 gallon")
+
+      assert search_names(["towels paper"]) == ["Paper towels"]
+      assert search_names(["bag kitchen trash"]) == ["Kitchen trash bags"]
+      assert search_names(["kitchen towel"]) == []
+    end
+
+    test "does not search notes", %{scope: scope} do
+      item!(scope, "Paper towels", "Bounty, 6-roll packs")
+      item!(scope, "Dish soap", "next to the paper towel holder")
+
+      assert search_names(["bounty"]) == []
+      assert search_names(["paper towel"]) == ["Paper towels"]
+    end
+
+    test "matches any of several terms, more matched terms first", %{scope: scope} do
+      item!(scope, "Paper towels")
+      item!(scope, "Kitchen paper towels")
+      item!(scope, "Kitchen roll")
+      item!(scope, "Hammer")
+
+      assert search_names(["paper towel", "kitchen", "roll"]) ==
+               ["Kitchen paper towels", "Kitchen roll", "Paper towels"]
+    end
+
+    test "treats wildcards as plain text", %{scope: scope} do
+      item!(scope, "100% cotton rags")
+      item!(scope, "Hammer")
+
+      assert search_names(["100%"]) == ["100% cotton rags"]
+      assert search_names(["_"]) == []
+      assert search_names(["*"]) == []
+    end
+
+    test "matches typed letters in order, like the items filter", %{scope: scope} do
+      item!(scope, "Paint brush")
+      item!(scope, "Handsaw")
+
+      assert search_names(["pntbrsh"]) == ["Paint brush"]
+      assert search_names(["candy"]) == []
+    end
+
+    test "blank terms find nothing and respect the limit", %{scope: scope} do
+      for n <- 1..3, do: item!(scope, "Screw #{n}")
+
+      assert Items.search_items([]) == []
+      assert Items.search_items(["", "  "]) == []
+      assert length(Items.search_items(["screw"], limit: 2)) == 2
+    end
+  end
 end
