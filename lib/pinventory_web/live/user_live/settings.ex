@@ -191,15 +191,7 @@ defmodule PinventoryWeb.UserLive.Settings do
                   value={@mcp_url}
                   class="input join-item min-w-0 grow font-mono text-xs"
                 />
-                <button
-                  type="button"
-                  id="copy-mcp-url"
-                  class="btn join-item shrink-0"
-                  phx-hook=".ClipboardCopy"
-                  data-copy={@mcp_url}
-                >
-                  <.icon name="hero-clipboard-document" class="size-4" /> Copy
-                </button>
+                <.copy_button id="copy-mcp-url" value={@mcp_url} />
               </div>
               <p class="text-xs opacity-70">
                 Add this URL and a token to your agent's MCP connector.
@@ -263,15 +255,11 @@ defmodule PinventoryWeb.UserLive.Settings do
                   value={@latest_api_token.secret}
                   class="input join-item min-w-0 grow font-mono text-xs"
                 />
-                <button
-                  type="button"
+                <.copy_button
                   id="copy-latest-api-token"
-                  class="btn btn-primary join-item shrink-0"
-                  phx-hook=".ClipboardCopy"
-                  data-copy={@latest_api_token.secret}
-                >
-                  <.icon name="hero-clipboard-document" class="size-4" /> Copy
-                </button>
+                  value={@latest_api_token.secret}
+                  class="btn-primary"
+                />
               </div>
             </div>
 
@@ -447,15 +435,7 @@ defmodule PinventoryWeb.UserLive.Settings do
                   value={@latest_url}
                   class="input join-item min-w-0 grow font-mono text-xs"
                 />
-                <button
-                  type="button"
-                  id="copy-latest-invite"
-                  class="btn btn-primary join-item shrink-0"
-                  phx-hook=".ClipboardCopy"
-                  data-copy={@latest_url}
-                >
-                  <.icon name="hero-clipboard-document" class="size-4" /> Copy
-                </button>
+                <.copy_button id="copy-latest-invite" value={@latest_url} class="btn-primary" />
               </div>
             </div>
 
@@ -583,15 +563,34 @@ defmodule PinventoryWeb.UserLive.Settings do
       </div>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".ClipboardCopy">
+        const RESET_MS = 2000
+        const ANNOUNCEMENTS = { idle: "", copied: "Copied to clipboard", failed: "Copy failed" }
+
         export default {
           mounted() {
             this.el.addEventListener("click", (e) => {
               e.preventDefault()
-              const value = this.el.dataset.copy
-              if (value && navigator.clipboard) {
-                navigator.clipboard.writeText(value)
-              }
+              this.copy(this.el.dataset.copy)
             })
+          },
+          async copy(value) {
+            try {
+              await navigator.clipboard.writeText(value)
+              this.show("copied")
+            } catch {
+              this.show("failed")
+            }
+          },
+          show(state) {
+            clearTimeout(this.resetTimer)
+            this.el.dataset.state = state
+            this.el.querySelector("[aria-live]").textContent = ANNOUNCEMENTS[state]
+            if (state !== "idle") {
+              this.resetTimer = setTimeout(() => this.show("idle"), RESET_MS)
+            }
+          },
+          destroyed() {
+            clearTimeout(this.resetTimer)
           }
         }
       </script>
@@ -716,6 +715,43 @@ defmodule PinventoryWeb.UserLive.Settings do
 
   defp activity_navigate_path({:location, location_id}),
     do: ~p"/location/#{location_id}"
+
+  attr :id, :string, required: true
+  attr :value, :string, required: true
+  attr :class, :string, default: nil
+
+  # Every label stays in the same grid cell so the button keeps the widest
+  # label's width and the join group does not shift when the state changes.
+  defp copy_button(assigns) do
+    ~H"""
+    <button
+      type="button"
+      id={@id}
+      class={[
+        "btn join-item shrink-0 group transition-[scale,color,background-color,border-color,box-shadow] active:scale-95",
+        "data-[state=copied]:btn-success data-[state=failed]:btn-error",
+        @class
+      ]}
+      phx-hook=".ClipboardCopy"
+      phx-mounted={JS.ignore_attributes(["data-state"])}
+      data-copy={@value}
+      data-state="idle"
+    >
+      <span class="grid">
+        <span class="col-start-1 row-start-1 flex items-center justify-center gap-1.5 invisible group-data-[state=idle]:visible">
+          <.icon name="hero-clipboard-document" class="size-4" /> Copy
+        </span>
+        <span class="col-start-1 row-start-1 flex items-center justify-center gap-1.5 invisible group-data-[state=copied]:visible">
+          <.icon name="hero-check" class="size-4" /> Copied
+        </span>
+        <span class="col-start-1 row-start-1 flex items-center justify-center gap-1.5 invisible group-data-[state=failed]:visible">
+          <.icon name="hero-exclamation-triangle" class="size-4" /> Failed
+        </span>
+      </span>
+      <span class="sr-only" aria-live="polite"></span>
+    </button>
+    """
+  end
 
   attr :edit, :map, required: true
 
