@@ -133,5 +133,20 @@ defmodule PinventoryWeb.PwaTest do
         assert color =~ ~r/^#[0-9a-f]{6}$/
       end
     end
+
+    test "shares its theme colors with the offline page", %{conn: conn} do
+      theme_colors = fn html ->
+        html
+        |> LazyHTML.from_document()
+        |> LazyHTML.query(~s(meta[name="theme-color"]))
+        |> then(&Enum.zip(LazyHTML.attribute(&1, "media"), LazyHTML.attribute(&1, "content")))
+        |> Map.new()
+      end
+
+      layout = conn |> get(~p"/user/log-in") |> html_response(200) |> theme_colors.()
+      offline = build_conn() |> get("/offline.html") |> response(200) |> theme_colors.()
+
+      assert offline == layout
+    end
   end
 end
