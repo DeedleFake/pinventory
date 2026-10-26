@@ -222,7 +222,7 @@ defmodule Pinventory.Items do
             start_seq: length(events)
           )
 
-      Audit.insert_events(repo, events)
+      Audit.insert_events(repo, Audit.with_actor(events, scope))
     end)
     |> Multi.run(:result, fn repo, %{item: item} ->
       {:ok, repo.preload(item, :item_locations)}

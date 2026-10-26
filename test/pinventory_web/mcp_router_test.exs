@@ -112,9 +112,9 @@ defmodule PinventoryWeb.MCPRouterTest do
       assert result["instructions"] =~ "happen in the Pinventory web UI"
     end
 
-    test "lists the four tools", %{secret: secret} do
+    test "lists the tools", %{secret: secret} do
       names = rpc(secret, "tools/list")["tools"] |> Enum.map(& &1["name"]) |> Enum.sort()
-      assert names == ~w[change_stock list_items list_locations move_stock]
+      assert names == ~w[change_stock create_item list_items list_locations move_stock]
     end
   end
 
@@ -223,6 +223,53 @@ defmodule PinventoryWeb.MCPRouterTest do
 
       result = call(secret, "list_items", %{terms: ["towel"], location_id: Ecto.UUID.generate()})
       assert result["isError"]
+    end
+  end
+
+  describe "create_item" do
+    test "creates an item that change_stock can then stock, marked as via the agent", %{
+      secret: secret,
+      user: user,
+      garage: garage
+    } do
+      %{"item" => item} =
+        call(secret, "create_item", %{name: " Light bulbs ", notes: "E26, warm white"})[
+          "structuredContent"
+        ]
+
+      assert %{"name" => "Light bulbs", "notes" => "E26, warm white", "stock" => []} = item
+      assert item["url"] =~ "/item/#{item["id"]}"
+      assert Items.get_item!(item["id"]).name == "Light bulbs"
+
+      [edit] = Audit.list_edits_for_item(item["id"])
+      assert AuditHelpers.edit_heading(edit) =~ "#{user.email} via Claude on phone"
+      assert List.last(Items.note_versions(item["id"])).text == "E26, warm white"
+
+      assert %{"from" => 0, "to" => 3} =
+               call(secret, "change_stock", %{item_id: item["id"], location_id: garage.id, add: 3})[
+                 "structuredContent"
+               ]
+
+      assert %{"items" => [%{"name" => "Light bulbs"}]} =
+               call(secret, "list_items", %{terms: ["bulb"], location_id: garage.id})[
+                 "structuredContent"
+               ]
+    end
+
+    test "refuses a duplicate or too-short name and writes nothing", %{secret: secret} do
+      before = event_count()
+
+      for {name, message} <- [
+            {"Paper towels", "name has already been taken"},
+            {" x ", "name should be at least 2 character(s)"},
+            {"", "name can't be blank"}
+          ] do
+        result = call(secret, "create_item", %{name: name})
+        assert result["isError"]
+        assert text(result) == "Nothing was changed: #{message}."
+      end
+
+      assert event_count() == before
     end
   end
 

@@ -1,8 +1,8 @@
 defmodule PinventoryWeb.MCPRouter do
   @moduledoc """
-  MCP server that lets an agent read the inventory and change stock counts
-  of existing items at existing locations, acting as the user who owns the
-  API token.
+  MCP server that lets an agent read the inventory, create items, and change
+  stock counts of items at existing locations, acting as the user who owns
+  the API token.
 
   The agent decides which item and location the user means. The server only
   checks what it can know for certain: the ids exist, counts stay within
@@ -17,7 +17,8 @@ defmodule PinventoryWeb.MCPRouter do
   - When more than one item or location could be the one the user means, ask the user. Don't guess. If the user didn't say which location, ask.
   - Use the ids from list_items and list_locations for changes.
   - To move stock between locations, use move_stock, not two change_stock calls.
-  - You can only change counts of existing items at existing locations. Creating, renaming, or deleting items or locations, and editing notes, happen in the Pinventory web UI. Send the user the item's or location's url.
+  - To add a new item, search with list_items first so you don't make a duplicate, then create_item, then change_stock to record how many and where.
+  - You can only change counts at existing locations. Renaming or deleting items, creating, renaming, or deleting locations, and editing notes of existing items happen in the Pinventory web UI. Send the user the item's or location's url.
   """
 
   use Phantom.Router,
@@ -123,6 +124,25 @@ defmodule PinventoryWeb.MCPRouter do
   end
 
   @description """
+  Create a new item with no stock. Search with list_items first, with several wordings, so you don't make a duplicate of an item that already exists. Names must be unique and at least 2 characters.
+  Returns the item like list_items does. Then use change_stock to record how many there are and where.
+  """
+  tool :create_item, idempotent: false, destructive: false do
+    field :name, :string, required: true, description: "The item's name."
+    field :notes, :string, description: "Notes about the item."
+  end
+
+  def create_item(params, session) do
+    case Items.create_item(session.assigns.scope, Map.take(params, ["name", "notes"])) do
+      {:ok, item} ->
+        {:reply, Tool.structured(%{item: stock_item_json(item)}), session}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:reply, Tool.error(changeset_message(changeset)), session}
+    end
+  end
+
+  @description """
   Change the count of one existing item at one existing location. Send exactly one of add (a whole number, negative to take some away) or set (the new count, 0 to 1,000,000; 0 removes the item from that location).
   Use ids from list_items and list_locations. If the user didn't say which location, ask.
   To move stock between locations, use move_stock instead.
@@ -209,6 +229,18 @@ defmodule PinventoryWeb.MCPRouter do
 
   defp error_message({:not_enough, count}, location_id),
     do: "not enough: #{location_name(location_id)} has #{count}. Nothing was changed."
+
+  defp changeset_message(changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(fn {message, opts} ->
+      Enum.reduce(opts, message, fn {key, value}, acc ->
+        String.replace(acc, "%{#{key}}", to_string(value))
+      end)
+    end)
+    |> Enum.flat_map(fn {field, messages} -> Enum.map(messages, &"#{field} #{&1}") end)
+    |> Enum.join(", ")
+    |> then(&"Nothing was changed: #{&1}.")
+  end
 
   defp location_name(location_id), do: Locations.get(location_id).name
 
