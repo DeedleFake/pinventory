@@ -19,6 +19,17 @@ defmodule Pinventory.ItemsTest do
       assert {:ok, %Item{name: "Hammer"}} = Items.create_item(scope, %{name: "Hammer"})
     end
 
+    test "rejects a quantity over the max instead of storing it", %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, item} = Items.create_item(scope, %{name: "Tape"}, %{garage.id => 1_000_000})
+
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Items.update_item(scope, item, %{name: "Tape"}, %{garage.id => 1_000_001})
+
+      assert %{quantity: [_]} = errors_on(changeset)
+      assert Items.stock_map(Items.get_item!(item.id)) == %{garage.id => 1_000_000}
+    end
+
     test "returns an ItemLocation changeset when stock references a missing location", %{
       scope: scope
     } do

@@ -214,6 +214,27 @@ defmodule PinventoryWeb.EditItemLiveTest do
     end
   end
 
+  test "+ stops at the max so a save never stores more", %{conn: conn, scope: scope} do
+    {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+    {:ok, item} = Items.create_item(scope, %{name: "Rice"}, %{garage.id => 1_000_000})
+
+    {:ok, view, _html} = live(conn, ~p"/item/#{item.id}")
+
+    assert has_element?(view, "#quantity-inc-#{garage.id}[disabled]")
+
+    render_click(view, "adjust", %{"location-id" => garage.id, "delta" => "1"})
+    assert_quantity(view, garage.id, 1_000_000)
+
+    view |> form("#item-form", item: %{name: "Brown rice"}) |> render_submit()
+
+    updated = Items.get_item!(item.id)
+    assert updated.name == "Brown rice"
+    assert Items.stock_map(updated) == %{garage.id => 1_000_000}
+
+    set_quantity(view, garage.id, 999_999)
+    refute has_element?(view, "#quantity-inc-#{garage.id}[disabled]")
+  end
+
   test "a typed 0 still removes stock at that location", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
     {:ok, item} = Items.create_item(scope, %{name: "Towels"}, %{garage.id => 5})

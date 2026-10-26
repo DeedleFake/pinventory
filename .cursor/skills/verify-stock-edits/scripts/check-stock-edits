@@ -9,7 +9,7 @@ TLA_SHA256=d15655eeaff4b3f7b3d65c46b838bc0f35d131b2ef4b1e473689b62c98d4726f
 
 # Properties the current code is known to break. The check expects each one
 # to fail. Remove a name here once the code is fixed and the check passes it.
-KNOWN_FINDINGS=(EditPageNeverStoresOverMax StaleSaveNeverCrashes)
+KNOWN_FINDINGS=(StaleSaveNeverCrashes)
 
 PROPERTIES=(NoLostUpdate StockNeverNegative AgentNeverStoresOverMax
   EditPageNeverStoresOverMax MoveKeepsTotal LocationDeleteKeepsStock
@@ -63,9 +63,10 @@ flag ChangeStockChecksBelowZero "$(anchor $ITEMS 'defp changed_count\((?:(?!\n  
 flag ChangeStockChecksMax "$(anchor $ITEMS 'defp changed_count\((?:(?!\n  defp? ).)*?new > DraftStock\.max_quantity\(\) -> \{:error, :too_many\}')"
 flag MoveStockChecksMax "$(anchor $ITEMS 'defp moved_counts\((?:(?!\n  defp? ).)*?to \+ quantity > DraftStock\.max_quantity\(\) -> \{:error, :too_many\}')"
 flag MoveStockChecksEnough "$(anchor $ITEMS 'defp moved_counts\((?:(?!\n  defp? ).)*?quantity > from -> \{:error, \{:not_enough, from\}\}')"
-validates=$(anchor lib/pinventory/items/item_location.ex 'validate_number\(:quantity, greater_than: 0\)')
+validates=$(anchor lib/pinventory/items/item_location.ex 'validate_number\(:quantity,\s*greater_than: 0[,)]')
 db_check=$(anchor priv/repo/migrations/20260223042150_create_locations_and_item_locations.exs 'check: %\{name: "quantity_must_be_positive", expr: "quantity > 0"\}')
 if [[ $validates == TRUE || $db_check == TRUE ]]; then flag QuantityMustBePositive TRUE; else flag QuantityMustBePositive FALSE; fi
+flag SaveChecksMax "$(anchor lib/pinventory/items/item_location.ex 'validate_number\(:quantity,(?:(?!\n    \|>).)*?less_than_or_equal_to: DraftStock\.max_quantity\(\)')"
 flag AdjustCapsAtMax "$(anchor lib/pinventory/items/draft_stock.ex 'def put\((?:(?!\n  def ).)*?max_quantity')"
 flag LocationDeleteChecksStock "$(anchor lib/pinventory/locations.ex 'def delete\((?:(?!\n  def ).)*?Multi\.run\(:empty\?, fn repo, _ ->\s*if location_has_items\?\(repo, location\.id\) do\s*\{:error, :location_has_items\}')"
 flag StaleReloadRaises "$(anchor lib/pinventory_web/live/edit_item_live.ex '\{:error, :stale\} ->\s*item = Items\.get_item!\(')"

@@ -2,8 +2,9 @@ defmodule Pinventory.Items.DraftStock do
   @moduledoc """
   Pure helpers for draft stock quantities keyed by location id.
 
-  Quantities are maps of `location_id => non_negative_integer`. Missing keys
-  are treated as zero when reading; writes only update existing keys.
+  Quantities are maps of `location_id => integer` from 0 to `max_quantity/0`.
+  Missing keys are treated as zero when reading; writes only update existing
+  keys.
   """
 
   @doc """
@@ -23,18 +24,19 @@ defmodule Pinventory.Items.DraftStock do
   end
 
   @doc """
-  Sets the quantity for a known location id. Unknown ids are ignored.
+  Sets the quantity for a known location id, clamped to 0..`max_quantity/0`.
+  Unknown ids are ignored.
   """
   def put(quantities, location_id, quantity) when is_integer(quantity) do
     if Map.has_key?(quantities, location_id) do
-      Map.put(quantities, location_id, max(quantity, 0))
+      Map.put(quantities, location_id, quantity |> max(0) |> min(max_quantity()))
     else
       quantities
     end
   end
 
   @doc """
-  Adjusts the quantity for a location by `delta` (clamped at zero).
+  Adjusts the quantity for a location by `delta`, clamped like `put/3`.
   """
   def adjust(quantities, location_id, delta) when is_integer(delta) do
     put(quantities, location_id, get(quantities, location_id) + delta)

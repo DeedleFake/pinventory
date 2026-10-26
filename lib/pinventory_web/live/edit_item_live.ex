@@ -514,6 +514,7 @@ defmodule PinventoryWeb.EditItemLive do
             name={"quantities[#{@location.id}]"}
             value={@invalid_raw || @quantity}
             min="0"
+            max={DraftStock.max_quantity()}
             step="1"
             class={[
               "input input-sm no-spinner w-20 text-center tabular-nums",
@@ -531,6 +532,7 @@ defmodule PinventoryWeb.EditItemLive do
             phx-click="adjust"
             phx-value-location-id={@location.id}
             phx-value-delta="1"
+            disabled={@quantity >= DraftStock.max_quantity()}
             aria-label={"Increase #{@location.name}"}
           >
             <.icon name="hero-plus" class="size-4" />

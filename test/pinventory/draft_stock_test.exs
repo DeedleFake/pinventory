@@ -22,6 +22,14 @@ defmodule Pinventory.Items.DraftStockTest do
     assert DraftStock.adjust(quantities, "a", 2)["a"] == 3
   end
 
+  test "adjust and put cap at max_quantity" do
+    max = DraftStock.max_quantity()
+    quantities = DraftStock.from_locations(locations(), %{"a" => max})
+
+    assert DraftStock.adjust(quantities, "a", 1)["a"] == max
+    assert DraftStock.put(quantities, "b", max + 5)["b"] == max
+  end
+
   test "put ignores unknown location ids" do
     quantities = DraftStock.from_locations(locations())
 

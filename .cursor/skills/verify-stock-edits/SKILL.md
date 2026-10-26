@@ -62,10 +62,17 @@ The script prints `code facts` first. Each is a model constant read from the cod
 | `ChangeStockChecksMax` | `new > DraftStock.max_quantity() -> {:error, :too_many}` in `changed_count/3` |
 | `MoveStockChecksMax` | `to + quantity > DraftStock.max_quantity() -> {:error, :too_many}` in `moved_counts/4` |
 | `MoveStockChecksEnough` | `quantity > from -> {:error, {:not_enough, from}}` in `moved_counts/4` |
-| `QuantityMustBePositive` | `validate_number(:quantity, greater_than: 0)` in `ItemLocation.changeset/2`, or the `quantity_must_be_positive` CHECK in the item_locations migration |
+| `QuantityMustBePositive` | `validate_number(:quantity, greater_than: 0, ...)` in `ItemLocation.changeset/2`, or the `quantity_must_be_positive` CHECK in the item_locations migration |
+| `SaveChecksMax` | `less_than_or_equal_to: DraftStock.max_quantity()` in the same `validate_number(:quantity, ...)`, so `update_item/4` refuses any count above the max |
 | `AdjustCapsAtMax` | `max_quantity` inside `DraftStock.put/3` |
 | `LocationDeleteChecksStock` | the `:empty?` step calling `location_has_items?` in `Locations.delete/2` |
 | `StaleReloadRaises` | `Items.get_item!(` right after `{:error, :stale} ->` in `EditItemLive`'s save handler |
+
+Some properties have two guards, so removing only one of them passes:
+
+- `AgentNeverStoresOverMax` fails only when `SaveChecksMax` and `ChangeStockChecksMax` (or `MoveStockChecksMax`) are both FALSE.
+- `EditPageNeverStoresOverMax` fails only when `SaveChecksMax` and `AdjustCapsAtMax` are both FALSE.
+- `StockNeverNegative` fails only when `QuantityMustBePositive` and `ChangeStockChecksBelowZero` (or `MoveStockChecksEnough`) are both FALSE.
 
 When a check fails, compare the facts with a run on `master`:
 
@@ -114,7 +121,6 @@ Two ghost variables exist only to state properties. `writes` counts committed ch
 
 These are what the current code does. The check expects them until the code changes.
 
-- `EditPageNeverStoresOverMax`. Open an item with 1,000,000 at a location, press + once, and save. `DraftStock.adjust/3` clamps only at 0, the + button is never disabled, and `update_item/4` has no upper bound, so 1,000,001 is stored. Typed values go through `parse_quantity/1` and are refused.
 - `StaleSaveNeverCrashes`. Open an item, change its name, then someone deletes the item, then save. The UPDATE hits no row and returns `{:error, :stale}`. The stale branch then calls `Items.get_item!/1` on the deleted id, raises `Ecto.NoResultsError`, and the LiveView process crashes.
 
 ## Coverage
