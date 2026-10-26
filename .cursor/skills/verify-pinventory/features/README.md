@@ -42,9 +42,10 @@ Each feature file starts with an H1 and one paragraph. Then exactly four H2 sect
 ## Features
 
 - [Log in](./log-in.md) covers password login, passkey button presence, closed registration, and failed credentials.
-- [Items](./items.md) covers list, create, stock, notes, filter, and persistence.
+- [Items](./items.md) covers list, create, stock and bad quantities, notes, letters-in-order search, the location filter, and persistence.
 - [Locations](./locations.md) covers add, open, rename, and the per-location item list.
 - [Floor plan](./floor-plan.md) covers optional multi-floor walls, gaps, impassable areas, pins, list badges, and delete-plan.
 - [Delete](./delete.md) covers type-the-name item delete and empty-only location delete.
-- [Settings](./settings.md) covers sudo settings tabs, passkeys on Account, invite minting, invite accept, and the activity feed.
+- [Settings](./settings.md) covers sudo settings tabs, passkeys on Account, invite minting, revoke, and accept, and the activity feed.
+- [Agent access](./agent-access.md) covers API tokens on Account (create, roll, revoke) and the MCP endpoint at `/mcp` that agents call with them.
 - [PWA](./pwa.md) covers the manifest and icons, installability, the service worker and offline page, and the light, dark and system theme toggle with its theme-color tags.
