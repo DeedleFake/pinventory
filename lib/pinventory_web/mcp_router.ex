@@ -77,7 +77,7 @@ defmodule PinventoryWeb.MCPRouter do
   @description """
   Search items by name. An item matches when, for any one term, the letters of every word appear in its name in order, ignoring case, with gaps allowed. Expect some loose matches. Notes are not searched. A singular word also finds its regular plural ("towel" finds "Paper Towels"). Pass several wordings at once, for example ["paper towel", "kitchen roll", "bounty"], and pass irregular forms yourself, such as both "knife" and "knives". Results come best match first, with notes, the count at each location, and the item's page url.
   Pass location_id to only get items that have stock at that location. To list everything at one location, pass location_id without terms.
-  Leave out both terms and location_id only when neither fits, to list every item.
+  To list every item, leave out both terms and location_id. Do this only when a more focused query does not accomplish the goal.
   If more than one item could be the one the user means, ask the user.
   """
   tool :list_items, read_only: true do
