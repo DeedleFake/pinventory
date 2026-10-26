@@ -212,3 +212,26 @@ jobs:
 
       - name: Compile for production
         run: mix compile --warnings-as-errors
+
+  stock-model:
+    name: Stock edits model
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Cache tla2tools.jar
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/pinventory
+          key: tla2tools-${{ hashFiles('.cursor/skills/verify-stock-edits/scripts/check-stock-edits') }}
+
+      - name: Model-check stock edits
+        run: ./.cursor/skills/verify-stock-edits/scripts/check-stock-edits
