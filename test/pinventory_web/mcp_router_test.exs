@@ -114,7 +114,9 @@ defmodule PinventoryWeb.MCPRouterTest do
 
     test "lists the tools", %{secret: secret} do
       names = rpc(secret, "tools/list")["tools"] |> Enum.map(& &1["name"]) |> Enum.sort()
-      assert names == ~w[change_stock create_item list_items list_locations move_stock]
+
+      assert names ==
+               ~w[change_stock create_item list_items list_locations move_stock rename_item]
     end
   end
 
@@ -270,6 +272,62 @@ defmodule PinventoryWeb.MCPRouterTest do
       end
 
       assert event_count() == before
+    end
+  end
+
+  describe "rename_item" do
+    test "renames an item, keeps its notes and stock, and records the edit", %{
+      secret: secret,
+      user: user,
+      batteries: batteries,
+      garage: garage,
+      drawer: drawer
+    } do
+      before = Items.get_item!(batteries.id)
+
+      %{"item" => item} =
+        call(secret, "rename_item", %{item_id: batteries.id, name: "AA batteries (Eneloop)"})[
+          "structuredContent"
+        ]
+
+      assert item["name"] == "AA batteries (Eneloop)"
+      assert stock(batteries) == %{garage.id => 24, drawer.id => 8}
+
+      renamed = Items.get_item!(batteries.id)
+      assert renamed.notes == before.notes
+      assert renamed.lock_version == before.lock_version + 1
+
+      [edit | _] = Audit.list_edits_for_item(batteries.id, limit: 1)
+      assert AuditHelpers.edit_heading(edit) =~ "#{user.email} via Claude on phone"
+
+      assert Enum.map(edit.events, & &1.changes) == [
+               %{"name" => %{"from" => "AA batteries", "to" => "AA batteries (Eneloop)"}}
+             ]
+    end
+
+    test "refuses an unknown item or a bad name and writes nothing", %{
+      secret: secret,
+      batteries: batteries
+    } do
+      before = event_count()
+
+      for {args, message} <- [
+            {%{item_id: Ecto.UUID.generate(), name: "Batteries"},
+             "No item has that id. Call list_items for ids."},
+            {%{item_id: "batteries", name: "Batteries"},
+             "No item has that id. Call list_items for ids."},
+            {%{item_id: batteries.id, name: "Paper towels"},
+             "Nothing was changed: name has already been taken."},
+            {%{item_id: batteries.id, name: "A"},
+             "Nothing was changed: name should be at least 2 character(s)."}
+          ] do
+        result = call(secret, "rename_item", args)
+        assert result["isError"]
+        assert text(result) == message
+      end
+
+      assert event_count() == before
+      assert Items.get_item!(batteries.id).name == "AA batteries"
     end
   end
 

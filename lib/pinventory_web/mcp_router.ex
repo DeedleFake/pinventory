@@ -1,8 +1,8 @@
 defmodule PinventoryWeb.MCPRouter do
   @moduledoc """
-  MCP server that lets an agent read the inventory, create items, and change
-  stock counts of items at existing locations, acting as the user who owns
-  the API token.
+  MCP server that lets an agent read the inventory, create and rename items,
+  and change stock counts of items at existing locations, acting as the user
+  who owns the API token.
 
   The agent decides which item and location the user means. The server only
   checks what it can know for certain: the ids exist, counts stay within
@@ -18,7 +18,7 @@ defmodule PinventoryWeb.MCPRouter do
   - Use the ids from list_items and list_locations for changes.
   - To move stock between locations, use move_stock, not two change_stock calls.
   - To add a new item, search with list_items first so you don't make a duplicate, then create_item, then change_stock to record how many and where.
-  - You can only change counts at existing locations. Renaming or deleting items, creating, renaming, or deleting locations, and editing notes of existing items happen in the Pinventory web UI. Send the user the item's or location's url.
+  - You can only change counts at existing locations. Deleting items, creating, renaming, or deleting locations, and editing notes of existing items happen in the Pinventory web UI. Send the user the item's or location's url.
   """
 
   use Phantom.Router,
@@ -100,12 +100,7 @@ defmodule PinventoryWeb.MCPRouter do
   defp fetch_location_filter(nil), do: {:ok, nil}
 
   defp fetch_location_filter(location_id) do
-    with {:ok, uuid} <- Ecto.UUID.cast(location_id),
-         %Locations.Location{} <- Locations.get(uuid) do
-      {:ok, uuid}
-    else
-      _ -> :error
-    end
+    with {:ok, location} <- fetch(location_id, &Locations.get/1), do: {:ok, location.id}
   end
 
   defp list_items_reply(terms, location_id) when is_list(terms) and terms != [] do
@@ -139,6 +134,32 @@ defmodule PinventoryWeb.MCPRouter do
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:reply, Tool.error(changeset_message(changeset)), session}
+    end
+  end
+
+  @description """
+  Rename one existing item. Names must be unique and at least 2 characters. Notes and stock stay as they are.
+  Use the id from list_items. Returns the item like list_items does.
+  """
+  tool :rename_item, idempotent: true, destructive: false do
+    field :item_id, :string, required: true, description: "Item id from list_items."
+    field :name, :string, required: true, description: "The new name."
+  end
+
+  def rename_item(%{"item_id" => item_id, "name" => name}, session) do
+    with {:ok, item} <- fetch(item_id, &Items.get_item/1),
+         {:ok, item} <-
+           Items.update_item(
+             session.assigns.scope,
+             item,
+             %{"name" => name},
+             Items.stock_map(item)
+           ) do
+      {:reply, Tool.structured(%{item: stock_item_json(item)}), session}
+    else
+      :error -> {:reply, Tool.error(error_message(:item_not_found, nil)), session}
+      {:error, :stale} -> {:reply, Tool.error(error_message(:stale, nil)), session}
+      {:error, changeset} -> {:reply, Tool.error(changeset_message(changeset)), session}
     end
   end
 
@@ -218,6 +239,9 @@ defmodule PinventoryWeb.MCPRouter do
   defp error_message(:location_not_found, _),
     do: "No location has that id. Call list_locations for ids."
 
+  defp error_message(:stale, _),
+    do: "The item changed while renaming it. Nothing was changed. Try again."
+
   defp error_message(:same_location, _), do: "The from and to locations are the same."
 
   defp error_message(:too_many, _),
@@ -229,6 +253,15 @@ defmodule PinventoryWeb.MCPRouter do
 
   defp error_message({:not_enough, count}, location_id),
     do: "not enough: #{location_name(location_id)} has #{count}. Nothing was changed."
+
+  defp fetch(id, get) do
+    with {:ok, uuid} <- Ecto.UUID.cast(id),
+         %{} = record <- get.(uuid) do
+      {:ok, record}
+    else
+      _ -> :error
+    end
+  end
 
   defp changeset_message(changeset) do
     changeset
