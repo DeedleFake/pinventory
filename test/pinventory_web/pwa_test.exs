@@ -74,6 +74,23 @@ defmodule PinventoryWeb.PwaTest do
     end
   end
 
+  describe "static links" do
+    # In prod, ~p links a digested name such as /favicon-<hash>.svg. Plug.Static
+    # serves root files only under their exact names, so that link 404s.
+    test "never use ~p for a file at the root of priv/static" do
+      root_files = Enum.filter(PinventoryWeb.static_paths(), &String.contains?(&1, "."))
+
+      offenders =
+        for path <- Path.wildcard("lib/**/*.{ex,heex}"),
+            {line, number} <- path |> File.read!() |> String.split("\n") |> Enum.with_index(1),
+            file <- root_files,
+            String.contains?(line, ~s(~p"/#{file})),
+            do: "#{path}:#{number} links ~p\"/#{file}\". Use the plain path \"/#{file}\"."
+
+      assert offenders == []
+    end
+  end
+
   describe "root layout" do
     setup do
       _ = user_fixture()
@@ -90,6 +107,17 @@ defmodule PinventoryWeb.PwaTest do
 
       assert [_] =
                document |> LazyHTML.query(~s(link[rel="apple-touch-icon"])) |> LazyHTML.to_tree()
+    end
+
+    test "links the favicons by plain path, which prod serves", %{conn: conn} do
+      document = conn |> get(~p"/user/log-in") |> html_response(200) |> LazyHTML.from_document()
+      hrefs = document |> LazyHTML.query(~s(link[rel="icon"])) |> LazyHTML.attribute("href")
+
+      assert Enum.sort(hrefs) == ["/favicon.ico", "/favicon.svg"]
+
+      for href <- hrefs do
+        assert get(build_conn(), href) |> response(200)
+      end
     end
 
     test "has a theme color for each color scheme", %{conn: conn} do

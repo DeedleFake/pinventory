@@ -53,9 +53,10 @@ Pinventory can be installed from the browser. The pieces:
 * Icons in `priv/static/images` are generated from `priv/static/favicon.svg`
   by `scripts/generate-pwa-icons` (needs headless Chrome or Chromium). Run it
   and commit the PNGs when the favicon changes.
-* Reference `manifest.webmanifest` and `sw.js` by plain path, not `~p`. In
+* Reference files at the root of `priv/static` (`favicon.svg`,
+  `favicon.ico`, `manifest.webmanifest`, `sw.js`) by plain path, not `~p`. In
   prod `~p` links a digested name that `Plug.Static`'s `only` list doesn't
-  serve.
+  serve. Files under `images/` and `assets/` are fine with `~p`.
 
 ## Learn more
 
