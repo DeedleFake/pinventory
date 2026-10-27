@@ -4,9 +4,11 @@ defmodule Pinventory.Repo.Migrations.CreateNamingConventionVersions do
   @initial_text """
   # Item names
 
-  Include the unit in the name, so the count says what you have.
-
-  - **Boxes of Tissues**, not **Tissues**\
+  - Include the unit in the name, so the count says what you have. Write **Boxes of Tissues**, not **Tissues**.
+  - Leave the location out. Each item already has counts per location. Put details like "bottom shelf" in the item's notes.
+  - Leave quantities out. Write **Boxes of Tissues**, not **3 Boxes of Tissues**, because the count changes.
+  - Leave the brand out unless it matters. When it does, keep the generic word too, as in **Bounty Paper Towels**, so a search for "paper towels" finds it.
+  - Leave out temporary states like "opened", "expired", or "for the party". Put those in the item's notes.\
   """
 
   def up do
