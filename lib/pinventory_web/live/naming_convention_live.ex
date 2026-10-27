@@ -13,7 +13,7 @@ defmodule PinventoryWeb.NamingConventionLive do
     <Layouts.app flash={@flash} current_scope={@current_scope} nav={:items} wide>
       <div
         id="convention-page"
-        class="mx-auto max-w-5xl space-y-4 py-6"
+        class="mx-auto max-w-7xl space-y-4 py-6"
         phx-hook="UnsavedChanges"
         data-dirty={to_string(@dirty?)}
       >
@@ -45,10 +45,6 @@ defmodule PinventoryWeb.NamingConventionLive do
             </.button>
           </div>
         </div>
-
-        <p class="text-sm opacity-70">
-          How to name items. The item pages and agents always use the latest saved version.
-        </p>
 
         <.stale_warning :if={@stale} newest={@stale} text={@text} />
 
@@ -112,8 +108,8 @@ defmodule PinventoryWeb.NamingConventionLive do
             </span>
           </div>
 
-          <div class="grid divide-base-300 lg:grid-cols-2 lg:divide-x">
-            <div class="flex flex-col">
+          <div class="grid divide-base-300 lg:h-[calc(100dvh-14rem)] lg:min-h-96 lg:grid-cols-2 lg:divide-x">
+            <div class="flex min-h-0 flex-col">
               <p
                 class="px-3 pt-2 text-xs font-semibold tracking-wide uppercase opacity-60"
                 aria-hidden="true"
@@ -129,13 +125,13 @@ defmodule PinventoryWeb.NamingConventionLive do
                 aria-label="Naming convention Markdown"
                 placeholder="e.g. Include the unit in the name: Boxes of Tissues, not Tissues"
                 wrapperclass="mb-0 flex flex-1 flex-col p-0"
-                class="min-h-64 w-full flex-1 resize-y bg-transparent px-3 py-2 font-mono text-sm leading-relaxed focus:outline-none"
+                class="min-h-[60dvh] w-full flex-1 resize-none bg-transparent lg:min-h-0 px-3 py-2 font-mono text-sm leading-relaxed focus:outline-none"
               />
             </div>
             <section
               id="convention-preview"
               aria-label="Preview"
-              class="border-t border-base-300 bg-base-100 lg:border-t-0"
+              class="border-t border-base-300 bg-base-100 lg:overflow-y-auto lg:border-t-0"
             >
               <p class="px-3 pt-2 text-xs font-semibold tracking-wide uppercase opacity-60">
                 Preview
