@@ -13,10 +13,19 @@ defmodule Pinventory.Markdown do
 
   With `sourcepos: true`, each block gets a `data-sourcepos` attribute such as
   `"3:1-4:8"` naming the source lines it came from.
+
+  With `heading_offset: n`, every heading moves down `n` levels, stopping at
+  `h6`, so a `#` heading can sit under the `h1` of the page that shows it.
   """
-  @spec to_html(String.t(), [{:sourcepos, boolean()}]) :: String.t()
+  @spec to_html(String.t(), [{:sourcepos, boolean()} | {:heading_offset, non_neg_integer()}]) ::
+          String.t()
   def to_html(text, opts \\ []) when is_binary(text) do
-    MDEx.to_html!(text,
+    offset = Keyword.get(opts, :heading_offset, 0)
+
+    text
+    |> MDEx.parse_document!(extension: @extension)
+    |> MDEx.Document.update_nodes(MDEx.Heading, &%{&1 | level: min(&1.level + offset, 6)})
+    |> MDEx.to_html!(
       extension: @extension,
       render: [sourcepos: Keyword.get(opts, :sourcepos, false)],
       sanitize:

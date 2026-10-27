@@ -29,6 +29,20 @@ defmodule Pinventory.MarkdownTest do
       assert Markdown.to_html(text, sourcepos: true) =~ ~s(<p data-sourcepos="3:1-4:3">)
       refute Markdown.to_html(text) =~ "data-sourcepos"
     end
+
+    test "moves headings down a level when asked, stopping at h6" do
+      html = Markdown.to_html("# One\n\n## Two\n\n###### Six", heading_offset: 1)
+
+      assert html =~ "<h2>One</h2>"
+      assert html =~ "<h3>Two</h3>"
+      assert html =~ "<h6>Six</h6>"
+      refute html =~ "<h1>"
+    end
+
+    test "keeps source lines on moved headings" do
+      assert Markdown.to_html("# One", heading_offset: 1, sourcepos: true) =~
+               ~s(<h2 data-sourcepos="1:1-1:5">One</h2>)
+    end
   end
 
   describe "format/1" do
