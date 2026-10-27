@@ -63,6 +63,8 @@ Browser (Chromium over CDP, persistent until cleanup):
   browser text <selector>
   browser exists <selector>
   browser attr <selector> <name>
+  browser value <selector>
+  browser scroll <selector> [top]
   browser count <selector>
   browser screenshot <relpath>
   browser html <relpath>
@@ -650,6 +652,38 @@ async function cmdBrowser(args) {
     await withPage(async (page) => {
       const value = await page.locator(selector).first().getAttribute(name);
       console.log(value ?? "");
+    });
+    return;
+  }
+
+  if (action === "value") {
+    const selector = rest.join(" ").trim();
+    if (!selector) throw new Error("browser value <selector>");
+    await withPage(async (page) => {
+      console.log(await page.locator(selector).first().inputValue());
+    });
+    return;
+  }
+
+  if (action === "scroll") {
+    const last = rest[rest.length - 1];
+    const top = rest.length >= 2 && /^\d+$/.test(last) ? Number(last) : null;
+    const selector = (top === null ? rest : rest.slice(0, -1)).join(" ").trim();
+    if (!selector) throw new Error("browser scroll <selector> [top]");
+    await withPage(async (page) => {
+      const el = page.locator(selector).first();
+      if (top !== null) {
+        await el.evaluate((node, y) => {
+          node.scrollTop = y;
+        }, top);
+        // Let scroll listeners run before reading back.
+        await page.waitForTimeout(200);
+      }
+      const pos = await el.evaluate((node) => ({
+        top: Math.round(node.scrollTop),
+        max: node.scrollHeight - node.clientHeight,
+      }));
+      console.log(`scrollTop=${pos.top} max=${pos.max}`);
     });
     return;
   }

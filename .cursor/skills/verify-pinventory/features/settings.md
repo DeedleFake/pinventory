@@ -6,9 +6,9 @@ Settings holds account, agent API tokens, user invites, and the global activity 
 
 - `settings-account` shows email and password forms on `/user/settings`.
 - `settings-passkeys` shows `#passkeys-section`, `#passkeys-empty`, and `#add-passkey-button` on Account. Presence only.
-- `settings-agent-access` is the `Agent access` section on Account (`#agent-access-section`). See [Agent access](./agent-access.md).
+- `settings-agent-access` is the `Agent access` section on Account (`#agent-access-section`), with the MCP server URL and API tokens. See [Agent access](./agent-access.md).
 - `settings-users` lists users and pending invites on `/user/settings/users`.
-- `settings-invite` mints a URL in `#latest-invite-url` and shows flash `#flash-info` (`Invite created. Copy the link now`). `#copy-latest-invite` copies it. The pending invite shows in `#invites` with `#revoke-invite-<id>`. Revoke asks with a native confirm dialog, then flashes `Invite revoked.` and the row leaves `#invites`. `#invites-empty` (`No pending invites.`) is the empty state.
+- `settings-invite` mints a URL in `#latest-invite-url` and shows flash `#flash-info` (`Invite created. Copy the link now`). `#copy-latest-invite` copies it and shows `Copied` (`data-state="copied"`) for 2 seconds. The pending invite shows in `#invites` with `#revoke-invite-<id>`. Revoke asks with a native confirm dialog, then flashes `Invite revoked.` and the row leaves `#invites`. `#invites-empty` (`No pending invites.`) is the empty state.
 - `settings-invite-register` opens `/user/invite/<token>` after logout (`#invite_registration_form`, heading `Accept invite`) and creates the invited account.
 - `settings-activity` lists recent edits on `/user/settings/activity`.
 - `settings-activity-link` opens an item or location page from a card that still has a live row.
