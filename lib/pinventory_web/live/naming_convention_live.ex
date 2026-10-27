@@ -112,7 +112,13 @@ defmodule PinventoryWeb.NamingConventionLive do
             </span>
           </div>
 
-          <div class="grid divide-base-300 lg:min-h-0 lg:flex-1 lg:grid-cols-2 lg:grid-rows-1 lg:divide-x">
+          <div
+            id="convention-panes"
+            class="grid divide-base-300 lg:min-h-0 lg:flex-1 lg:grid-cols-2 lg:grid-rows-1 lg:divide-x"
+            phx-hook=".ScrollSync"
+            data-source="convention-text"
+            data-preview="convention-preview"
+          >
             <label class="flex min-h-0 flex-col bg-base-200">
               <span class="px-3 pt-2 text-xs font-semibold tracking-wide uppercase opacity-60">
                 Markdown
@@ -134,7 +140,7 @@ defmodule PinventoryWeb.NamingConventionLive do
               <p class="px-5 pt-2 text-xs font-semibold tracking-wide uppercase opacity-60">
                 Preview
               </p>
-              <.markdown id="convention-preview-body" text={@text} class="px-5 py-3" />
+              <.markdown id="convention-preview-body" text={@text} class="px-5 py-3" sourcepos />
             </section>
           </div>
         </.form>
@@ -224,6 +230,116 @@ defmodule PinventoryWeb.NamingConventionLive do
             }).join("\n")
             this.replace(ta, start, end, changed, start, start + changed.length)
           }
+        }
+      </script>
+
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".ScrollSync">
+        // Keeps the textarea and the preview showing the same part of the
+        // document. Each rendered block carries data-sourcepos, so a source
+        // line's top in the textarea pairs with its block's top in the preview.
+        // Scroll positions between two pairs are interpolated.
+        export default {
+          mounted() {
+            this.source = document.getElementById(this.el.dataset.source)
+            this.preview = document.getElementById(this.el.dataset.preview)
+            this.anchors = null
+            // The scrollTop each pane was last set to, so the scroll event
+            // that setting fires is not synced back.
+            this.expected = new Map()
+            this.onScroll = (e) => this.follow(e.target)
+            this.stale = () => { this.anchors = null }
+            this.source.addEventListener("scroll", this.onScroll)
+            this.preview.addEventListener("scroll", this.onScroll)
+            this.source.addEventListener("input", this.stale)
+            this.resize = new ResizeObserver(this.stale)
+            this.resize.observe(this.source)
+            this.resize.observe(this.preview)
+            // A re-render follows typing, so the preview catches up to the textarea.
+            this.rerender = new MutationObserver(() => {
+              this.anchors = null
+              this.sync(this.source, this.preview)
+            })
+            this.rerender.observe(this.preview, { childList: true, subtree: true, characterData: true })
+          },
+          destroyed() {
+            this.resize.disconnect()
+            this.rerender.disconnect()
+          },
+          follow(from) {
+            const expected = this.expected.get(from)
+            this.expected.delete(from)
+            if (expected !== undefined && Math.abs(from.scrollTop - expected) <= 1) return
+            this.sync(from, from === this.source ? this.preview : this.source)
+          },
+          sync(from, to) {
+            // A stacked phone layout scrolls the page, not the preview.
+            if (this.preview.scrollHeight <= this.preview.clientHeight) return
+            this.anchors ??= this.measure()
+            const [fromYs, toYs] = from === this.source
+              ? [this.anchors.source, this.anchors.preview]
+              : [this.anchors.preview, this.anchors.source]
+            const top = Math.round(interpolate(from.scrollTop, fromYs, toYs))
+            if (Math.abs(to.scrollTop - top) < 1) return
+            this.expected.set(to, top)
+            to.scrollTop = top
+          },
+          measure() {
+            const lineTops = this.lineTops()
+            const previewTop = this.preview.getBoundingClientRect().top - this.preview.scrollTop
+            const sourceMax = this.source.scrollHeight - this.source.clientHeight
+            const previewMax = this.preview.scrollHeight - this.preview.clientHeight
+            const anchors = { source: [0], preview: [0] }
+            const blocks = [...this.preview.querySelectorAll("[data-sourcepos]")]
+              .map((el) => ({ line: parseInt(el.dataset.sourcepos, 10), el }))
+              .sort((a, b) => a.line - b.line)
+            for (const { line, el } of blocks) {
+              const s = lineTops[line - 1]
+              const p = el.getBoundingClientRect().top - previewTop
+              // Nested blocks share a start line, and both lists must rise.
+              if (s > anchors.source.at(-1) && p > anchors.preview.at(-1) && s < sourceMax && p < previewMax) {
+                anchors.source.push(s)
+                anchors.preview.push(p)
+              }
+            }
+            // Both panes reach their ends together.
+            anchors.source.push(Math.max(sourceMax, anchors.source.at(-1) + 1))
+            anchors.preview.push(Math.max(previewMax, anchors.preview.at(-1) + 1))
+            return anchors
+          },
+          // Each source line's top in the textarea's content, wrapped lines
+          // included, measured on a hidden copy with the same text layout.
+          lineTops() {
+            const ta = this.source
+            const style = getComputedStyle(ta)
+            const mirror = document.createElement("div")
+            for (const prop of ["font", "letterSpacing", "wordSpacing", "tabSize", "textTransform",
+              "whiteSpace", "overflowWrap", "wordBreak", "lineHeight"]) {
+              mirror.style[prop] = style[prop]
+            }
+            const padLeft = parseFloat(style.paddingLeft)
+            const padTop = parseFloat(style.paddingTop)
+            Object.assign(mirror.style, {
+              position: "absolute", visibility: "hidden", top: "0", left: "-9999px",
+              boxSizing: "content-box", padding: "0", border: "0",
+              width: `${ta.clientWidth - padLeft - parseFloat(style.paddingRight)}px`,
+            })
+            for (const line of ta.value.split("\n")) {
+              const div = document.createElement("div")
+              div.textContent = line || "\u200b"
+              mirror.append(div)
+            }
+            document.body.append(mirror)
+            const tops = [...mirror.children].map((div) => padTop + div.offsetTop)
+            mirror.remove()
+            return tops
+          }
+        }
+
+        function interpolate(y, from, to) {
+          let i = 1
+          while (i < from.length - 1 && from[i] < y) i++
+          const t = Math.min(Math.max((y - from[i - 1]) / (from[i] - from[i - 1]), 0), 1)
+          return to[i - 1] + t * (to[i] - to[i - 1])
         }
       </script>
     </Layouts.app>

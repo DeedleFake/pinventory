@@ -22,6 +22,13 @@ defmodule Pinventory.MarkdownTest do
       refute html =~ "onclick"
       refute html =~ "javascript:"
     end
+
+    test "marks blocks with their source lines when asked" do
+      text = "# Names\n\nOne\ntwo\n\n- a"
+
+      assert Markdown.to_html(text, sourcepos: true) =~ ~s(<p data-sourcepos="3:1-4:3">)
+      refute Markdown.to_html(text) =~ "data-sourcepos"
+    end
   end
 
   describe "format/1" do

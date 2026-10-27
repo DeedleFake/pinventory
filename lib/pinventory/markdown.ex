@@ -10,12 +10,19 @@ defmodule Pinventory.Markdown do
   @doc """
   Renders Markdown to sanitized HTML. Raw HTML, scripts, and unsafe links in
   the source are dropped, so the result is safe to put in a page.
+
+  With `sourcepos: true`, each block gets a `data-sourcepos` attribute such as
+  `"3:1-4:8"` naming the source lines it came from.
   """
-  @spec to_html(String.t()) :: String.t()
-  def to_html(text) when is_binary(text) do
+  @spec to_html(String.t(), [{:sourcepos, boolean()}]) :: String.t()
+  def to_html(text, opts \\ []) when is_binary(text) do
     MDEx.to_html!(text,
       extension: @extension,
-      sanitize: MDEx.Document.default_sanitize_options()
+      render: [sourcepos: Keyword.get(opts, :sourcepos, false)],
+      sanitize:
+        Keyword.put(MDEx.Document.default_sanitize_options(), :add_generic_attributes, [
+          "data-sourcepos"
+        ])
     )
   end
 

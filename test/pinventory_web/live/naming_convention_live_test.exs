@@ -40,7 +40,7 @@ defmodule PinventoryWeb.NamingConventionLiveTest do
     )
     |> render_change()
 
-    assert has_element?(view, "#convention-preview-body h2", "Units")
+    assert has_element?(view, ~s(#convention-preview-body h2[data-sourcepos="1:1-1:8"]), "Units")
     assert has_element?(view, "#convention-preview-body em", "Boxes")
     refute render(element(view, "#convention-preview-body")) =~ "<script"
     assert has_element?(view, "#convention-hint", "Unsaved changes")
