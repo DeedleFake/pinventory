@@ -203,7 +203,7 @@ node ./.cursor/skills/verify-pinventory/scripts/pwa-check.mjs
 
 It reads `tmp/verify-pinventory/run/state.json`, prints `ok` or `fail` per check, and exits 1 on any failure. It imports `playwright-core` from `scripts/node_modules/`, so run `verify-pinventory` once first if that directory is missing. Run it against a launched instance after `doctor`. See [PWA](./features/pwa.md).
 
-The harness has no select-option, current-URL, or JS-eval command. A bare `h1` selector matches the Markdown headings that the naming convention renders on item pages and its editor, so scope it, as in `'#item-page h1 >> nth=0'`. For the items location filter use `goto '/?location=<location-id>&q=<text>'`.
+The harness has no select-option, current-URL, or JS-eval command. For the items location filter use `goto '/?location=<location-id>&q=<text>'`.
 
 Chromium binary order: `PINVENTORY_CHROME`, then `~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome`, then `/usr/bin/chromium`, `/usr/bin/google-chrome`, `/usr/bin/google-chrome-stable`.
 

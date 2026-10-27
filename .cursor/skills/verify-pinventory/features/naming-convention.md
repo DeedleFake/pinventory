@@ -41,7 +41,6 @@ Preconditions:
 ## Gotchas
 
 - `browser text '#convention-text'` prints blank, whatever the textarea holds. Use `browser value`.
-- The rendered Markdown has its own headings. The seeded text starts with `# Item names`, so a bare `h1` selector matches two elements on the editor and on item pages, and `browser text h1` fails in strict mode. Scope it: `'#convention-page h1 >> nth=0'`, `'#item-page h1 >> nth=0'`.
 - The toolbar acts on the textarea selection. Click `#convention-text` and select with `browser press` first. With no selection, Bold inserts `****` at the cursor.
 - Stale shows only on Save. Another save does not interrupt the editor while it is open.
 - `browser attr '#item-naming-convention' open` prints blank whether it is open or not. Count `#item-naming-convention[open]` instead.

@@ -50,7 +50,6 @@ Preconditions:
 ## Gotchas
 
 - Save and Delete sit in the header row at the top of the page (`#item-actions`), not under the form.
-- `browser text h1` fails on item pages. The naming convention panel renders its own `<h1>` from the Markdown, even while closed. Use `'#item-page h1 >> nth=0'`.
 - Save enables when the name, stock, or notes are dirty. Otherwise it stays disabled. Wait for enabled. Do not click a disabled `#item-save`. Use `browser enabled`, not `attr disabled` (boolean attributes print blank either way).
 - `#items-empty` stays in the DOM (`hidden only:block`) when rows exist. Assert row text or empty copy, not that the node is gone.
 - `#item_name` debounces 300ms. `wait-enabled '#item-save'` is the signal, not a sleep.
