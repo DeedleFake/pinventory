@@ -1,6 +1,6 @@
 ---
 name: verify-pinventory
-description: Drive the Pinventory Phoenix LiveView web UI in a real Chromium session, and its MCP endpoint with curl, against an isolated local server. Use when proving a Pinventory UI or MCP change, running /verify-pinventory, or checking login, items, locations, floor plan, delete, settings, agent tokens and MCP tools, or install, offline, and theme behavior as a user would.
+description: Drive the Pinventory Phoenix LiveView web UI in a real Chromium session, and its MCP endpoint with curl, against an isolated local server. Use when proving a Pinventory UI or MCP change, running /verify-pinventory, or checking login, items, the item naming convention, locations, floor plan, delete, settings, agent tokens and MCP tools, or install, offline, and theme behavior as a user would.
 ---
 
 # Verify Pinventory
@@ -105,7 +105,7 @@ $H browser hover '#location-<id>'
 
 `goto` paths are origin-relative (`/locations`, `/item`, `/user/settings`). After LiveView clicks, `wait` the destination root id. Do not sleep a fixed number of seconds except for documented debounce (name/filter `phx-debounce="300"`). After those fills, wait 400ms by running `browser wait-enabled` or `browser wait` on the result.
 
-`click-at <selector> <x> <y>` clicks CSS pixels from the element's top-left. Prefer `#floor-plan-canvas [data-floor-plan-svg]` and keep y below the Reset view overlay. `click-box <selector> <fx> <fy>` clicks a 0–1 fraction of the bounding box (use this for existing wall/impassable geometry). `wait-attached` is for SVG nodes such as `[data-wall-id]`; Playwright treats a transparent stroke as not visible. `enabled` prints `enabled` or `disabled` (boolean `attr disabled`/`checked` is ambiguous). `click-confirm` clicks, accepts the native confirm dialog that `data-confirm` buttons open, and prints its text. It fails if no dialog appears within 5s. Plain `click` dismisses such a dialog, so the action never happens. `hover` leaves the pointer there so a following `attr class` can see `.is-list-hover`. Flash toasts sit over the header and intercept clicks (the Log out link included); dismiss them first by clicking `#flash-info` / `#flash-error`. `exists` counts DOM nodes, hidden ones too (`#polygon-finish` exists while it has the `hidden` class). `click-at` coordinates must stay inside the target's box. Check it with `browser box '#floor-plan-canvas'`.
+`click-at <selector> <x> <y>` clicks CSS pixels from the element's top-left. Prefer `#floor-plan-canvas [data-floor-plan-svg]` and keep y below the Reset view overlay. `click-box <selector> <fx> <fy>` clicks a 0–1 fraction of the bounding box (use this for existing wall/impassable geometry). `wait-attached` is for SVG nodes such as `[data-wall-id]`; Playwright treats a transparent stroke as not visible. `enabled` prints `enabled` or `disabled` (boolean `attr disabled`/`checked` is ambiguous). `click-confirm` clicks, accepts the native confirm dialog that `data-confirm` buttons open, and prints its text. It fails if no dialog appears within 5s. Plain `click` dismisses such a dialog, so the action never happens. `hover` leaves the pointer there so a following `attr class` can see `.is-list-hover`. Flash toasts sit over the header and intercept clicks (the Log out link included); dismiss them first by clicking `#flash-info` / `#flash-error`. `value` prints an input's or textarea's current value; `text` on a textarea prints blank. `scroll <selector> [top]` sets the element's `scrollTop` when given a number, waits 200ms for scroll handlers, and prints `scrollTop=<n> max=<n>`. `exists` counts DOM nodes, hidden ones too (`#polygon-finish` exists while it has the `hidden` class). `click-at` coordinates must stay inside the target's box. Check it with `browser box '#floor-plan-canvas'`.
 
 Stable handles:
 
@@ -118,9 +118,10 @@ Stable handles:
 | Header | `#nav-items`, `#nav-locations`, `#nav-settings`, `#app-nav`, `a[aria-label="Log out"]` |
 | Items list | `#items-page`, `#new-item`, `#naming-convention`, `#items-empty`, `#items-filter-form`, `#q`, `#location`, `#items-<item-id>` |
 | Item editor | `#item-page`, `#item_name`, `#item-save`, `#item-stock-form`, `#quantity-<location-id>`, `#quantity-inc-<location-id>`, `#item-delete` |
+| Item stale save | `#item-stale-warning`, `#item-stale-their-edit`, `#item-stale-notes`, `#item-stale-keep`, `#item-stale-load` |
 | Item notes | `#item-notes-section`, `#item_notes`, `#item-notes-hint`, `#note-edited-menu`, `#note-history` |
 | Item naming convention panel | `#item-naming-convention` (a `<details>`; click its `summary`), `#item-naming-convention-body`, `#item-naming-convention-edit` |
-| Naming convention editor (`/items/naming-convention`) | `#convention-page`, `#convention-text`, `#convention-save`, `#convention-format`, `#convention-tool-<bold\|italic\|strike\|heading\|bullet\|number\|quote\|code\|link>`, `#convention-preview-body`, `#convention-history-open`, `#convention-history`, `#convention-stale-warning`, `#convention-stale-keep`, `#convention-stale-load` |
+| Naming convention editor (`/items/naming-convention`) | `#convention-page`, `#convention-last-edit`, `#convention-hint`, `#convention-text`, `#convention-save`, `#convention-format`, `#convention-format-status`, `#convention-tool-<bold\|italic\|strike\|heading\|bullet\|number\|quote\|code\|link>`, `#convention-preview`, `#convention-preview-body`, `#convention-history-open`, `#convention-history`, `#convention-history-version-<n>`, `#convention-history-restore`, `#convention-view-inline`, `#convention-view-split`, `#convention-stale-warning`, `#convention-stale-keep`, `#convention-stale-load` |
 | Locations list | `#locations-page`, `#location-new-form`, `#location-new_name`, `#location-add-button`, `#location-<location-id>` |
 | Locations browse (plan on) | `#locations-workspace`, `#locations-floor-canvas`, `#locations-floor-rail`, `#floor-plan-edit` |
 | Location editor | `#location-page`, `#location_name`, `#location-save`, `#location-delete`, `#location-item-<item-id>` |
@@ -128,7 +129,7 @@ Stable handles:
 | Delete modals | `#item-delete-modal`, `#item-delete-confirm`, `#item-delete-confirm-submit`, `#location-delete-modal`, `#location-delete-confirm`, `#location-delete-confirm-submit` |
 | Flash | `#flash-info`, `#flash-error` |
 | Settings | `#settings-page`, `#settings-tab-account`, `#settings-tab-users`, `#settings-tab-activity`, `#generate-invite-form`, `#invite_email`, `#generate-invite`, `#latest-invite-url`, `#invites`, `#revoke-invite-<invite-id>` |
-| Agent access | `#agent-access-section`, `#api_token_name`, `#create-api-token`, `#latest-api-token-value`, `#api-tokens`, `#api-token-<token-id>`, `#replace-api-token-<token-id>`, `#revoke-api-token-<token-id>`, `#revoke-all-api-tokens`, `#show-inactive-api-tokens`, `#api-tokens-empty` |
+| Agent access | `#agent-access-section`, `#mcp-url`, `#copy-mcp-url`, `#api_token_name`, `#create-api-token`, `#latest-api-token-value`, `#api-tokens`, `#api-token-<token-id>`, `#replace-api-token-<token-id>`, `#revoke-api-token-<token-id>`, `#revoke-all-api-tokens`, `#show-inactive-api-tokens`, `#api-tokens-empty` |
 | MCP | `POST /mcp` with `Authorization: Bearer <token>` and `accept: application/json, text/event-stream` |
 | Theme toggle | `button[aria-label="System theme"]`, `button[aria-label="Light theme"]`, `button[aria-label="Dark theme"]` (no ids), `meta[data-theme-color=light]`, `meta[data-theme-color=dark]` |
 | PWA | `link[rel=manifest]`, `/manifest.webmanifest`, `/sw.js`, `/offline.html`, `#offline-page` |
@@ -187,6 +188,8 @@ Executable: `.cursor/skills/verify-pinventory/scripts/verify-pinventory`
 ./.cursor/skills/verify-pinventory/scripts/verify-pinventory browser login
 ./.cursor/skills/verify-pinventory/scripts/verify-pinventory browser click-at '#floor-plan-canvas [data-floor-plan-svg]' 150 220
 ./.cursor/skills/verify-pinventory/scripts/verify-pinventory browser click-confirm '#revoke-api-token-<token-id>'
+./.cursor/skills/verify-pinventory/scripts/verify-pinventory browser value '#convention-text'
+./.cursor/skills/verify-pinventory/scripts/verify-pinventory browser scroll '#convention-text' 800
 ./.cursor/skills/verify-pinventory/scripts/verify-pinventory cleanup
 ```
 
