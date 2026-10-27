@@ -1,6 +1,6 @@
-defmodule Pinventory.NoteDiff do
+defmodule Pinventory.TextDiff do
   @moduledoc """
-  Line-aligned, word-level diffs between two versions of a note.
+  Line-aligned, word-level diffs between two versions of a text.
 
   `rows/2` returns one row per displayed line. Each `{:line, ops}` row holds
   the word operations for one old line and the new line it became, so an

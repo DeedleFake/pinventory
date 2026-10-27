@@ -18,6 +18,13 @@ defmodule PinventoryWeb.ItemsLive do
             id="items-actions"
             class="flex flex-wrap items-center justify-end gap-2"
           >
+            <.link
+              navigate={~p"/items/naming-convention"}
+              id="naming-convention"
+              class="btn btn-ghost border border-base-300 transition-transform active:scale-95"
+            >
+              <.icon name="hero-book-open" class="size-4" /> Naming convention
+            </.link>
             <.link navigate={~p"/item"} id="new-item" class="btn btn-primary">
               <.icon name="hero-plus" class="size-4" /> New Item
             </.link>

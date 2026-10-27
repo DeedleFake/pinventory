@@ -6,6 +6,7 @@ defmodule PinventoryWeb.EditItemLive do
   alias Pinventory.Items.DraftStock
   alias Pinventory.Items.Item
   alias Pinventory.Locations
+  alias Pinventory.NamingConvention
 
   import PinventoryWeb.AuditHelpers,
     only: [
@@ -17,7 +18,9 @@ defmodule PinventoryWeb.EditItemLive do
     ]
 
   import PinventoryWeb.ConfirmDeleteComponents
+  import PinventoryWeb.MarkdownComponents
   import PinventoryWeb.NoteHistoryComponents
+  import PinventoryWeb.VersionHistoryComponents
 
   @impl true
   def render(assigns) do
@@ -113,6 +116,8 @@ defmodule PinventoryWeb.EditItemLive do
               suggestions={@suggestions}
             />
           </div>
+
+          <.naming_convention_panel text={@naming_convention} />
 
           <div
             id="item-notes-section"
@@ -234,11 +239,14 @@ defmodule PinventoryWeb.EditItemLive do
 
         <.history_window
           :if={@note_history}
+          id="note"
+          title="Note history"
+          initial_label="Empty note"
           versions={@note_versions}
           from={@note_history.from}
           to={@note_history.to}
           view={@note_history.view}
-          current_notes={@current_notes}
+          current_text={@current_notes}
           history_path={&note_history_path(@item, &1)}
           close_path={~p"/item/#{@item}"}
         />
@@ -278,7 +286,7 @@ defmodule PinventoryWeb.EditItemLive do
       assign(
         assigns,
         :notes_rows,
-        Pinventory.NoteDiff.rows(assigns.item.notes, assigns.current_notes)
+        Pinventory.TextDiff.rows(assigns.item.notes, assigns.current_notes)
       )
 
     ~H"""
@@ -304,7 +312,7 @@ defmodule PinventoryWeb.EditItemLive do
       </div>
       <div :if={@item.notes != @current_notes} id="item-stale-notes" class="space-y-1">
         <p class="text-xs font-semibold opacity-70">Notes: their version → yours</p>
-        <.note_diff id="item-stale-notes-diff" rows={@notes_rows} />
+        <.text_diff id="item-stale-notes-diff" rows={@notes_rows} />
       </div>
       <div class="flex flex-wrap justify-end gap-2">
         <button
@@ -325,6 +333,48 @@ defmodule PinventoryWeb.EditItemLive do
         </button>
       </div>
     </div>
+    """
+  end
+
+  attr :text, :string, required: true
+
+  # A native <details> opens and closes in the browser, so the form keeps what
+  # the user typed. ignore_attributes keeps LiveView patches from closing it.
+  defp naming_convention_panel(assigns) do
+    ~H"""
+    <details
+      id="item-naming-convention"
+      class="group mt-2 rounded-xl border border-base-300 bg-base-100"
+      phx-mounted={JS.ignore_attributes(["open"])}
+    >
+      <summary class="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium select-none hover:bg-base-200/60 active:bg-base-200 [&::-webkit-details-marker]:hidden">
+        <.icon name="hero-book-open" class="size-4 opacity-70" />
+        <span class="flex-1 opacity-80">Naming convention</span>
+        <.icon
+          name="hero-chevron-down"
+          class="size-4 opacity-60 transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <div class="space-y-2 border-t border-base-300 px-3 py-2">
+        <.markdown
+          id="item-naming-convention-body"
+          text={@text}
+          class="text-sm"
+          empty="No naming convention yet."
+        />
+        <div class="flex justify-end">
+          <.link
+            href={~p"/items/naming-convention"}
+            target="_blank"
+            rel="noopener"
+            id="item-naming-convention-edit"
+            class="btn btn-ghost btn-xs transition-transform active:scale-95"
+          >
+            Edit <.icon name="hero-arrow-top-right-on-square" class="size-3.5" />
+          </.link>
+        </div>
+      </div>
+    </details>
     """
   end
 
@@ -580,7 +630,8 @@ defmodule PinventoryWeb.EditItemLive do
      |> assign(:delete_confirm_ready?, false)
      |> assign(:delete_blocked_reason, nil)
      |> assign(:delete_total, 0)
-     |> assign(:delete_location_count, 0)}
+     |> assign(:delete_location_count, 0)
+     |> assign(:naming_convention, NamingConvention.current().text)}
   end
 
   @impl true
@@ -744,19 +795,19 @@ defmodule PinventoryWeb.EditItemLive do
     end
   end
 
-  def handle_event("compare_note_versions", %{"from" => from, "to" => to}, socket) do
+  def handle_event("compare_versions", %{"from" => from, "to" => to}, socket) do
     {:noreply,
      update(socket, :note_history, fn history ->
        %{history | from: note_number(socket, from), to: note_number(socket, to)}
      end)}
   end
 
-  def handle_event("set_note_view", %{"view" => view}, socket) when view in ~w(inline split) do
+  def handle_event("set_diff_view", %{"view" => view}, socket) when view in ~w(inline split) do
     {:noreply, update(socket, :note_history, &%{&1 | view: String.to_existing_atom(view)})}
   end
 
   # Restore only fills the form. The normal Save writes it as a new version.
-  def handle_event("restore_note_version", %{"number" => number}, socket) do
+  def handle_event("restore_version", %{"number" => number}, socket) do
     number = note_number(socket, number)
     text = Enum.at(socket.assigns.note_versions, number).text
 

@@ -110,13 +110,14 @@ defmodule PinventoryWeb.MCPRouterTest do
       assert result["instructions"] =~ ~s("towel" finds "Paper Towels")
       assert result["instructions"] =~ "ask the user. Don't guess."
       assert result["instructions"] =~ "happen in the Pinventory web UI"
+      assert result["instructions"] =~ "Call get_naming_convention before you create or rename"
     end
 
     test "lists the tools", %{secret: secret} do
       names = rpc(secret, "tools/list")["tools"] |> Enum.map(& &1["name"]) |> Enum.sort()
 
       assert names ==
-               ~w[change_stock create_item list_items list_locations move_stock rename_item rename_location]
+               ~w[change_stock create_item edit_naming_convention get_naming_convention list_items list_locations move_stock rename_item rename_location]
     end
   end
 
@@ -384,6 +385,44 @@ defmodule PinventoryWeb.MCPRouterTest do
 
       assert event_count() == before
       assert Locations.get(garage.id).name == "Garage"
+    end
+  end
+
+  describe "naming convention" do
+    test "create_item and rename_item point to it, rename_location doesn't", %{secret: secret} do
+      descriptions =
+        Map.new(rpc(secret, "tools/list")["tools"], &{&1["name"], &1["description"]})
+
+      assert descriptions["create_item"] =~ "get_naming_convention"
+      assert descriptions["rename_item"] =~ "get_naming_convention"
+      refute descriptions["rename_location"] =~ "naming_convention"
+    end
+
+    test "reads the seeded version, edits it as the agent, and refuses a stale version", %{
+      secret: secret,
+      user: user
+    } do
+      %{"naming_convention" => seeded} =
+        call(secret, "get_naming_convention", %{})["structuredContent"]
+
+      assert %{"version" => 0, "edited_by" => nil, "edited_at" => nil} = seeded
+      assert seeded["text"] =~ "Boxes of Tissues"
+      assert seeded["url"] =~ "/items/naming-convention"
+
+      %{"naming_convention" => edited} =
+        call(secret, "edit_naming_convention", %{text: "Use plurals.", version: 0})[
+          "structuredContent"
+        ]
+
+      assert %{"version" => 1, "text" => "Use plurals."} = edited
+      assert edited["edited_by"] == "#{user.email} via Claude on phone"
+      assert Pinventory.NamingConvention.current().via_token_name == "Claude on phone"
+
+      result = call(secret, "edit_naming_convention", %{text: "Stale", version: 0})
+
+      assert result["isError"]
+      assert text(result) =~ "now at version 1, not 0. Nothing was changed."
+      assert Pinventory.NamingConvention.current().text == "Use plurals."
     end
   end
 

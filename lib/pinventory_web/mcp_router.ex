@@ -1,8 +1,9 @@
 defmodule PinventoryWeb.MCPRouter do
   @moduledoc """
   MCP server that lets an agent read the inventory, create and rename items,
-  rename locations, and change stock counts of items at existing locations,
-  acting as the user who owns the API token.
+  rename locations, change stock counts of items at existing locations, and
+  read and edit the item naming convention, acting as the user who owns the
+  API token.
 
   The agent decides which item and location the user means. The server only
   checks what it can know for certain: the ids exist, counts stay within
@@ -18,6 +19,8 @@ defmodule PinventoryWeb.MCPRouter do
   - Use the ids from list_items and list_locations for changes.
   - To move stock between locations, use move_stock, not two change_stock calls.
   - To add a new item, search with list_items first so you don't make a duplicate, then create_item, then change_stock to record how many and where.
+  - Item names follow this inventory's naming convention. Call get_naming_convention before you create or rename an item, and name it the way the convention says. Call it again rather than relying on an earlier read, because anyone can change it.
+  - To change the naming convention, call get_naming_convention, then edit_naming_convention with the full new text and the version you read.
   - You can only change counts at existing locations. Deleting items, creating or deleting locations, and editing notes of existing items happen in the Pinventory web UI. Send the user the item's or location's url.
   """
 
@@ -36,7 +39,9 @@ defmodule PinventoryWeb.MCPRouter do
   alias Pinventory.Accounts
   alias Pinventory.Items
   alias Pinventory.Locations
+  alias Pinventory.NamingConvention
   alias Pinventory.Repo
+  alias PinventoryWeb.VersionHistoryComponents
 
   @no_match_hint "No item names matched these terms. Try singular forms, irregular forms " <>
                    "such as both \"knife\" and \"knives\", other names, or brands, " <>
@@ -119,7 +124,7 @@ defmodule PinventoryWeb.MCPRouter do
   end
 
   @description """
-  Create a new item with no stock. Search with list_items first, with several wordings, so you don't make a duplicate of an item that already exists. Names must be unique and at least 2 characters.
+  Create a new item with no stock. Search with list_items first, with several wordings, so you don't make a duplicate of an item that already exists. Name it the way get_naming_convention says. Names must be unique and at least 2 characters.
   Returns the item like list_items does. Then use change_stock to record how many there are and where.
   """
   tool :create_item, idempotent: false, destructive: false do
@@ -138,7 +143,7 @@ defmodule PinventoryWeb.MCPRouter do
   end
 
   @description """
-  Rename one existing item. Names must be unique and at least 2 characters. Notes and stock stay as they are.
+  Rename one existing item. Name it the way get_naming_convention says. Names must be unique and at least 2 characters. Notes and stock stay as they are.
   Use the id from list_items. Returns the item like list_items does.
   """
   tool :rename_item, idempotent: true, destructive: false do
@@ -186,6 +191,48 @@ defmodule PinventoryWeb.MCPRouter do
     else
       :error -> {:reply, Tool.error(error_message(:location_not_found, nil)), session}
       {:error, changeset} -> {:reply, Tool.error(changeset_message(changeset)), session}
+    end
+  end
+
+  @description """
+  Get the latest naming convention for items, as Markdown. Follow it when you create or rename an item.
+  Returns its text, its version number, who last edited it and when, and its page url. Pass the version to edit_naming_convention.
+  """
+  tool :get_naming_convention, read_only: true
+
+  def get_naming_convention(_params, session) do
+    {:reply, Tool.structured(%{naming_convention: convention_json(NamingConvention.current())}),
+     session}
+  end
+
+  @description """
+  Replace the item naming convention with new Markdown text. Only change it when the user asks you to.
+  Send the full new text and the version from get_naming_convention. If someone saved a newer version since, nothing is changed; call get_naming_convention, apply your edit to its text, and try again.
+  Returns the convention like get_naming_convention does.
+  """
+  tool :edit_naming_convention, idempotent: true, destructive: false do
+    field :text, :string, required: true, description: "The full new convention, in Markdown."
+
+    field :version, :integer,
+      required: true,
+      minimum: 0,
+      description: "The version from get_naming_convention that this edit starts from."
+  end
+
+  def edit_naming_convention(%{"text" => text, "version" => version}, session) do
+    case NamingConvention.save(session.assigns.scope, version, text) do
+      {:ok, convention} ->
+        {:reply, Tool.structured(%{naming_convention: convention_json(convention)}), session}
+
+      {:error, :stale, newest} ->
+        {:reply,
+         Tool.error(
+           "The naming convention is now at version #{newest.number}, not #{version}. " <>
+             "Nothing was changed. Call get_naming_convention, apply your edit to its text, and try again."
+         ), session}
+
+      {:error, changeset} ->
+        {:reply, Tool.error(changeset_message(changeset)), session}
     end
   end
 
@@ -306,6 +353,16 @@ defmodule PinventoryWeb.MCPRouter do
   defp stock_item_json(item), do: item |> preload_stock() |> item_json()
 
   defp preload_stock(items), do: Repo.preload(items, [item_locations: :location], force: true)
+
+  defp convention_json(convention) do
+    %{
+      text: convention.text,
+      version: convention.number,
+      edited_by: if(convention.number > 0, do: VersionHistoryComponents.author(convention)),
+      edited_at: if(convention.number > 0, do: convention.inserted_at),
+      url: url(~p"/items/naming-convention")
+    }
+  end
 
   defp item_json(item) do
     %{
