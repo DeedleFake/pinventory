@@ -31,6 +31,14 @@ defmodule PinventoryWeb.NamingConventionLiveTest do
     refute has_element?(view, "#convention-history-open")
   end
 
+  test "the preview keeps the page's heading as the only h1", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/items/naming-convention")
+
+    assert has_element?(view, "h1", "Naming convention")
+    assert has_element?(view, "#convention-preview-body h2", "Item names")
+    refute has_element?(view, "#convention-preview-body h1")
+  end
+
   test "previews edits sanitized and saves them as a new version", %{conn: conn, user: user} do
     {:ok, view, _html} = live(conn, ~p"/items/naming-convention")
 
@@ -40,7 +48,7 @@ defmodule PinventoryWeb.NamingConventionLiveTest do
     )
     |> render_change()
 
-    assert has_element?(view, ~s(#convention-preview-body h2[data-sourcepos="1:1-1:8"]), "Units")
+    assert has_element?(view, ~s(#convention-preview-body h3[data-sourcepos="1:1-1:8"]), "Units")
     assert has_element?(view, "#convention-preview-body em", "Boxes")
     refute render(element(view, "#convention-preview-body")) =~ "<script"
     assert has_element?(view, "#convention-hint", "Unsaved changes")
@@ -158,6 +166,15 @@ defmodule PinventoryWeb.NamingConventionLiveTest do
                )
 
         refute has_element?(view, "#item-naming-convention textarea")
+      end
+    end
+
+    test "render the convention's headings below the page's h1", %{conn: conn} do
+      for path <- [~p"/item", ~p"/item/#{item_fixture()}"] do
+        {:ok, view, _html} = live(conn, path)
+
+        assert has_element?(view, "#item-naming-convention-body h2", "Item names")
+        refute has_element?(view, "#item-naming-convention-body h1")
       end
     end
   end

@@ -947,6 +947,26 @@ defmodule PinventoryWeb.EditItemLiveTest do
       assert Items.get_item!(item.id).notes == "My note"
     end
 
+    test "the out-of-date warning names the agent that saved", %{conn: conn, scope: scope} do
+      sam = user_fixture(%{email: "sam@example.com"})
+      {:ok, {_secret, token}} = Pinventory.Accounts.create_api_token(sam, "Claude on phone")
+      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
+      {:ok, view, _html} = live(conn, ~p"/item/#{item}")
+
+      {:ok, _} =
+        Items.update_item(Pinventory.Accounts.Scope.for_api_token(sam, token), item, %{
+          name: "Oat milk"
+        })
+
+      view |> form("#item-form", item: %{notes: "My note"}) |> render_submit()
+
+      assert has_element?(
+               view,
+               "#item-stale-warning p",
+               "sam@example.com via Claude on phone saved this item while you were editing."
+             )
+    end
+
     test "saving an item someone deleted goes back to the list with an error", %{
       conn: conn,
       scope: scope
