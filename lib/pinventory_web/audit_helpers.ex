@@ -156,10 +156,16 @@ defmodule PinventoryWeb.AuditHelpers do
   end
 
   @doc """
+  Who made an edit group (`list_recent_edits/1` map), with "via <token name>"
+  when an agent made it.
+  """
+  def edit_author(%{user: user, events: events}), do: actor_label(user, List.first(events))
+
+  @doc """
   Heading for an edit group (`list_recent_edits/1` map).
   """
-  def edit_heading(%{user: user, events: events}) do
-    who = actor_label(user, List.first(events))
+  def edit_heading(%{events: events} = edit) do
+    who = edit_author(edit)
     subject = edit_subject(events)
     summary = edit_summary(events)
 

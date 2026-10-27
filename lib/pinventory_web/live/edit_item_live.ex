@@ -11,7 +11,7 @@ defmodule PinventoryWeb.EditItemLive do
   import PinventoryWeb.AuditHelpers,
     only: [
       activity_event_line: 1,
-      actor_label: 1,
+      edit_author: 1,
       edit_heading: 1,
       format_event_time: 1,
       linkable_location_id: 1
@@ -299,7 +299,7 @@ defmodule PinventoryWeb.EditItemLive do
         <.icon name="hero-exclamation-triangle" class="mt-0.5 size-5 shrink-0 text-warning" />
         <div class="space-y-1 text-sm">
           <p class="font-medium">
-            {if @edit, do: actor_label(@edit.user), else: "Someone else"} saved this item while you were editing.
+            {if @edit, do: edit_author(@edit), else: "Someone else"} saved this item while you were editing.
           </p>
           <p class="opacity-80">
             Your changes were not saved and are still in the form. Keep your edits to review them
