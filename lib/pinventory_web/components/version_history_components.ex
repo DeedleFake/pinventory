@@ -138,7 +138,10 @@ defmodule PinventoryWeb.VersionHistoryComponents do
               ]}
             >
               <span class="w-8 shrink-0 text-xs tabular-nums opacity-60">v{version.number}</span>
-              <span class="min-w-0 flex-1 truncate">
+              <span
+                class="min-w-0 flex-1 truncate"
+                title={if version.number > 0, do: author(version)}
+              >
                 {if version.number == 0, do: @initial_label, else: author(version)}
               </span>
               <span :if={version.inserted_at} class="shrink-0 text-xs opacity-50">

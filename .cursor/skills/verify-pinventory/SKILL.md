@@ -116,9 +116,11 @@ Stable handles:
 | First-account register | `#registration_form` (only when `users` is empty; launch seeds a user, so this path is closed) |
 | Invite accept | `#invite_registration_form` on `/user/invite/<token>` |
 | Header | `#nav-items`, `#nav-locations`, `#nav-settings`, `#app-nav`, `a[aria-label="Log out"]` |
-| Items list | `#items-page`, `#new-item`, `#items-empty`, `#items-filter-form`, `#q`, `#location`, `#items-<item-id>` |
+| Items list | `#items-page`, `#new-item`, `#naming-convention`, `#items-empty`, `#items-filter-form`, `#q`, `#location`, `#items-<item-id>` |
 | Item editor | `#item-page`, `#item_name`, `#item-save`, `#item-stock-form`, `#quantity-<location-id>`, `#quantity-inc-<location-id>`, `#item-delete` |
 | Item notes | `#item-notes-section`, `#item_notes`, `#item-notes-hint`, `#note-edited-menu`, `#note-history` |
+| Item naming convention panel | `#item-naming-convention` (a `<details>`; click its `summary`), `#item-naming-convention-body`, `#item-naming-convention-edit` |
+| Naming convention editor (`/items/naming-convention`) | `#convention-page`, `#convention-text`, `#convention-save`, `#convention-format`, `#convention-tool-<bold\|italic\|strike\|heading\|bullet\|number\|quote\|code\|link>`, `#convention-preview-body`, `#convention-history-open`, `#convention-history`, `#convention-stale-warning`, `#convention-stale-keep`, `#convention-stale-load` |
 | Locations list | `#locations-page`, `#location-new-form`, `#location-new_name`, `#location-add-button`, `#location-<location-id>` |
 | Locations browse (plan on) | `#locations-workspace`, `#locations-floor-canvas`, `#locations-floor-rail`, `#floor-plan-edit` |
 | Location editor | `#location-page`, `#location_name`, `#location-save`, `#location-delete`, `#location-item-<item-id>` |

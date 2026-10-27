@@ -58,6 +58,7 @@ defmodule PinventoryWeb.Router do
     live_session :require_authenticated_user,
       on_mount: [{PinventoryWeb.UserAuth, :require_authenticated}] do
       live "/", ItemsLive, :index
+      live "/items/naming-convention", NamingConventionLive, :edit
 
       live "/item", EditItemLive, :new
       live "/item/:item_id", EditItemLive, :edit

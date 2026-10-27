@@ -6,6 +6,7 @@ defmodule PinventoryWeb.EditItemLive do
   alias Pinventory.Items.DraftStock
   alias Pinventory.Items.Item
   alias Pinventory.Locations
+  alias Pinventory.NamingConvention
 
   import PinventoryWeb.AuditHelpers,
     only: [
@@ -17,6 +18,7 @@ defmodule PinventoryWeb.EditItemLive do
     ]
 
   import PinventoryWeb.ConfirmDeleteComponents
+  import PinventoryWeb.MarkdownComponents
   import PinventoryWeb.NoteHistoryComponents
   import PinventoryWeb.VersionHistoryComponents
 
@@ -114,6 +116,8 @@ defmodule PinventoryWeb.EditItemLive do
               suggestions={@suggestions}
             />
           </div>
+
+          <.naming_convention_panel text={@naming_convention} />
 
           <div
             id="item-notes-section"
@@ -329,6 +333,48 @@ defmodule PinventoryWeb.EditItemLive do
         </button>
       </div>
     </div>
+    """
+  end
+
+  attr :text, :string, required: true
+
+  # A native <details> opens and closes in the browser, so the form keeps what
+  # the user typed. ignore_attributes keeps LiveView patches from closing it.
+  defp naming_convention_panel(assigns) do
+    ~H"""
+    <details
+      id="item-naming-convention"
+      class="group mt-2 rounded-xl border border-base-300 bg-base-100"
+      phx-mounted={JS.ignore_attributes(["open"])}
+    >
+      <summary class="flex cursor-pointer list-none items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium select-none hover:bg-base-200/60 active:bg-base-200 [&::-webkit-details-marker]:hidden">
+        <.icon name="hero-book-open" class="size-4 opacity-70" />
+        <span class="flex-1 opacity-80">Naming convention</span>
+        <.icon
+          name="hero-chevron-down"
+          class="size-4 opacity-60 transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <div class="space-y-2 border-t border-base-300 px-3 py-2">
+        <.markdown
+          id="item-naming-convention-body"
+          text={@text}
+          class="text-sm"
+          empty="No naming convention yet."
+        />
+        <div class="flex justify-end">
+          <.link
+            href={~p"/items/naming-convention"}
+            target="_blank"
+            rel="noopener"
+            id="item-naming-convention-edit"
+            class="btn btn-ghost btn-xs transition-transform active:scale-95"
+          >
+            Edit <.icon name="hero-arrow-top-right-on-square" class="size-3.5" />
+          </.link>
+        </div>
+      </div>
+    </details>
     """
   end
 
@@ -584,7 +630,8 @@ defmodule PinventoryWeb.EditItemLive do
      |> assign(:delete_confirm_ready?, false)
      |> assign(:delete_blocked_reason, nil)
      |> assign(:delete_total, 0)
-     |> assign(:delete_location_count, 0)}
+     |> assign(:delete_location_count, 0)
+     |> assign(:naming_convention, NamingConvention.current().text)}
   end
 
   @impl true
