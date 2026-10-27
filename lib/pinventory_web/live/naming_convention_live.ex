@@ -10,10 +10,10 @@ defmodule PinventoryWeb.NamingConventionLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope} nav={:items} wide>
+    <Layouts.app flash={@flash} current_scope={@current_scope} nav={:items} wide fill>
       <div
         id="convention-page"
-        class="mx-auto max-w-7xl space-y-4 py-6"
+        class="flex flex-col gap-4 lg:min-h-0 lg:flex-1"
         phx-hook="UnsavedChanges"
         data-dirty={to_string(@dirty?)}
       >
@@ -24,6 +24,9 @@ defmodule PinventoryWeb.NamingConventionLive do
             <h1 class="text-xl font-semibold tracking-tight">Naming convention</h1>
           </div>
           <div id="convention-actions" class="flex flex-wrap items-center justify-end gap-2">
+            <p :if={@dirty?} id="convention-hint" class="text-xs text-primary">
+              Unsaved changes<span :if={@restored_from}> · restored from v{@restored_from}</span>
+            </p>
             <.link
               :if={length(@versions) > 1}
               id="convention-history-open"
@@ -62,14 +65,15 @@ defmodule PinventoryWeb.NamingConventionLive do
           phx-change="validate"
           phx-submit="save"
           class={[
-            "overflow-hidden rounded-xl border transition-colors duration-200",
+            "flex flex-col overflow-hidden rounded-xl border transition-colors duration-200",
+            "lg:min-h-48 lg:flex-1",
             @dirty? && "border-primary ring-1 ring-primary/30",
             not @dirty? && "border-base-300"
           ]}
         >
           <div
             id="convention-toolbar"
-            class="flex flex-wrap items-center gap-0.5 border-b border-base-300 bg-base-200/60 px-2 py-1"
+            class="flex flex-wrap items-center gap-0.5 border-b border-base-300 px-2 py-1"
             role="toolbar"
             aria-label="Formatting"
             aria-controls="convention-text"
@@ -108,43 +112,32 @@ defmodule PinventoryWeb.NamingConventionLive do
             </span>
           </div>
 
-          <div class="grid divide-base-300 lg:h-[calc(100dvh-14rem)] lg:min-h-96 lg:grid-cols-2 lg:divide-x">
-            <div class="flex min-h-0 flex-col">
-              <p
-                class="px-3 pt-2 text-xs font-semibold tracking-wide uppercase opacity-60"
-                aria-hidden="true"
-              >
+          <div class="grid divide-base-300 lg:min-h-0 lg:flex-1 lg:grid-cols-2 lg:grid-rows-1 lg:divide-x">
+            <label class="flex min-h-0 flex-col bg-base-200">
+              <span class="px-3 pt-2 text-xs font-semibold tracking-wide uppercase opacity-60">
                 Markdown
-              </p>
-              <.input
-                type="textarea"
-                field={@form[:text]}
+              </span>
+              <textarea
                 id="convention-text"
-                rows="16"
+                name={@form[:text].name}
                 phx-debounce="250"
                 aria-label="Naming convention Markdown"
                 placeholder="e.g. Include the unit in the name: Boxes of Tissues, not Tissues"
-                wrapperclass="mb-0 flex flex-1 flex-col p-0"
-                class="min-h-[60dvh] w-full flex-1 resize-none bg-transparent lg:min-h-0 px-3 py-2 font-mono text-sm leading-relaxed focus:outline-none"
-              />
-            </div>
+                class="min-h-[60dvh] w-full flex-1 resize-none bg-transparent px-3 py-2 font-mono text-sm leading-relaxed focus:outline-none lg:min-h-0"
+              >{Phoenix.HTML.Form.normalize_value("textarea", @form[:text].value)}</textarea>
+            </label>
             <section
               id="convention-preview"
               aria-label="Preview"
-              class="border-t border-base-300 bg-base-100 lg:overflow-y-auto lg:border-t-0"
+              class="markdown-paper min-h-0 border-t border-base-300 lg:overflow-y-auto lg:border-t-0"
             >
-              <p class="px-3 pt-2 text-xs font-semibold tracking-wide uppercase opacity-60">
+              <p class="px-5 pt-2 text-xs font-semibold tracking-wide uppercase opacity-60">
                 Preview
               </p>
-              <.markdown id="convention-preview-body" text={@text} class="px-3 py-2" />
+              <.markdown id="convention-preview-body" text={@text} class="max-w-prose px-5 py-3" />
             </section>
           </div>
         </.form>
-
-        <p :if={@dirty?} id="convention-hint" class="text-xs text-primary">
-          Unsaved changes<span :if={@restored_from}> · restored from v{@restored_from}</span>
-        </p>
-
         <.history_window
           :if={@history}
           id="convention"
@@ -247,7 +240,7 @@ defmodule PinventoryWeb.NamingConventionLive do
     <div
       id="convention-stale-warning"
       role="alert"
-      class="space-y-3 rounded-xl border border-warning/60 bg-warning/10 px-4 py-3"
+      class="flex flex-col gap-3 rounded-xl border border-warning/60 bg-warning/10 px-4 py-3 lg:min-h-0"
     >
       <div class="flex items-start gap-2">
         <.icon name="hero-exclamation-triangle" class="mt-0.5 size-5 shrink-0 text-warning" />
@@ -261,9 +254,12 @@ defmodule PinventoryWeb.NamingConventionLive do
           </p>
         </div>
       </div>
-      <div :if={@newest.text != @text} class="space-y-1">
+      <%!-- On large screens the diff gives up its height first, so the editor stays in the window. --%>
+      <div :if={@newest.text != @text} class="flex min-h-0 flex-col gap-1">
         <p class="text-xs font-semibold opacity-70">Their version → yours</p>
-        <.text_diff id="convention-stale-diff" rows={@rows} />
+        <div class="max-h-48 min-h-16 overflow-y-auto">
+          <.text_diff id="convention-stale-diff" rows={@rows} />
+        </div>
       </div>
       <div class="flex flex-wrap justify-end gap-2">
         <button

@@ -218,6 +218,16 @@
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-primary) 22%, transparent);
 }
 
+/* A sheet of paper for previewing rendered Markdown: white in the light theme,
+   a raised surface just above base-100 in the dark one. color-scheme comes from
+   the active daisyUI theme, so this also follows the system theme. */
+.markdown-paper {
+  background-color: light-dark(
+    white,
+    color-mix(in oklab, var(--color-base-100) 90%, var(--color-base-content))
+  );
+}
+
 /* Rendered Markdown from Pinventory.Markdown (naming convention preview and panel) */
 .markdown {
   line-height: 1.6;

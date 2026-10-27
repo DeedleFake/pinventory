@@ -40,110 +40,122 @@ defmodule PinventoryWeb.Layouts do
     default: false,
     doc: "use a wide content column for drafting / canvas pages"
 
+  attr :fill, :boolean,
+    default: false,
+    doc: "on large screens, size the content to the window so the page itself does not scroll"
+
   slot :inner_block, required: true
 
   def app(assigns) do
     ~H"""
-    <header class="flex h-14 sm:h-16 items-center gap-2 sm:gap-3 px-3 sm:px-6 lg:px-8 flex-nowrap overflow-hidden">
-      <div class="min-w-0 shrink">
-        <a
-          href="/"
-          class="flex items-center gap-2 text-base-content opacity-80 transition-opacity duration-200 hover:opacity-100"
-          aria-label="Pinventory home"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 32 32"
-            fill="currentColor"
-            class="size-7 sm:size-8 shrink-0"
-            aria-hidden="true"
+    <div class={@fill && "lg:flex lg:h-dvh lg:min-h-[36rem] lg:flex-col"}>
+      <header class="flex h-14 sm:h-16 shrink-0 items-center gap-2 sm:gap-3 px-3 sm:px-6 lg:px-8 flex-nowrap overflow-hidden">
+        <div class="min-w-0 shrink">
+          <a
+            href="/"
+            class="flex items-center gap-2 text-base-content opacity-80 transition-opacity duration-200 hover:opacity-100"
+            aria-label="Pinventory home"
           >
-            <path
-              fill-rule="evenodd"
-              clip-rule="evenodd"
-              d="M16 1C9.925 1 5 5.925 5 12c0 8.284 10.125 18.375 10.556 18.806a.625.625 0 0 0 .888 0C16.875 30.375 27 20.284 27 12 27 5.925 22.075 1 16 1ZM11 8.75a.75.75 0 0 0 0 1.5h10a.75.75 0 0 0 0-1.5H11Zm0 3.5a.75.75 0 0 0 0 1.5h10a.75.75 0 0 0 0-1.5H11Zm0 3.5a.75.75 0 0 0 0 1.5h6a.75.75 0 0 0 0-1.5h-6Z"
-            />
-          </svg>
-          <span class="hidden md:inline text-lg font-semibold tracking-tight">Pinventory</span>
-        </a>
-      </div>
-
-      <nav
-        :if={@current_scope && @current_scope.user}
-        id="app-nav"
-        class="flex min-w-0 items-center gap-0.5 sm:gap-1"
-        aria-label="Main"
-      >
-        <.app_nav_link id="nav-items" href={~p"/"} active={@nav == :items}>
-          Items
-        </.app_nav_link>
-        <.app_nav_link id="nav-locations" href={~p"/locations"} active={@nav == :locations}>
-          Locations
-        </.app_nav_link>
-      </nav>
-
-      <div class="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
-        <div
-          :if={@current_scope && @current_scope.user}
-          class="flex items-center gap-1.5 sm:gap-2 text-sm"
-        >
-          <span
-            class={[
-              "hidden lg:inline-flex items-center max-w-64 truncate",
-              "rounded-full border border-base-300 bg-base-200/80",
-              "px-3 py-1 text-xs font-medium text-base-content/70 select-none"
-            ]}
-            title={@current_scope.user.email}
-          >
-            {@current_scope.user.email}
-          </span>
-          <.link
-            id="nav-settings"
-            href={~p"/user/settings"}
-            aria-label="Settings"
-            aria-current={@nav == :settings && "page"}
-            class={[
-              "inline-flex items-center justify-center gap-1.5 rounded-lg",
-              "p-2 sm:px-2.5 sm:py-1.5 font-medium",
-              "transition-colors duration-150",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-              @nav == :settings && "bg-base-200 text-base-content",
-              @nav != :settings &&
-                "text-base-content/90 hover:bg-base-200 hover:text-base-content"
-            ]}
-          >
-            <.icon name="hero-cog-6-tooth" class="size-5 sm:hidden" />
-            <span class="hidden sm:inline">Settings</span>
-          </.link>
-          <.link
-            href={~p"/user/log-out"}
-            method="delete"
-            class={[
-              "inline-flex items-center justify-center gap-1.5 rounded-lg",
-              "p-2 sm:px-2.5 sm:py-1.5 font-medium",
-              "text-base-content/90 hover:bg-base-200 hover:text-base-content",
-              "transition-colors duration-150",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            ]}
-            aria-label="Log out"
-          >
-            <.icon name="hero-arrow-right-start-on-rectangle" class="size-5 sm:hidden" />
-            <span class="hidden sm:inline">Log out</span>
-          </.link>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 32 32"
+              fill="currentColor"
+              class="size-7 sm:size-8 shrink-0"
+              aria-hidden="true"
+            >
+              <path
+                fill-rule="evenodd"
+                clip-rule="evenodd"
+                d="M16 1C9.925 1 5 5.925 5 12c0 8.284 10.125 18.375 10.556 18.806a.625.625 0 0 0 .888 0C16.875 30.375 27 20.284 27 12 27 5.925 22.075 1 16 1ZM11 8.75a.75.75 0 0 0 0 1.5h10a.75.75 0 0 0 0-1.5H11Zm0 3.5a.75.75 0 0 0 0 1.5h10a.75.75 0 0 0 0-1.5H11Zm0 3.5a.75.75 0 0 0 0 1.5h6a.75.75 0 0 0 0-1.5h-6Z"
+              />
+            </svg>
+            <span class="hidden md:inline text-lg font-semibold tracking-tight">Pinventory</span>
+          </a>
         </div>
-        <.theme_toggle />
-      </div>
-    </header>
 
-    <main class={["px-4 sm:px-6 lg:px-8", @wide && "py-4", not @wide && "py-10"]}>
-      <div class={[
-        "mx-auto space-y-4",
-        @wide && "max-w-none",
-        not @wide && "max-w-2xl"
+        <nav
+          :if={@current_scope && @current_scope.user}
+          id="app-nav"
+          class="flex min-w-0 items-center gap-0.5 sm:gap-1"
+          aria-label="Main"
+        >
+          <.app_nav_link id="nav-items" href={~p"/"} active={@nav == :items}>
+            Items
+          </.app_nav_link>
+          <.app_nav_link id="nav-locations" href={~p"/locations"} active={@nav == :locations}>
+            Locations
+          </.app_nav_link>
+        </nav>
+
+        <div class="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
+          <div
+            :if={@current_scope && @current_scope.user}
+            class="flex items-center gap-1.5 sm:gap-2 text-sm"
+          >
+            <span
+              class={[
+                "hidden lg:inline-flex items-center max-w-64 truncate",
+                "rounded-full border border-base-300 bg-base-200/80",
+                "px-3 py-1 text-xs font-medium text-base-content/70 select-none"
+              ]}
+              title={@current_scope.user.email}
+            >
+              {@current_scope.user.email}
+            </span>
+            <.link
+              id="nav-settings"
+              href={~p"/user/settings"}
+              aria-label="Settings"
+              aria-current={@nav == :settings && "page"}
+              class={[
+                "inline-flex items-center justify-center gap-1.5 rounded-lg",
+                "p-2 sm:px-2.5 sm:py-1.5 font-medium",
+                "transition-colors duration-150",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                @nav == :settings && "bg-base-200 text-base-content",
+                @nav != :settings &&
+                  "text-base-content/90 hover:bg-base-200 hover:text-base-content"
+              ]}
+            >
+              <.icon name="hero-cog-6-tooth" class="size-5 sm:hidden" />
+              <span class="hidden sm:inline">Settings</span>
+            </.link>
+            <.link
+              href={~p"/user/log-out"}
+              method="delete"
+              class={[
+                "inline-flex items-center justify-center gap-1.5 rounded-lg",
+                "p-2 sm:px-2.5 sm:py-1.5 font-medium",
+                "text-base-content/90 hover:bg-base-200 hover:text-base-content",
+                "transition-colors duration-150",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              ]}
+              aria-label="Log out"
+            >
+              <.icon name="hero-arrow-right-start-on-rectangle" class="size-5 sm:hidden" />
+              <span class="hidden sm:inline">Log out</span>
+            </.link>
+          </div>
+          <.theme_toggle />
+        </div>
+      </header>
+
+      <main class={[
+        "px-4 sm:px-6 lg:px-8",
+        @wide && "py-4",
+        not @wide && "py-10",
+        @fill && "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
       ]}>
-        {render_slot(@inner_block)}
-      </div>
-    </main>
+        <div class={[
+          "mx-auto space-y-4",
+          @wide && "max-w-none",
+          not @wide && "max-w-2xl",
+          @fill && "lg:flex lg:min-h-0 lg:w-full lg:flex-1 lg:flex-col"
+        ]}>
+          {render_slot(@inner_block)}
+        </div>
+      </main>
+    </div>
 
     <.flash_group flash={@flash} />
     """
