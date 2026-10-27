@@ -7,7 +7,7 @@ defmodule PinventoryWeb.AuditHelpers do
 
   import PinventoryWeb.CoreComponents, only: [icon: 1]
 
-  alias Pinventory.NoteDiff
+  alias Pinventory.TextDiff
 
   @doc """
   Human-readable actor label from a preloaded user or nil.
@@ -50,7 +50,7 @@ defmodule PinventoryWeb.AuditHelpers do
 
   def event_line(%{action: "item.notes_changed", changes: %{"notes" => notes}}) do
     %{added: added, removed: removed} =
-      notes["from"] |> NoteDiff.rows(notes["to"]) |> NoteDiff.counts()
+      notes["from"] |> TextDiff.rows(notes["to"]) |> TextDiff.counts()
 
     "Edited notes +#{added} −#{removed}"
   end

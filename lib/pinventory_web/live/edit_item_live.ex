@@ -18,6 +18,7 @@ defmodule PinventoryWeb.EditItemLive do
 
   import PinventoryWeb.ConfirmDeleteComponents
   import PinventoryWeb.NoteHistoryComponents
+  import PinventoryWeb.VersionHistoryComponents
 
   @impl true
   def render(assigns) do
@@ -234,11 +235,14 @@ defmodule PinventoryWeb.EditItemLive do
 
         <.history_window
           :if={@note_history}
+          id="note"
+          title="Note history"
+          initial_label="Empty note"
           versions={@note_versions}
           from={@note_history.from}
           to={@note_history.to}
           view={@note_history.view}
-          current_notes={@current_notes}
+          current_text={@current_notes}
           history_path={&note_history_path(@item, &1)}
           close_path={~p"/item/#{@item}"}
         />
@@ -278,7 +282,7 @@ defmodule PinventoryWeb.EditItemLive do
       assign(
         assigns,
         :notes_rows,
-        Pinventory.NoteDiff.rows(assigns.item.notes, assigns.current_notes)
+        Pinventory.TextDiff.rows(assigns.item.notes, assigns.current_notes)
       )
 
     ~H"""
@@ -304,7 +308,7 @@ defmodule PinventoryWeb.EditItemLive do
       </div>
       <div :if={@item.notes != @current_notes} id="item-stale-notes" class="space-y-1">
         <p class="text-xs font-semibold opacity-70">Notes: their version → yours</p>
-        <.note_diff id="item-stale-notes-diff" rows={@notes_rows} />
+        <.text_diff id="item-stale-notes-diff" rows={@notes_rows} />
       </div>
       <div class="flex flex-wrap justify-end gap-2">
         <button
@@ -744,19 +748,19 @@ defmodule PinventoryWeb.EditItemLive do
     end
   end
 
-  def handle_event("compare_note_versions", %{"from" => from, "to" => to}, socket) do
+  def handle_event("compare_versions", %{"from" => from, "to" => to}, socket) do
     {:noreply,
      update(socket, :note_history, fn history ->
        %{history | from: note_number(socket, from), to: note_number(socket, to)}
      end)}
   end
 
-  def handle_event("set_note_view", %{"view" => view}, socket) when view in ~w(inline split) do
+  def handle_event("set_diff_view", %{"view" => view}, socket) when view in ~w(inline split) do
     {:noreply, update(socket, :note_history, &%{&1 | view: String.to_existing_atom(view)})}
   end
 
   # Restore only fills the form. The normal Save writes it as a new version.
-  def handle_event("restore_note_version", %{"number" => number}, socket) do
+  def handle_event("restore_version", %{"number" => number}, socket) do
     number = note_number(socket, number)
     text = Enum.at(socket.assigns.note_versions, number).text
 
