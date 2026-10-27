@@ -134,7 +134,7 @@ defmodule PinventoryWeb.NamingConventionLive do
               <p class="px-5 pt-2 text-xs font-semibold tracking-wide uppercase opacity-60">
                 Preview
               </p>
-              <.markdown id="convention-preview-body" text={@text} class="max-w-prose px-5 py-3" />
+              <.markdown id="convention-preview-body" text={@text} class="px-5 py-3" />
             </section>
           </div>
         </.form>
