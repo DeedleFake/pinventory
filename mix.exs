@@ -69,7 +69,7 @@ defmodule Pinventory.MixProject do
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.3.1"},
-      {:bandit, "~> 1.5"},
+      {:bandit, "~> 1.14"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
