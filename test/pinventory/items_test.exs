@@ -454,14 +454,18 @@ defmodule Pinventory.ItemsTest do
       assert suggest("cafe") == []
     end
 
-    test "list_items filters with the same matching and keeps name order", %{scope: scope} do
-      create_items(scope, ["Paint brush", "Brush paint", "Hammer"])
+    test "list_items filters with the same matching and ranking", %{scope: scope} do
+      create_items(scope, ["Paint brush", "Brush paint", "Hammer", "Bags of Almonds", "Salmon"])
 
       filter = fn text -> Enum.map(Items.list_items(filter: text), & &1.name) end
 
       assert filter.("pnt brsh") == ["Brush paint", "Paint brush"]
       assert filter.("pntbrsh") == ["Paint brush"]
       assert filter.("candy") == []
+      assert filter.("salmon") == ["Salmon", "Bags of Almonds"]
+      assert filter.("SALMON") == ["Salmon", "Bags of Almonds"]
+      assert filter.("salm") == ["Salmon", "Bags of Almonds"]
+      assert filter.("almonds") == ["Bags of Almonds"]
     end
   end
 

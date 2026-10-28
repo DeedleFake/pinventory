@@ -49,7 +49,7 @@ defmodule Pinventory.Items do
   end
 
   @doc """
-  Lists items ordered by name.
+  Lists items ordered by name, or best match first when filtered by name.
 
   Each item includes virtual `total_quantity` (sum of stock) and
   `location_count` (number of locations with stock).
@@ -57,8 +57,8 @@ defmodule Pinventory.Items do
   Options:
 
     * `:filter` - typed text matched against names by
-      `Pinventory.Items.NameSearch` (blank means no filter). Results stay in
-      name order.
+      `Pinventory.Items.NameSearch` (blank means no filter). Results come
+      best match first, ranked like `suggest_items/2`.
     * `:location_id` - only items with stock at this location
     * `:limit` - max rows (default 100)
   """
@@ -136,7 +136,7 @@ defmodule Pinventory.Items do
   defp maybe_filter_name(query, filter) when is_binary(filter) do
     case NameSearch.parse(filter) do
       nil -> query
-      terms -> NameSearch.where_matches(query, terms)
+      terms -> query |> NameSearch.where_matches(terms) |> NameSearch.order_by_rank(terms)
     end
   end
 
