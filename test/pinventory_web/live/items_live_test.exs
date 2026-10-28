@@ -110,6 +110,22 @@ defmodule PinventoryWeb.ItemsLiveTest do
     refute has_element?(view, "#items a", "Paint brush")
   end
 
+  test "lists exact word matches above loose matches", %{conn: conn, scope: scope} do
+    {:ok, _} = Items.create_item(scope, %{name: "Bags of Almonds"})
+    {:ok, _} = Items.create_item(scope, %{name: "Salmon"})
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    html =
+      view
+      |> form("#items-filter-form", %{q: "salmon"})
+      |> render_change()
+
+    {salmon, _} = :binary.match(html, "Salmon")
+    {almonds, _} = :binary.match(html, "Bags of Almonds")
+    assert salmon < almonds
+  end
+
   test "filters items by location", %{conn: conn, scope: scope} do
     {:ok, garage} = Locations.create(scope, %{name: "Garage"})
     {:ok, shelf} = Locations.create(scope, %{name: "Shelf"})
