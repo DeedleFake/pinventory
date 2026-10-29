@@ -22,6 +22,17 @@ defmodule Pinventory.Locations do
 
   alias Pinventory.Locations.Location
 
+  @topic "locations"
+
+  @doc """
+  Subscribes the caller to location changes. Every successful create, update,
+  or delete sends `:locations_changed` to all subscribers except the process
+  that made it.
+  """
+  def subscribe do
+    Phoenix.PubSub.subscribe(Pinventory.PubSub, @topic)
+  end
+
   def change_location(%Location{} = location, attrs \\ %{}) do
     Location.changeset(location, attrs)
   end
@@ -213,10 +224,15 @@ defmodule Pinventory.Locations do
 
   defp unwrap_location_transaction(result) do
     case result do
-      {:ok, %{result: location}} -> {:ok, location}
+      {:ok, %{result: location}} -> announce({:ok, location})
       {:error, :location, changeset, _} -> {:error, changeset}
       {:error, :audit_events, reason, _} -> {:error, reason}
       {:error, _step, reason, _} -> {:error, reason}
     end
+  end
+
+  defp announce(result) do
+    Phoenix.PubSub.broadcast_from(Pinventory.PubSub, self(), @topic, :locations_changed)
+    result
   end
 end

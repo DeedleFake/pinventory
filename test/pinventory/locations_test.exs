@@ -140,4 +140,27 @@ defmodule Pinventory.LocationsTest do
       assert [%{name: "Hammer"}] = Items.list_items_at_location(garage.id)
     end
   end
+
+  describe "subscribe/0" do
+    test "tells subscribers about creates, renames, and deletes made by other processes", %{
+      scope: scope
+    } do
+      Locations.subscribe()
+      in_other_process = fn fun -> fun |> Task.async() |> Task.await() end
+
+      {:ok, garage} = in_other_process.(fn -> Locations.create(scope, %{name: "Garage"}) end)
+      assert_receive :locations_changed
+
+      {:ok, garage} =
+        in_other_process.(fn -> Locations.update(scope, garage, %{name: "Shed"}) end)
+
+      assert_receive :locations_changed
+
+      {:ok, _} = in_other_process.(fn -> Locations.delete(scope, garage) end)
+      assert_receive :locations_changed
+
+      {:ok, _} = Locations.create(scope, %{name: "Attic"})
+      refute_receive :locations_changed
+    end
+  end
 end
