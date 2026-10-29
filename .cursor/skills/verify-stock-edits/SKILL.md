@@ -15,7 +15,7 @@ From the repo root:
 ./.cursor/skills/verify-stock-edits/scripts/check-stock-edits
 ```
 
-It needs Java 11 or newer, `perl`, and `curl`. The first run downloads `tla2tools.jar` 1.8.0 to `~/.cache/pinventory/` and checks its sha256. Set `TLA2TOOLS_JAR` to use another copy. A run takes about 20 seconds on 8 cores and 35 on 4. `TLC_WORKERS=2` limits the cores it uses.
+It needs Java 11 or newer, `perl`, and `curl`. The first run downloads `tla2tools.jar` 1.7.4 to `~/.cache/pinventory/` and checks its sha256. Use a full release here. The v1.8.0 tag is a pre-release that upstream's nightly build re-uploads, so its hash changes. Set `TLA2TOOLS_JAR` to use another copy. A run takes about 3 seconds on 8 cores and 5 on 4. `TLC_WORKERS=2` limits the cores it uses.
 
 To check one property alone, ignoring the known findings list:
 
