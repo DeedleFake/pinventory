@@ -12,6 +12,7 @@ defmodule Pinventory.NamingConvention do
 
   alias Pinventory.Accounts.Scope
   alias Pinventory.Audit
+  alias Pinventory.LiveEdits
   alias Pinventory.NamingConvention.Version
   alias Pinventory.Repo
 
@@ -39,7 +40,8 @@ defmodule Pinventory.NamingConvention do
 
   When another save has landed since `base`, nothing is written and
   `{:error, :stale, newest}` is returned. Saving the same text as `base`
-  writes nothing and returns `base`.
+  writes nothing and returns `base`. Open pages hear about a save through
+  `Pinventory.LiveEdits`.
   """
   @spec save(Scope.t(), non_neg_integer(), String.t()) ::
           {:ok, Version.t()} | {:error, :stale, Version.t()} | {:error, Ecto.Changeset.t()}
@@ -65,10 +67,18 @@ defmodule Pinventory.NamingConvention do
       end
     end)
     |> case do
-      {:ok, version} -> {:ok, version}
-      {:error, {:stale, newest}} -> {:error, :stale, newest}
-      {:error, %Ecto.Changeset{errors: [{:number, _} | _]}} -> {:error, :stale, current()}
-      {:error, %Ecto.Changeset{} = changeset} -> {:error, changeset}
+      {:ok, version} ->
+        LiveEdits.broadcast(:naming_convention, :saved)
+        {:ok, version}
+
+      {:error, {:stale, newest}} ->
+        {:error, :stale, newest}
+
+      {:error, %Ecto.Changeset{errors: [{:number, _} | _]}} ->
+        {:error, :stale, current()}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:error, changeset}
     end
   end
 

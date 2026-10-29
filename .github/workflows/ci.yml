@@ -213,8 +213,8 @@ jobs:
       - name: Compile for production
         run: mix compile --warnings-as-errors
 
-  stock-model:
-    name: Stock edits model
+  save-conflicts-model:
+    name: Save conflicts model
     runs-on: ubuntu-latest
 
     steps:
@@ -231,7 +231,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/pinventory
-          key: tla2tools-${{ hashFiles('.cursor/skills/verify-stock-edits/scripts/check-stock-edits') }}
+          key: tla2tools-${{ hashFiles('.cursor/skills/verify-save-conflicts/scripts/check-save-conflicts') }}
 
-      - name: Model-check stock edits
-        run: ./.cursor/skills/verify-stock-edits/scripts/check-stock-edits
+      - name: Model-check save conflicts
+        run: ./.cursor/skills/verify-save-conflicts/scripts/check-save-conflicts

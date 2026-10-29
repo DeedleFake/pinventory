@@ -1,6 +1,7 @@
 defmodule PinventoryWeb.LocationLiveTest do
   use PinventoryWeb.ConnCase, async: false
 
+  import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
 
   alias Pinventory.Items
@@ -518,5 +519,129 @@ defmodule PinventoryWeb.LocationLiveTest do
     assert rename_edit
     assert has_element?(view, "#location-edit-#{rename_edit.edit_id}", "location renamed")
     assert has_element?(view, "#location-event-#{hd(rename_edit.events).id}", "Renamed location")
+  end
+
+  describe "when someone else saves" do
+    setup %{scope: scope} do
+      sam = Pinventory.AccountsFixtures.user_fixture(%{email: "sam@example.com"})
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      %{sam: sam, garage: garage}
+    end
+
+    test "an unedited name reloads in place", %{conn: conn, sam: sam, garage: garage} do
+      {:ok, mine, _html} = live(conn, ~p"/location/#{garage.id}")
+      {:ok, theirs, _html} = live(log_in_user(build_conn(), sam), ~p"/location/#{garage.id}")
+
+      theirs |> form("#location-form", location: %{name: "Shed"}) |> render_submit()
+
+      assert has_element?(mine, ~s(#location_name[value="Shed"]))
+      assert has_element?(mine, ~s(#location-name-section[data-name-dirty="false"]))
+      refute has_element?(mine, "#location-name-stale")
+      assert has_element?(mine, "#location-activity-list", "Shed")
+    end
+
+    test "an edited name warns, and keeping it saves on top", %{
+      conn: conn,
+      sam: sam,
+      garage: garage
+    } do
+      {:ok, mine, _html} = live(conn, ~p"/location/#{garage.id}")
+      {:ok, theirs, _html} = live(log_in_user(build_conn(), sam), ~p"/location/#{garage.id}")
+
+      mine |> form("#location-form", location: %{name: "Attic"}) |> render_change()
+      theirs |> form("#location-form", location: %{name: "Shed"}) |> render_submit()
+
+      assert has_element?(
+               mine,
+               "#location-name-stale-message",
+               "sam@example.com saved a new name"
+             )
+
+      assert has_element?(mine, "#location-name-stale-diff", "Shed")
+      assert has_element?(mine, ~s(#location_name[value="Attic"]))
+      assert has_element?(mine, "#location-save[disabled]")
+
+      mine |> element("#location-name-stale-keep") |> render_click()
+
+      refute has_element?(mine, "#location-name-stale")
+      assert has_element?(mine, "#location-name-hint", "was Shed")
+
+      mine |> form("#location-form") |> render_submit()
+
+      assert Locations.get!(garage.id).name == "Attic"
+    end
+
+    test "loading their version drops the edit", %{conn: conn, scope: scope, garage: garage} do
+      {:ok, mine, _html} = live(conn, ~p"/location/#{garage.id}")
+      mine |> form("#location-form", location: %{name: "Attic"}) |> render_change()
+
+      {:ok, _} = Locations.update(scope, garage, %{name: "Shed"})
+      mine |> element("#location-name-stale-load") |> render_click()
+
+      assert has_element?(mine, ~s(#location_name[value="Shed"]))
+      assert has_element?(mine, ~s(#location-name-section[data-name-dirty="false"]))
+    end
+
+    test "the warning clears when the name goes back", %{conn: conn, scope: scope, garage: garage} do
+      {:ok, mine, _html} = live(conn, ~p"/location/#{garage.id}")
+      mine |> form("#location-form", location: %{name: "Attic"}) |> render_change()
+
+      {:ok, shed} = Locations.update(scope, garage, %{name: "Shed"})
+      assert has_element?(mine, "#location-name-stale")
+
+      {:ok, _} = Locations.update(scope, shed, %{name: "Garage"})
+
+      refute has_element?(mine, "#location-name-stale")
+      assert has_element?(mine, ~s(#location_name[value="Attic"]))
+      refute has_element?(mine, "#location-save[disabled]")
+
+      mine |> form("#location-form") |> render_submit()
+
+      assert Locations.get!(garage.id).name == "Attic"
+    end
+
+    test "a save that loses the race warns instead of overwriting", %{
+      conn: conn,
+      garage: garage
+    } do
+      {:ok, mine, _html} = live(conn, ~p"/location/#{garage.id}")
+
+      # A rename whose notice hasn't reached the page yet, as when two saves cross.
+      Pinventory.Repo.update_all(
+        from(l in Pinventory.Locations.Location, where: l.id == ^garage.id),
+        set: [name: "Shed"]
+      )
+
+      mine |> form("#location-form", location: %{name: "Attic"}) |> render_submit()
+
+      assert has_element?(mine, "#location-name-stale")
+      assert Locations.get!(garage.id).name == "Shed"
+    end
+
+    test "a deleted location goes back to the list", %{conn: conn, scope: scope, garage: garage} do
+      {:ok, mine, _html} = live(conn, ~p"/location/#{garage.id}")
+
+      {:ok, _} = Locations.delete(scope, garage)
+
+      {path, flash} = assert_redirect(mine)
+      assert path == ~p"/locations"
+      assert flash["error"] =~ "deleted"
+    end
+
+    test "shows who else has the location open", %{conn: conn, sam: sam, garage: garage} do
+      {:ok, mine, _html} = live(conn, ~p"/location/#{garage.id}")
+      {:ok, _theirs, _html} = live(log_in_user(build_conn(), sam), ~p"/location/#{garage.id}")
+
+      assert_eventually(fn -> has_element?(mine, "#location-editors", "sam@example.com") end)
+    end
+  end
+
+  # Presence diffs reach the page a moment after the other page joins.
+  defp assert_eventually(fun, tries \\ 50) do
+    cond do
+      fun.() -> true
+      tries == 0 -> flunk("condition never became true")
+      true -> Process.sleep(20) && assert_eventually(fun, tries - 1)
+    end
   end
 end

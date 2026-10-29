@@ -8,6 +8,7 @@ Locations is the list of named storage places. A user adds a location, opens its
 - `locations-add` inserts from `#location-new-form` with flash `Location created`. The new row shows at the top until the list reloads, then rows are in name order. A duplicate name shows `has already been taken` and a blank one `can't be blank`.
 - `locations-open` navigates to `/location/<id>`.
 - `locations-rename` saves a new name from `#location_name`.
+- `locations-live` shows someone else's rename on an open location page as it happens. An unedited name reloads in place. An edited name stays and `#location-name-stale` shows their name next to yours (`#location-name-stale-diff`), with `#location-name-stale-keep` and `#location-name-stale-load`. Save is disabled until one is clicked. A deleted location sends the page to `/locations` with `Someone deleted this location.` `#location-editors` lists anyone else with the page open.
 - `locations-items` lists stock at that location only (`#location-item-<item-id>`, with `#location-item-<item-id>-quantity`). `#location-total-value` is the total stock there and `#location-activity-list` lists its edits.
 - `locations-floor-plan` shows `#floor-plan-add` when no plan exists. With a plan, `/locations` becomes `/locations/<floor-id>` and the list is a three-pane browse layout (`#locations-workspace`, `#locations-floor-canvas`, `#locations-floor-rail`) plus `#floor-plan-edit`. There is no `#floor-plan-preview`. See [Floor plan](./floor-plan.md).
 

@@ -42,8 +42,8 @@ Each feature file starts with an H1 and one paragraph. Then exactly four H2 sect
 ## Features
 
 - [Log in](./log-in.md) covers password login, passkey button presence, closed registration, and failed credentials.
-- [Items](./items.md) covers list, create, stock and bad quantities, notes, the stale-save warning, letters-in-order search, the location filter, and persistence.
-- [Naming convention](./naming-convention.md) covers the shared Markdown editor (toolbar, Format, preview scroll sync), save, history and restore, the stale-save warning, and the read-only panel on item pages.
+- [Items](./items.md) covers list, create, stock and bad quantities, notes, live saves from other people and agents with per-section warnings, letters-in-order search, the location filter, and persistence.
+- [Naming convention](./naming-convention.md) covers the shared Markdown editor (toolbar, Format, preview scroll sync), save, history and restore, live saves from other people, and the read-only panel on item pages.
 - [Locations](./locations.md) covers add, open, rename, and the per-location item list.
 - [Floor plan](./floor-plan.md) covers optional multi-floor walls, gaps, impassable areas, pins, list badges, and delete-plan.
 - [Delete](./delete.md) covers type-the-name item delete and empty-only location delete.

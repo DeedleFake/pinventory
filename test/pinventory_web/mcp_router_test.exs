@@ -296,7 +296,6 @@ defmodule PinventoryWeb.MCPRouterTest do
 
       renamed = Items.get_item!(batteries.id)
       assert renamed.notes == before.notes
-      assert renamed.lock_version == before.lock_version + 1
 
       [edit | _] = Audit.list_edits_for_item(batteries.id, limit: 1)
       assert AuditHelpers.edit_heading(edit) =~ "#{user.email} via Claude on phone"

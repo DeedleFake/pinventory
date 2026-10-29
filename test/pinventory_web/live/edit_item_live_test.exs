@@ -1,6 +1,7 @@
 defmodule PinventoryWeb.EditItemLiveTest do
   use PinventoryWeb.ConnCase, async: false
 
+  import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
 
   alias Pinventory.Items
@@ -919,84 +920,229 @@ defmodule PinventoryWeb.EditItemLiveTest do
                "Fridge"
              ]
     end
+  end
 
-    test "a save from an out-of-date copy warns instead of overwriting", %{
-      conn: conn,
-      scope: scope
-    } do
-      sam = user_scope_fixture(user_fixture(%{email: "sam@example.com"}))
-      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
-      {:ok, view, _html} = live(conn, ~p"/item/#{item}")
-
-      {:ok, _} = Items.update_item(sam, item, %{notes: "Their note"})
-
-      view |> form("#item-form", item: %{notes: "My note"}) |> render_submit()
-
-      assert has_element?(view, "#item-stale-warning", "sam@example.com saved this item")
-      assert has_element?(view, "#item-stale-notes-diff .text-error", "Their")
-      assert has_element?(view, "#item-stale-notes-diff .text-success", "My")
-      assert Items.get_item!(item.id).notes == "Their note"
-
-      view |> element("#item-stale-keep") |> render_click()
-
-      refute has_element?(view, "#item-stale-warning")
-      assert has_element?(view, ~s(#item-notes-section[data-notes-dirty="true"]))
-
-      view |> form("#item-form") |> render_submit()
-
-      assert Items.get_item!(item.id).notes == "My note"
+  describe "when someone else saves" do
+    setup %{scope: scope} do
+      sam = user_fixture(%{email: "sam@example.com"})
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, item} = Items.create_item(scope, %{name: "Milk", notes: "Fridge"}, %{garage.id => 1})
+      %{sam: sam, garage: garage, item: item}
     end
 
-    test "the out-of-date warning names the agent that saved", %{conn: conn, scope: scope} do
-      sam = user_fixture(%{email: "sam@example.com"})
-      {:ok, {_secret, token}} = Pinventory.Accounts.create_api_token(sam, "Claude on phone")
-      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
-      {:ok, view, _html} = live(conn, ~p"/item/#{item}")
+    test "an untouched section reloads in place, and an edited one is left alone", %{
+      conn: conn,
+      sam: sam,
+      garage: garage,
+      item: item
+    } do
+      {:ok, mine, _html} = live(conn, ~p"/item/#{item}")
+      {:ok, theirs, _html} = live(log_in_user(build_conn(), sam), ~p"/item/#{item}")
+
+      set_quantity(mine, garage.id, 4)
+      theirs |> form("#item-form", item: %{name: "Oat milk"}) |> render_submit()
+
+      assert has_element?(mine, ~s(#item_name[value="Oat milk"]))
+      assert has_element?(mine, ~s(#item-name-section[data-name-dirty="false"]))
+      assert has_element?(mine, ~s(#quantity-#{garage.id}[value="4"]))
+      refute has_element?(mine, "#item-name-stale")
+      refute has_element?(mine, "#item-stock-stale")
+      assert has_element?(mine, "#item-activity-list", "Oat milk")
+
+      mine |> form("#item-form") |> render_submit()
+
+      saved = Items.get_item!(item.id)
+      assert {saved.name, Items.stock_map(saved)} == {"Oat milk", %{garage.id => 4}}
+    end
+
+    test "an edited section warns and blocks Save until resolved", %{
+      conn: conn,
+      sam: sam,
+      item: item
+    } do
+      {:ok, mine, _html} = live(conn, ~p"/item/#{item}")
+      {:ok, theirs, _html} = live(log_in_user(build_conn(), sam), ~p"/item/#{item}")
+
+      mine |> form("#item-form", item: %{notes: "My note"}) |> render_change()
+      theirs |> form("#item-form", item: %{notes: "Their note"}) |> render_submit()
+
+      assert has_element?(mine, "#item-notes-stale-message", "sam@example.com saved new notes")
+      assert has_element?(mine, "#item-notes-stale-their-edit", "sam@example.com")
+      assert has_element?(mine, "#item-notes-stale-diff .text-error", "Their")
+      assert has_element?(mine, "#item-notes-stale-diff .text-success", "My")
+      assert has_element?(mine, "#item_notes", "My note")
+      assert has_element?(mine, "#item-save[disabled]")
+      refute has_element?(mine, "#item-name-stale")
+      refute has_element?(mine, "#item-stock-stale")
+    end
+
+    test "keeping my edits keeps only the sections I changed", %{
+      conn: conn,
+      scope: scope,
+      sam: sam,
+      item: item
+    } do
+      {:ok, mine, _html} = live(conn, ~p"/item/#{item}")
+      mine |> form("#item-form", item: %{notes: "My note"}) |> render_change()
+
+      sam_scope = Pinventory.Accounts.Scope.for_user(sam)
 
       {:ok, _} =
-        Items.update_item(Pinventory.Accounts.Scope.for_api_token(sam, token), item, %{
-          name: "Oat milk"
-        })
+        Items.update_item(
+          sam_scope,
+          item,
+          %{name: "Oat milk", notes: "Their note"},
+          Items.stock_map(item)
+        )
 
-      view |> form("#item-form", item: %{notes: "My note"}) |> render_submit()
+      assert has_element?(mine, ~s(#item_name[value="Oat milk"]))
+      assert has_element?(mine, "#item-notes-stale")
 
-      assert has_element?(
-               view,
-               "#item-stale-warning p",
-               "sam@example.com via Claude on phone saved this item while you were editing."
-             )
+      mine |> element("#item-notes-stale-keep") |> render_click()
+
+      refute has_element?(mine, "#item-notes-stale")
+      assert has_element?(mine, ~s(#item-name-section[data-name-dirty="false"]))
+      assert has_element?(mine, ~s(#item-notes-section[data-notes-dirty="true"]))
+
+      mine |> form("#item-form") |> render_submit()
+
+      saved = Items.get_item!(item.id)
+      assert {saved.name, saved.notes} == {"Oat milk", "My note"}
+      assert Items.update_item(scope, item, %{notes: "Old copy"}) == {:error, :stale}
     end
 
-    test "saving an item someone deleted goes back to the list with an error", %{
+    test "loading their quantities drops mine", %{
       conn: conn,
-      scope: scope
+      scope: scope,
+      garage: garage,
+      item: item
     } do
-      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
-      {:ok, view, _html} = live(conn, ~p"/item/#{item}")
+      {:ok, mine, _html} = live(conn, ~p"/item/#{item}")
+      set_quantity(mine, garage.id, 4)
+
+      {:ok, _} = Items.change_stock(scope, item.id, garage.id, {:set, 7})
+
+      assert has_element?(mine, "#item-stock-stale-diff-#{garage.id}", "Theirs: 7")
+      assert has_element?(mine, "#item-stock-stale-diff-#{garage.id}", "Yours: 4")
+
+      mine |> element("#item-stock-stale-load") |> render_click()
+
+      refute has_element?(mine, "#item-stock-stale")
+      assert has_element?(mine, ~s(#quantity-#{garage.id}[value="7"]))
+      assert has_element?(mine, ~s(#item-total[data-stock-dirty="false"]))
+    end
+
+    test "an agent's MCP write reaches the page", %{
+      conn: conn,
+      sam: sam,
+      garage: garage,
+      item: item
+    } do
+      {:ok, {secret, _token}} = Pinventory.Accounts.create_api_token(sam, "Claude on phone")
+      {:ok, mine, _html} = live(conn, ~p"/item/#{item}")
+      set_quantity(mine, garage.id, 4)
+
+      mcp_call(secret, "rename_item", %{item_id: item.id, name: "Oat milk"})
+      assert has_element?(mine, ~s(#item_name[value="Oat milk"]))
+
+      mcp_call(secret, "change_stock", %{item_id: item.id, location_id: garage.id, add: 2})
+
+      assert has_element?(
+               mine,
+               "#item-stock-stale-message",
+               "sam@example.com via Claude on phone saved new quantities"
+             )
+
+      assert has_element?(mine, "#item-stock-stale-diff-#{garage.id}", "Theirs: 3")
+    end
+
+    test "a save that crosses another save warns instead of overwriting", %{
+      conn: conn,
+      item: item
+    } do
+      {:ok, mine, _html} = live(conn, ~p"/item/#{item}")
+
+      # A notes save whose notice hasn't reached the page yet.
+      Pinventory.Repo.update_all(
+        from(i in Pinventory.Items.Item, where: i.id == ^item.id),
+        set: [notes: "Their note"]
+      )
+
+      mine |> form("#item-form", item: %{notes: "My note"}) |> render_submit()
+
+      assert has_element?(mine, "#item-notes-stale")
+      assert has_element?(mine, "#item_notes", "My note")
+      assert Items.get_item!(item.id).notes == "Their note"
+    end
+
+    test "a deleted item goes back to the list", %{conn: conn, scope: scope, item: item} do
+      {:ok, mine, _html} = live(conn, ~p"/item/#{item}")
+      mine |> form("#item-form", item: %{name: "Oat milk"}) |> render_change()
 
       {:ok, _} = Items.delete_item(scope, item)
 
-      view |> form("#item-form", item: %{name: "Oat milk"}) |> render_submit()
-
-      {path, flash} = assert_redirect(view)
+      {path, flash} = assert_redirect(mine)
       assert path == ~p"/"
       assert flash["error"] =~ "deleted"
-      assert Items.get_item(item.id) == nil
     end
 
-    test "loading the newer version drops the unsaved edits", %{conn: conn, scope: scope} do
-      sam = user_scope_fixture(user_fixture(%{email: "sam@example.com"}))
-      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
-      {:ok, view, _html} = live(conn, ~p"/item/#{item}")
-      {:ok, _} = Items.update_item(sam, item, %{notes: "Their note"})
+    test "shows who else has the item open", %{conn: conn, sam: sam, item: item} do
+      {:ok, mine, _html} = live(conn, ~p"/item/#{item}")
+      refute has_element?(mine, "#item-editors")
 
-      view |> form("#item-form", item: %{notes: "My note"}) |> render_submit()
-      view |> element("#item-stale-load") |> render_click()
+      {:ok, theirs, _html} = live(log_in_user(build_conn(), sam), ~p"/item/#{item}")
 
-      refute has_element?(view, "#item-stale-warning")
-      assert has_element?(view, "#item_notes", "Their note")
-      assert has_element?(view, ~s(#item-notes-section[data-notes-dirty="false"]))
+      assert_eventually(fn -> has_element?(mine, "#item-editors", "sam@example.com") end)
+      assert_eventually(fn -> has_element?(theirs, "#item-editors") end)
+      refute has_element?(theirs, "#item-editors", "sam@example.com")
     end
+
+    test "a new naming convention shows in the panel", %{conn: conn, scope: scope, item: item} do
+      {:ok, mine, _html} = live(conn, ~p"/item/#{item}")
+
+      {:ok, _} =
+        Pinventory.NamingConvention.save(
+          scope,
+          Pinventory.NamingConvention.current().number,
+          "Say the unit"
+        )
+
+      assert has_element?(mine, "#item-naming-convention-body", "Say the unit")
+    end
+  end
+
+  # Presence diffs reach the page a moment after the other page joins.
+  defp assert_eventually(fun, tries \\ 50) do
+    cond do
+      fun.() -> true
+      tries == 0 -> flunk("condition never became true")
+      true -> Process.sleep(20) && assert_eventually(fun, tries - 1)
+    end
+  end
+
+  # Phantom streams MCP replies from a gen_server loop, which needs a
+  # proc_lib process, so the request runs in a Task.
+  defp mcp_call(secret, tool, args) do
+    body =
+      Jason.encode!(%{
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: %{name: tool, arguments: args}
+      })
+
+    conn =
+      Task.async(fn ->
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("accept", "application/json, text/event-stream")
+        |> put_req_header("authorization", "Bearer #{secret}")
+        |> post("/mcp", body)
+      end)
+      |> Task.await()
+
+    assert conn.status == 200
+    refute conn.resp_body =~ ~s("isError":true)
   end
 
   defp item_with_notes(scope, edits) do

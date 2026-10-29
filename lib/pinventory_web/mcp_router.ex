@@ -190,6 +190,7 @@ defmodule PinventoryWeb.MCPRouter do
        }), session}
     else
       :error -> {:reply, Tool.error(error_message(:location_not_found, nil)), session}
+      {:error, :stale} -> {:reply, Tool.error(error_message(:location_stale, nil)), session}
       {:error, changeset} -> {:reply, Tool.error(changeset_message(changeset)), session}
     end
   end
@@ -314,6 +315,9 @@ defmodule PinventoryWeb.MCPRouter do
 
   defp error_message(:stale, _),
     do: "The item changed while renaming it. Nothing was changed. Try again."
+
+  defp error_message(:location_stale, _),
+    do: "The location changed while renaming it. Nothing was changed. Try again."
 
   defp error_message(:same_location, _), do: "The from and to locations are the same."
 

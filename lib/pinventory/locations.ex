@@ -18,6 +18,7 @@ defmodule Pinventory.Locations do
   alias Pinventory.Accounts.Scope
   alias Pinventory.Audit
   alias Pinventory.Items.ItemLocation
+  alias Pinventory.LiveEdits
   alias Pinventory.Repo
 
   alias Pinventory.Locations.Location
@@ -64,6 +65,14 @@ defmodule Pinventory.Locations do
     create(scope, change_location(%Location{}, attrs))
   end
 
+  @doc """
+  Renames a location from the changeset's data, the copy the user started
+  editing.
+
+  If another save renamed the location since then, nothing is written and
+  `{:error, :stale}` is returned. Saving the same name writes nothing. Open
+  pages hear about a rename through `Pinventory.LiveEdits`.
+  """
   def update(%Scope{} = scope, %Ecto.Changeset{} = changeset) do
     user_id = Audit.actor_id(scope)
     edit_id = Audit.new_edit_id()
@@ -79,6 +88,7 @@ defmodule Pinventory.Locations do
 
       true ->
         Multi.new()
+        |> Multi.run(:current, fn repo, _ -> check_name(repo, changeset.data) end)
         |> Multi.update(:location, changeset)
         |> Multi.run(:audit_events, fn repo, %{location: location} ->
           Audit.insert_events(
@@ -101,6 +111,7 @@ defmodule Pinventory.Locations do
         |> Multi.run(:result, fn _repo, %{location: location} -> {:ok, location} end)
         |> Repo.transaction()
         |> unwrap_location_transaction(scope)
+        |> tap(&broadcast(&1, :saved))
     end
   end
 
@@ -111,8 +122,10 @@ defmodule Pinventory.Locations do
   @doc """
   Deletes a location that has no stock and records `location.deleted`.
 
-  Returns `{:error, :location_has_items}` when the location still has items.
-  Does not move or discard stock.
+  Returns `{:error, :location_has_items}` when the location still has items. Returns an
+  error changeset when someone else already deleted it.
+  Does not move or discard stock. Open pages hear about it through
+  `Pinventory.LiveEdits`.
   """
   def delete(%Scope{} = scope, %Location{} = location) do
     user_id = Audit.actor_id(scope)
@@ -138,10 +151,11 @@ defmodule Pinventory.Locations do
         )
       ])
     end)
-    |> Multi.delete(:location, location)
+    |> Multi.delete(:location, location, stale_error_field: :id)
     |> Multi.run(:result, fn _repo, %{location: deleted} -> {:ok, deleted} end)
     |> Repo.transaction()
     |> unwrap_location_transaction(scope)
+    |> tap(&broadcast(&1, :deleted))
   end
 
   @doc """
@@ -217,6 +231,15 @@ defmodule Pinventory.Locations do
     repo.exists?(from il in ItemLocation, where: il.location_id == ^location_id)
   end
 
+  # The repo uses immediate transactions, so SQLite holds the write lock from
+  # this read until commit and no other rename can land in between.
+  defp check_name(repo, %Location{id: id, name: name}) do
+    case repo.get(Location, id) do
+      %Location{name: ^name} = current -> {:ok, current}
+      _ -> {:error, :stale}
+    end
+  end
+
   defp name_change_diff(%Ecto.Changeset{} = changeset) do
     case Ecto.Changeset.fetch_change(changeset, :name) do
       :error ->
@@ -233,12 +256,22 @@ defmodule Pinventory.Locations do
     end
   end
 
+  defp broadcast({:ok, %Location{id: id}}, event), do: LiveEdits.broadcast({:location, id}, event)
+  defp broadcast(_result, _event), do: :ok
+
   defp unwrap_location_transaction(result, scope) do
     case result do
-      {:ok, %{result: location}} -> announce({:ok, location}, scope)
-      {:error, :location, changeset, _} -> {:error, changeset}
-      {:error, :audit_events, reason, _} -> {:error, reason}
-      {:error, _step, reason, _} -> {:error, reason}
+      {:ok, %{result: location}} ->
+        announce({:ok, location}, scope)
+
+      {:error, :location, changeset, _} ->
+        {:error, changeset}
+
+      {:error, :audit_events, reason, _} ->
+        {:error, reason}
+
+      {:error, _step, reason, _} ->
+        {:error, reason}
     end
   end
 

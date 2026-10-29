@@ -118,21 +118,31 @@ defmodule PinventoryWeb.NamingConventionLiveTest do
     assert %{number: 3, text: "Plural names"} = NamingConvention.current()
   end
 
-  test "warns instead of overwriting a save made while editing", %{conn: conn} do
+  test "an unedited page loads a save made elsewhere", %{conn: conn} do
     sam = user_scope_fixture(user_fixture(%{email: "sam@example.com"}))
     {:ok, view, _html} = live(conn, ~p"/items/naming-convention")
 
     {:ok, _} = NamingConvention.save(sam, 0, "Sam's version")
 
-    view |> form("#convention-form", convention: %{text: "My version"}) |> render_submit()
+    assert has_element?(view, "#convention-text", "Sam's version")
+    assert has_element?(view, "#convention-last-edit", "sam@example.com")
+    refute has_element?(view, "#convention-stale")
+  end
 
-    assert has_element?(view, "#convention-stale-warning", "sam@example.com saved")
+  test "edited text warns live, and keeping it saves on top", %{conn: conn} do
+    sam = user_scope_fixture(user_fixture(%{email: "sam@example.com"}))
+    {:ok, view, _html} = live(conn, ~p"/items/naming-convention")
+
+    view |> form("#convention-form", convention: %{text: "My version"}) |> render_change()
+    {:ok, _} = NamingConvention.save(sam, 0, "Sam's version")
+
+    assert has_element?(view, "#convention-stale-message", "sam@example.com saved version 1")
     assert has_element?(view, "#convention-stale-diff")
     assert has_element?(view, "#convention-text", "My version")
-    assert NamingConvention.current().text == "Sam's version"
+    assert has_element?(view, "#convention-save[disabled]")
 
     view |> element("#convention-stale-keep") |> render_click()
-    refute has_element?(view, "#convention-stale-warning")
+    refute has_element?(view, "#convention-stale")
 
     view |> form("#convention-form") |> render_submit()
 
@@ -142,14 +152,35 @@ defmodule PinventoryWeb.NamingConventionLiveTest do
   test "load their version drops the user's edits", %{conn: conn} do
     sam = user_scope_fixture(user_fixture(%{email: "sam@example.com"}))
     {:ok, view, _html} = live(conn, ~p"/items/naming-convention")
-    {:ok, _} = NamingConvention.save(sam, 0, "Sam's version")
 
-    view |> form("#convention-form", convention: %{text: "My version"}) |> render_submit()
+    view |> form("#convention-form", convention: %{text: "My version"}) |> render_change()
+    {:ok, _} = NamingConvention.save(sam, 0, "Sam's version")
     view |> element("#convention-stale-load") |> render_click()
 
-    refute has_element?(view, "#convention-stale-warning")
+    refute has_element?(view, "#convention-stale")
     assert has_element?(view, "#convention-text", "Sam's version")
     assert has_element?(view, "#convention-save[disabled]")
+  end
+
+  test "shows who else has the convention open", %{conn: conn} do
+    sam = user_fixture(%{email: "sam@example.com"})
+    {:ok, view, _html} = live(conn, ~p"/items/naming-convention")
+    {:ok, _theirs, _html} = live(log_in_user(build_conn(), sam), ~p"/items/naming-convention")
+
+    assert_eventually(fn -> has_element?(view, "#convention-editors", "sam@example.com") end)
+  end
+
+  test "a save that crosses another save warns instead of overwriting", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/items/naming-convention")
+
+    # A save whose notice hasn't reached the page yet.
+    Pinventory.Repo.insert!(%NamingConvention.Version{number: 1, text: "Sam's version"})
+
+    view |> form("#convention-form", convention: %{text: "My version"}) |> render_submit()
+
+    assert has_element?(view, "#convention-stale")
+    assert has_element?(view, "#convention-text", "My version")
+    assert NamingConvention.current().text == "Sam's version"
   end
 
   describe "item pages" do
@@ -182,5 +213,14 @@ defmodule PinventoryWeb.NamingConventionLiveTest do
   defp item_fixture do
     {:ok, item} = Pinventory.Items.create_item(user_scope_fixture(), %{name: "Light bulbs"})
     item
+  end
+
+  # Presence diffs reach the page a moment after the other page joins.
+  defp assert_eventually(fun, tries \\ 50) do
+    cond do
+      fun.() -> true
+      tries == 0 -> flunk("condition never became true")
+      true -> Process.sleep(20) && assert_eventually(fun, tries - 1)
+    end
   end
 end
