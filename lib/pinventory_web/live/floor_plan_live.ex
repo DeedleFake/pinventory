@@ -3,6 +3,7 @@ defmodule PinventoryWeb.FloorPlanLive do
 
   alias Pinventory.FloorPlans
   alias Pinventory.FloorPlans.Floor
+  alias Pinventory.Locations
 
   import PinventoryWeb.FloorPlanComponents
 
@@ -585,6 +586,11 @@ defmodule PinventoryWeb.FloorPlanLive do
       floors ->
         selected = List.first(floors)
 
+        if connected?(socket) do
+          FloorPlans.subscribe()
+          Locations.subscribe()
+        end
+
         {:ok,
          socket
          |> assign(:page_title, "Floor plan")
@@ -1047,6 +1053,92 @@ defmodule PinventoryWeb.FloorPlanLive do
   @impl true
   def handle_info({:patch_floor_url, floor_id}, socket) do
     {:noreply, push_patch(socket, to: floor_plan_path(floor_id))}
+  end
+
+  def handle_info(change, socket) when change in [:floor_plan_changed, :locations_changed] do
+    {:noreply, apply_remote_change(socket)}
+  end
+
+  # Someone else wrote to the plan or its locations. Reload what the page shows,
+  # then drop any in-progress action whose target is gone.
+  defp apply_remote_change(socket) do
+    case FloorPlans.list_floors() do
+      [] ->
+        socket
+        |> put_flash(:info, "Someone else deleted the floor plan.")
+        |> push_navigate(to: ~p"/locations")
+
+      floors ->
+        previous_floors = socket.assigns.floors
+
+        socket
+        |> assign(:floors, floors)
+        |> assign_location_lists()
+        |> follow_selected_floor(floors)
+        |> drop_stale_history(previous_floors, floors)
+        |> drop_stale_actions(floors)
+    end
+  end
+
+  defp follow_selected_floor(socket, floors) do
+    case Enum.find(floors, &(&1.id == socket.assigns.selected_floor.id)) do
+      nil ->
+        first = List.first(floors)
+
+        socket
+        |> put_flash(:info, "Someone else deleted the floor you were on.")
+        |> apply_selected_floor(first)
+        |> push_patch(to: floor_plan_path(first.id))
+
+      floor ->
+        assign(socket, :selected_floor, floor)
+    end
+  end
+
+  # Undo restores a whole-plan snapshot, so replaying one now would erase the
+  # other person's change. Location renames leave the snapshot alone.
+  defp drop_stale_history(socket, previous_floors, floors) do
+    history? = socket.assigns.undo_stack != [] or socket.assigns.redo_stack != []
+
+    if history? and
+         FloorPlans.plan_geometry_snapshot(previous_floors) !=
+           FloorPlans.plan_geometry_snapshot(floors) do
+      socket
+      |> assign(:undo_stack, [])
+      |> assign(:redo_stack, [])
+      |> put_flash(:info, "Someone else changed the floor plan, so undo history was cleared.")
+    else
+      socket
+    end
+  end
+
+  defp drop_stale_actions(socket, floors) do
+    floor_ids = MapSet.new(floors, & &1.id)
+    keep_floor = fn id -> if MapSet.member?(floor_ids, id), do: id end
+    placing = socket.assigns.placing_location_id
+
+    placing_gone? =
+      placing != nil and
+        (Map.has_key?(socket.assigns.placement_by_location, placing) or
+           not Enum.any?(socket.assigns.locations, &(&1.id == placing)))
+
+    socket =
+      socket
+      |> assign(:editing_floor_id, keep_floor.(socket.assigns.editing_floor_id))
+      |> assign(
+        :removing_floor_id,
+        if(length(floors) > 1, do: keep_floor.(socket.assigns.removing_floor_id))
+      )
+
+    if placing_gone? do
+      socket
+      |> assign(:placing_location_id, nil)
+      |> assign(:place_mode, "new")
+      |> assign(:existing_points_json, "[]")
+      |> put_flash(:info, "Someone else placed or deleted the location you were drawing.")
+    else
+      socket
+    end
   end
 
   defp apply_selected_floor(socket, floor) do

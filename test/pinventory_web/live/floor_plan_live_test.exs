@@ -755,4 +755,159 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     refute FloorPlans.floor_plan_exists?()
     assert [%{name: "Garage"}] = Locations.list()
   end
+
+  describe "with two viewers" do
+    setup %{conn: conn} do
+      {:ok, [floor1]} = FloorPlans.create_floor_plan()
+      {:ok, floor2} = FloorPlans.add_floor()
+      {:ok, mine, _} = live(conn, ~p"/locations/floor-plan/#{floor1.id}")
+      {:ok, theirs, _} = live(conn, ~p"/locations/floor-plan/#{floor1.id}")
+      %{floor1: floor1, floor2: floor2, mine: mine, theirs: theirs}
+    end
+
+    defp draw_wall(view, y) do
+      view
+      |> element("#floor-plan-canvas")
+      |> render_hook("wall_drawn", %{"x1" => 0.1, "y1" => y, "x2" => 0.9, "y2" => y})
+    end
+
+    test "walls drawn in one view show in the other", %{mine: mine, theirs: theirs} do
+      refute has_element?(mine, "[data-wall-id]")
+
+      draw_wall(theirs, 0.2)
+
+      assert has_element?(mine, "[data-wall-id]")
+    end
+
+    test "floor adds, renames, and reorders show without moving the viewer", %{
+      floor1: floor1,
+      floor2: floor2,
+      mine: mine,
+      theirs: theirs
+    } do
+      theirs |> element("#floor-add") |> render_click()
+      floor3 = Enum.find(FloorPlans.list_floors(), &(&1.name == "Floor 3"))
+      assert has_element?(mine, "#floor-rail-item-#{floor3.id}")
+      assert has_element?(mine, "#floor-svg-#{floor1.id}")
+
+      theirs |> element("#floor-edit-#{floor2.id}") |> render_click()
+
+      theirs
+      |> form("#floor-rename-form-#{floor2.id}", %{floor_id: floor2.id, name: "Attic"})
+      |> render_submit()
+
+      assert has_element?(mine, "#floor-tab-#{floor2.id}", "Attic")
+
+      theirs
+      |> element("#floor-rail-list")
+      |> render_hook("reorder_floors", %{"floor_ids" => [floor1.id, floor3.id, floor2.id]})
+
+      assert render(mine) =~
+               ~r/floor-rail-item-#{floor1.id}[\s\S]*floor-rail-item-#{floor3.id}[\s\S]*floor-rail-item-#{floor2.id}/
+    end
+
+    test "location renames from outside the page show", %{scope: scope, mine: mine} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      assert has_element?(mine, "#place-location-#{garage.id}", "Garage")
+
+      {:ok, _} = Locations.update(scope, garage, %{name: "Workshop"})
+
+      assert has_element?(mine, "#place-location-#{garage.id}", "Workshop")
+    end
+
+    test "removing the floor a viewer is on moves them to another floor", %{
+      floor1: floor1,
+      floor2: floor2,
+      mine: mine,
+      theirs: theirs
+    } do
+      mine |> element("#floor-tab-#{floor2.id}") |> render_click()
+      assert_patch(mine, ~p"/locations/floor-plan/#{floor2.id}")
+
+      theirs |> element("#floor-remove-#{floor2.id}") |> render_click()
+      theirs |> element("#floor-remove-confirm-button-#{floor2.id}") |> render_click()
+
+      assert_patch(mine, ~p"/locations/floor-plan/#{floor1.id}")
+      assert has_element?(mine, "#floor-svg-#{floor1.id}")
+      refute has_element?(mine, "#floor-rail-item-#{floor2.id}")
+      assert render(mine) =~ "Someone else deleted the floor you were on."
+    end
+
+    test "removing a floor closes another viewer's rename or delete prompt for it", %{
+      mine: mine,
+      theirs: theirs
+    } do
+      {:ok, floor3} = FloorPlans.add_floor()
+      {:ok, floor4} = FloorPlans.add_floor()
+
+      mine |> element("#floor-edit-#{floor3.id}") |> render_click()
+      assert has_element?(mine, "#floor-rename-form-#{floor3.id}")
+
+      {:ok, _} = FloorPlans.delete_floor(floor3)
+      refute has_element?(mine, "#floor-rename-form-#{floor3.id}")
+      refute has_element?(mine, "#floor-rail-item-#{floor3.id}")
+
+      mine |> element("#floor-remove-#{floor4.id}") |> render_click()
+      assert has_element?(mine, "#floor-remove-confirm-#{floor4.id}")
+
+      theirs |> element("#floor-remove-#{floor4.id}") |> render_click()
+      theirs |> element("#floor-remove-confirm-button-#{floor4.id}") |> render_click()
+
+      refute has_element?(mine, "#floor-remove-confirm-#{floor4.id}")
+      refute has_element?(mine, "#floor-rail-item-#{floor4.id}")
+    end
+
+    test "deleting the plan sends other viewers to locations", %{mine: mine, theirs: theirs} do
+      mine |> element("#floor-plan-delete") |> render_click()
+
+      theirs |> element("#floor-plan-delete") |> render_click()
+      theirs |> element("#floor-plan-delete-confirm-button") |> render_click()
+
+      assert_redirect(mine, "/locations")
+    end
+
+    test "a change from someone else clears undo history, a location rename does not", %{
+      scope: scope,
+      mine: mine,
+      theirs: theirs
+    } do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      draw_wall(mine, 0.2)
+      refute has_element?(mine, "#history-undo[disabled]")
+
+      {:ok, _} = Locations.update(scope, garage, %{name: "Workshop"})
+      refute has_element?(mine, "#history-undo[disabled]")
+
+      draw_wall(theirs, 0.6)
+
+      assert has_element?(mine, "#history-undo[disabled]")
+      assert has_element?(mine, "#history-redo[disabled]")
+      assert render(mine) =~ "undo history was cleared"
+      refute has_element?(theirs, "#history-undo[disabled]")
+
+      render_click(mine, "undo", %{})
+      assert [%{walls: [_, _]} | _] = FloorPlans.list_floors()
+    end
+
+    test "placing a location someone else just placed cancels the drawing", %{
+      scope: scope,
+      mine: mine,
+      theirs: theirs
+    } do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+
+      mine |> element("#place-location-#{garage.id}") |> render_click()
+      assert has_element?(mine, "#floor-plan-canvas[data-location-id='#{garage.id}']")
+
+      theirs |> element("#place-location-#{garage.id}") |> render_click()
+
+      theirs
+      |> element("#floor-plan-canvas")
+      |> render_hook("polygon_placed", %{"location_id" => garage.id, "points" => triangle()})
+
+      assert has_element?(mine, "#floor-plan-canvas[data-location-id='']")
+      assert has_element?(mine, "#unplace-location-#{garage.id}")
+      assert render(mine) =~ "Someone else placed or deleted the location you were drawing."
+    end
+  end
 end
