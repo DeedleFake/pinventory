@@ -46,7 +46,7 @@ Launch / health / teardown:
   cleanup
 
 Browser (Chromium over CDP, persistent until cleanup):
-  browser login
+  browser login [email password]
   browser goto <path>
   browser click <selector>
   browser click-confirm <selector>
@@ -70,7 +70,11 @@ Browser (Chromium over CDP, persistent until cleanup):
   browser html <relpath>
 
   PINVENTORY_TAB=<n> runs a browser command in tab n (default 1). Tabs share
-  the login, so two tabs act as two people viewing the same page.
+  the login: each tab sees the other's saves, but Also editing lists only
+  other users.
+  PINVENTORY_PERSON=<n> runs it in person n's own Chromium (default 1), with
+  its own cookies, so it can log in as another user. Person 2 and up start on
+  first use and stop at cleanup.
 
 Database:
   sqlite <sql>
@@ -208,6 +212,52 @@ function forceKillGroup(pid) {
   }
 }
 
+// cdpPort 0 lets Chromium pick a free port and write it to
+// DevToolsActivePort in its profile.
+async function startChrome(chrome, cdpPort, suffix) {
+  const browserLog = join(RUN_DIR, `browser${suffix}.log`);
+  const userDataDir = join(RUN_DIR, `chrome-profile${suffix}`);
+  mkdirSync(userDataDir, { recursive: true });
+  const browserPid = spawnDetached(
+    chrome,
+    [
+      "--headless=new",
+      "--disable-gpu",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-dev-shm-usage",
+      "--no-sandbox",
+      `--remote-debugging-port=${cdpPort}`,
+      "--remote-debugging-address=127.0.0.1",
+      `--user-data-dir=${userDataDir}`,
+      "--window-size=1280,800",
+      "about:blank",
+    ],
+    { logPath: browserLog, env: {}, cwd: REPO },
+  );
+
+  const exited = () => {
+    const tail = existsSync(browserLog) ? readFileSync(browserLog, "utf8").slice(-2000) : "";
+    return new Error(`Chromium pid ${browserPid} exited:\n${tail}`);
+  };
+  const portFile = join(userDataDir, "DevToolsActivePort");
+  try {
+    return await waitFor(
+      async () => {
+        if (!pidAlive(browserPid)) throw exited();
+        const port = cdpPort || (existsSync(portFile) && Number(readFileSync(portFile, "utf8").split("\n")[0]));
+        if (!port) return null;
+        const up = (await httpCode(`http://127.0.0.1:${port}/json/version`)) === 200;
+        return up && { browserPid, cdpPort: port };
+      },
+      { timeoutMs: 30000, intervalMs: 200, label: `Chromium${suffix} CDP` },
+    );
+  } catch (err) {
+    killGroup(browserPid);
+    throw err;
+  }
+}
+
 async function cmdLaunch(flags) {
   const port = Number(flags.port || DEFAULT_PORT);
   const cdpPort = Number(flags["cdp-port"] || DEFAULT_CDP_PORT);
@@ -280,46 +330,10 @@ async function cmdLaunch(flags) {
   }
 
   const chrome = findChrome();
-  const browserLog = join(RUN_DIR, "browser.log");
-  const userDataDir = join(RUN_DIR, "chrome-profile");
-  mkdirSync(userDataDir, { recursive: true });
-  const browserPid = spawnDetached(
-    chrome,
-    [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--disable-dev-shm-usage",
-      "--no-sandbox",
-      `--remote-debugging-port=${cdpPort}`,
-      "--remote-debugging-address=127.0.0.1",
-      `--user-data-dir=${userDataDir}`,
-      "--window-size=1280,800",
-      "about:blank",
-    ],
-    { logPath: browserLog, env: {}, cwd: REPO },
-  );
-
+  let browserPid;
   try {
-    await waitFor(
-      async () => {
-        if (!pidAlive(browserPid)) {
-          const tail = existsSync(browserLog)
-            ? readFileSync(browserLog, "utf8").slice(-2000)
-            : "";
-          throw new Error(`Chromium pid ${browserPid} exited:\n${tail}`);
-        }
-        return (await httpCode(`http://127.0.0.1:${cdpPort}/json/version`)) === 200;
-      },
-      {
-        timeoutMs: 30000,
-        intervalMs: 200,
-        label: `CDP http://127.0.0.1:${cdpPort}/json/version`,
-      },
-    );
+    ({ browserPid } = await startChrome(chrome, cdpPort, ""));
   } catch (err) {
-    killGroup(browserPid);
     killGroup(serverPid);
     throw err;
   }
@@ -384,6 +398,9 @@ async function cmdDoctor() {
     );
     }
   }
+  for (const [n, person] of Object.entries(state.people || {})) {
+    check(pidAlive(person.browserPid), `person ${n} browserPid=${person.browserPid} alive`);
+  }
   const listen = listeningPid(state.port);
   check(
     listen != null,
@@ -403,11 +420,14 @@ async function cmdCleanup() {
     }
   }
   if (state) {
-    killGroup(state.browserPid);
-    killGroup(state.serverPid);
+    const pids = [
+      state.browserPid,
+      ...Object.values(state.people || {}).map((p) => p.browserPid),
+      state.serverPid,
+    ];
+    pids.forEach(killGroup);
     await sleep(500);
-    forceKillGroup(state.browserPid);
-    forceKillGroup(state.serverPid);
+    pids.forEach(forceKillGroup);
   }
   if (existsSync(RUN_DIR)) rmSync(RUN_DIR, { recursive: true, force: true });
   console.log(`ok cleaned ${RUN_DIR}`);
@@ -416,17 +436,13 @@ async function cmdCleanup() {
 
 async function withPage(fn) {
   const state = loadState();
-  const browser = await chromium.connectOverCDP(
-    `http://127.0.0.1:${state.cdpPort}`,
-  );
+  const tab = positiveInt("PINVENTORY_TAB");
+  const person = await personBrowser(state, positiveInt("PINVENTORY_PERSON"));
+  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${person.cdpPort}`);
   try {
     const context = browser.contexts()[0];
     if (!context) throw new Error("Chromium has no context; relaunch");
-    const tab = Number(process.env.PINVENTORY_TAB || "1");
-    if (!Number.isInteger(tab) || tab < 1) {
-      throw new Error(`PINVENTORY_TAB must be 1 or more, got ${process.env.PINVENTORY_TAB}`);
-    }
-    const page = await tabPage(context, state, tab);
+    const page = await tabPage(context, person, tab);
     // Background tabs don't paint, so screenshots there time out.
     await page.bringToFront();
     page.setDefaultTimeout(15000);
@@ -436,21 +452,53 @@ async function withPage(fn) {
   }
 }
 
+function positiveInt(name) {
+  const n = Number(process.env[name] || "1");
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error(`${name} must be 1 or more, got ${process.env[name]}`);
+  }
+  return n;
+}
+
+// Person 1 is the Chromium launch started. Each other person gets a
+// Chromium of their own on first use, recorded under state.people.
+async function personBrowser(state, n) {
+  const save = (tabs) => {
+    const latest = loadState();
+    if (n === 1) saveState({ ...latest, tabs });
+    else {
+      latest.people[n].tabs = tabs;
+      saveState(latest);
+    }
+  };
+  if (n === 1) return { cdpPort: state.cdpPort, tabs: state.tabs || {}, save };
+
+  state.people ||= {};
+  let person = state.people[n];
+  if (!person || !pidAlive(person.browserPid)) {
+    const started = await startChrome(state.chrome, 0, `-${n}`);
+    person = { ...started, tabs: {} };
+    state.people[n] = person;
+    saveState(state);
+  }
+  return { cdpPort: person.cdpPort, tabs: person.tabs || {}, save };
+}
+
 // context.pages() order can change between CDP connections, so each tab
 // number is pinned to its Chromium target id in state.json.
-async function tabPage(context, state, tab) {
-  const tabs = state.tabs || {};
+async function tabPage(context, person, tab) {
+  const tabs = person.tabs;
   const ids = new Map();
   for (const page of context.pages()) ids.set(await targetId(context, page), page);
 
   let page = ids.get(tabs[tab]);
   if (!page) {
-    // Tab 1 is the window launch opened; any other tab starts fresh.
+    // Tab 1 is the window the browser opened with; any other tab starts fresh.
     const claimed = new Set(Object.values(tabs));
     const unclaimed = [...ids].find(([id]) => !claimed.has(id))?.[1];
     page = tab === 1 && unclaimed ? unclaimed : await context.newPage();
     tabs[tab] = await targetId(context, page);
-    saveState({ ...state, tabs });
+    person.save(tabs);
   }
   return page;
 }
@@ -477,19 +525,21 @@ async function cmdBrowser(args) {
 
   if (action === "login") {
     await withPage(async (page, state) => {
-      await page.goto(`${state.url}/user/log-in`, {
-        waitUntil: "domcontentloaded",
-      });
+      const email = rest[0] || state.email;
+      const password = rest[1] || state.password;
+      // A logged-in session gets the password re-check form at /user/log-in,
+      // so test the session on / first.
+      await page.goto(`${state.url}/`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector("#items-page, #login_form_password");
       if (await page.locator("#items-page").count()) {
         console.log("ok already logged in");
         return;
       }
-      await page.waitForSelector("#login_form_password");
-      await page.fill("#user_email", state.email);
-      await page.fill("#user_password", state.password);
+      await page.fill("#user_email", email);
+      await page.fill("#user_password", password);
       await page.click("#login_form_password button");
       await page.waitForSelector("#items-page");
-      console.log("ok logged in");
+      console.log(`ok logged in as ${email}`);
     });
     return;
   }
