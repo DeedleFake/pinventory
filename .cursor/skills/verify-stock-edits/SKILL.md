@@ -135,7 +135,7 @@ None. Every property holds for the current code, and `KNOWN_FINDINGS` in the scr
 
 ## Coverage
 
-Sync commit: `c78fa838720cc78252440536bf7f1efe50cfb65a`
+Sync commit: `87e5fe0fb9ae6de79e1ccaf54d753ae4eb78d2fd`
 
 Move the sync commit forward only after you confirm, at the new commit, that the model and the code facts still describe the code below. The script lists covered files changed since the sync commit.
 
