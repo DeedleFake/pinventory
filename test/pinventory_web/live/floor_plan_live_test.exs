@@ -760,9 +760,13 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     setup %{conn: conn} do
       {:ok, [floor1]} = FloorPlans.create_floor_plan()
       {:ok, floor2} = FloorPlans.add_floor()
+      other = Pinventory.AccountsFixtures.user_fixture()
       {:ok, mine, _} = live(conn, ~p"/locations/floor-plan/#{floor1.id}")
-      {:ok, theirs, _} = live(conn, ~p"/locations/floor-plan/#{floor1.id}")
-      %{floor1: floor1, floor2: floor2, mine: mine, theirs: theirs}
+
+      {:ok, theirs, _} =
+        live(log_in_user(build_conn(), other), ~p"/locations/floor-plan/#{floor1.id}")
+
+      %{floor1: floor1, floor2: floor2, mine: mine, theirs: theirs, other: other}
     end
 
     defp draw_wall(view, y) do
@@ -815,56 +819,168 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
       assert has_element?(mine, "#place-location-#{garage.id}", "Workshop")
     end
 
-    test "removing the floor a viewer is on moves them to another floor", %{
+    test "removing the floor a viewer is on offers to restore it", %{
       floor1: floor1,
       floor2: floor2,
       mine: mine,
-      theirs: theirs
+      theirs: theirs,
+      other: other
     } do
       mine |> element("#floor-tab-#{floor2.id}") |> render_click()
       assert_patch(mine, ~p"/locations/floor-plan/#{floor2.id}")
+      draw_wall(mine, 0.3)
 
       theirs |> element("#floor-remove-#{floor2.id}") |> render_click()
       theirs |> element("#floor-remove-confirm-button-#{floor2.id}") |> render_click()
 
       assert_patch(mine, ~p"/locations/floor-plan/#{floor1.id}")
-      assert has_element?(mine, "#floor-svg-#{floor1.id}")
       refute has_element?(mine, "#floor-rail-item-#{floor2.id}")
-      assert render(mine) =~ "Someone else deleted the floor you were on."
+      assert has_element?(mine, "#deletion-#{floor2.id}", "#{other.email} deleted Floor 2.")
+
+      mine |> element("#deletion-restore-#{floor2.id}") |> render_click()
+
+      assert_patch(mine, ~p"/locations/floor-plan/#{floor2.id}")
+      refute has_element?(mine, "#deletion-#{floor2.id}")
+      assert has_element?(mine, "#floor-svg-#{floor2.id} [data-wall-id]")
+      assert has_element?(theirs, "#floor-rail-item-#{floor2.id}")
     end
 
-    test "removing a floor closes another viewer's rename or delete prompt for it", %{
+    test "removing a floor someone is renaming offers to restore it with the rename open", %{
       scope: scope,
-      mine: mine,
-      theirs: theirs
+      mine: mine
     } do
       {:ok, floor3} = FloorPlans.add_floor()
       {:ok, floor4} = FloorPlans.add_floor()
 
       mine |> element("#floor-edit-#{floor3.id}") |> render_click()
+      {:ok, _} = FloorPlans.delete_floor(scope, floor3)
+
+      refute has_element?(mine, "#floor-rail-item-#{floor3.id}")
+      assert has_element?(mine, "#deletion-#{floor3.id}", "deleted Floor 3")
+
+      mine |> element("#deletion-restore-#{floor3.id}") |> render_click()
       assert has_element?(mine, "#floor-rename-form-#{floor3.id}")
 
-      {:ok, _} = FloorPlans.delete_floor(scope, floor3)
-      refute has_element?(mine, "#floor-rename-form-#{floor3.id}")
-      refute has_element?(mine, "#floor-rail-item-#{floor3.id}")
-
       mine |> element("#floor-remove-#{floor4.id}") |> render_click()
-      assert has_element?(mine, "#floor-remove-confirm-#{floor4.id}")
-
-      theirs |> element("#floor-remove-#{floor4.id}") |> render_click()
-      theirs |> element("#floor-remove-confirm-button-#{floor4.id}") |> render_click()
+      {:ok, _} = FloorPlans.delete_floor(scope, floor4)
 
       refute has_element?(mine, "#floor-remove-confirm-#{floor4.id}")
+      mine |> element("#deletion-dismiss-#{floor4.id}") |> render_click()
+      refute has_element?(mine, "#deletion-#{floor4.id}")
       refute has_element?(mine, "#floor-rail-item-#{floor4.id}")
     end
 
-    test "deleting the plan sends other viewers to locations", %{mine: mine, theirs: theirs} do
-      mine |> element("#floor-plan-delete") |> render_click()
+    test "a restore by one viewer clears the other viewer's notice", %{
+      scope: scope,
+      floor2: floor2,
+      mine: mine,
+      theirs: theirs
+    } do
+      mine |> element("#floor-tab-#{floor2.id}") |> render_click()
+      theirs |> element("#floor-tab-#{floor2.id}") |> render_click()
+      {:ok, _} = FloorPlans.delete_floor(scope, floor2)
+      assert has_element?(theirs, "#deletion-#{floor2.id}")
+
+      mine |> element("#deletion-restore-#{floor2.id}") |> render_click()
+
+      refute has_element?(theirs, "#deletion-#{floor2.id}")
+      assert has_element?(theirs, "#floor-rail-item-#{floor2.id}")
+    end
+
+    test "deleting the plan offers to restore it instead of leaving", %{
+      floor1: floor1,
+      mine: mine,
+      theirs: theirs,
+      other: other
+    } do
+      draw_wall(mine, 0.4)
+      before = FloorPlans.plan_geometry_snapshot(FloorPlans.list_floors())
 
       theirs |> element("#floor-plan-delete") |> render_click()
       theirs |> element("#floor-plan-delete-confirm-button") |> render_click()
 
+      assert has_element?(mine, "#deletion-plan", "#{other.email} deleted the floor plan.")
+      refute has_element?(mine, "#floor-plan-workspace")
+
+      mine |> element("#deletion-restore-plan") |> render_click()
+
+      assert_patch(mine, ~p"/locations/floor-plan/#{floor1.id}")
+      assert has_element?(mine, "#floor-svg-#{floor1.id} [data-wall-id]")
+      assert FloorPlans.plan_geometry_snapshot(FloorPlans.list_floors()) == before
+    end
+
+    test "leaving after the plan is deleted goes to locations", %{scope: scope, mine: mine} do
+      {:ok, _} = FloorPlans.delete_floor_plan(scope)
+
+      mine |> element("#deletion-dismiss-plan", "Leave") |> render_click()
+
       assert_redirect(mine, "/locations")
+    end
+
+    test "restoring a deleted plan keeps a plan someone started since", %{
+      scope: scope,
+      floor1: floor1,
+      floor2: floor2,
+      mine: mine
+    } do
+      {:ok, _} = FloorPlans.delete_floor_plan(scope)
+      {:ok, [fresh]} = FloorPlans.create_floor_plan()
+      assert has_element?(mine, "#deletion-plan")
+      assert has_element?(mine, "#floor-svg-#{fresh.id}")
+
+      mine |> element("#deletion-restore-plan") |> render_click()
+
+      ids = MapSet.new(FloorPlans.list_floors(), & &1.id)
+      assert ids == MapSet.new([floor1.id, floor2.id, fresh.id])
+      assert has_element?(mine, "#floor-svg-#{floor1.id}")
+    end
+
+    test "removing a location someone selected from the plan offers to put it back", %{
+      scope: scope,
+      mine: mine,
+      theirs: theirs,
+      other: other
+    } do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      mine |> element("#place-location-#{garage.id}") |> render_click()
+
+      mine
+      |> element("#floor-plan-canvas")
+      |> render_hook("polygon_placed", %{"location_id" => garage.id, "points" => triangle()})
+
+      placed = FloorPlans.placement_index()[garage.id]
+
+      theirs |> element("#unplace-location-#{garage.id}") |> render_click()
+
+      assert has_element?(
+               mine,
+               "#deletion-#{garage.id}",
+               "#{other.email} removed Garage from the floor plan."
+             )
+
+      mine |> element("#deletion-restore-#{garage.id}") |> render_click()
+
+      assert FloorPlans.placement_index()[garage.id] == placed
+      assert has_element?(mine, "#unplace-location-#{garage.id}")
+      assert has_element?(theirs, "#unplace-location-#{garage.id}")
+    end
+
+    test "deleting a location someone is drawing offers to restore it and resumes drawing", %{
+      scope: scope,
+      mine: mine
+    } do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      mine |> element("#place-location-#{garage.id}") |> render_click()
+
+      {:ok, _} = Locations.delete(scope, garage)
+
+      assert has_element?(mine, "#deletion-#{garage.id}", "deleted Garage")
+      assert has_element?(mine, "#floor-plan-canvas[data-location-id='']")
+
+      mine |> element("#deletion-restore-#{garage.id}") |> render_click()
+
+      assert Locations.get(garage.id)
+      assert has_element?(mine, "#floor-plan-canvas[data-location-id='#{garage.id}']")
     end
 
     test "a change from someone else clears undo history, a location rename does not", %{
@@ -908,7 +1024,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
 
       assert has_element?(mine, "#floor-plan-canvas[data-location-id='']")
       assert has_element?(mine, "#unplace-location-#{garage.id}")
-      assert render(mine) =~ "Someone else placed or deleted the location you were drawing."
+      assert render(mine) =~ "Someone else placed the location you were drawing."
     end
   end
 end
