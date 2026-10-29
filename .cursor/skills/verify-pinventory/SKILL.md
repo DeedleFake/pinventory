@@ -101,7 +101,7 @@ $H browser click-box '[data-wall-id]' 0.7 0.5
 $H browser hover '#location-<id>'
 ```
 
-Set `PINVENTORY_TAB=<n>` on any `browser` command to run it in tab `n` (default 1). The harness opens missing tabs and brings the tab to the front, since a background tab cannot take a screenshot. Tabs share the login, so two tabs act as two people on the same page.
+Set `PINVENTORY_TAB=<n>` on any `browser` command to run it in tab `n` (default 1). The harness opens missing tabs, pins each number to its Chromium tab in `state.json`, and brings the tab to the front, since a background tab cannot take a screenshot. Tabs share the login, so two tabs act as two people on the same page.
 
 ```bash
 PINVENTORY_TAB=2 $H browser goto /locations/floor-plan

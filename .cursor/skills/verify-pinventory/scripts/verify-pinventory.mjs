@@ -426,14 +426,42 @@ async function withPage(fn) {
     if (!Number.isInteger(tab) || tab < 1) {
       throw new Error(`PINVENTORY_TAB must be 1 or more, got ${process.env.PINVENTORY_TAB}`);
     }
-    while (context.pages().length < tab) await context.newPage();
-    const page = context.pages()[tab - 1];
+    const page = await tabPage(context, state, tab);
     // Background tabs don't paint, so screenshots there time out.
     await page.bringToFront();
     page.setDefaultTimeout(15000);
     return await fn(page, state);
   } finally {
     await browser.close();
+  }
+}
+
+// context.pages() order can change between CDP connections, so each tab
+// number is pinned to its Chromium target id in state.json.
+async function tabPage(context, state, tab) {
+  const tabs = state.tabs || {};
+  const ids = new Map();
+  for (const page of context.pages()) ids.set(await targetId(context, page), page);
+
+  let page = ids.get(tabs[tab]);
+  if (!page) {
+    // Tab 1 is the window launch opened; any other tab starts fresh.
+    const claimed = new Set(Object.values(tabs));
+    const unclaimed = [...ids].find(([id]) => !claimed.has(id))?.[1];
+    page = tab === 1 && unclaimed ? unclaimed : await context.newPage();
+    tabs[tab] = await targetId(context, page);
+    saveState({ ...state, tabs });
+  }
+  return page;
+}
+
+async function targetId(context, page) {
+  const session = await context.newCDPSession(page);
+  try {
+    const { targetInfo } = await session.send("Target.getTargetInfo");
+    return targetInfo.targetId;
+  } finally {
+    await session.detach();
   }
 }
 
