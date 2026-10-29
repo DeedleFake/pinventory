@@ -1,6 +1,6 @@
 ---
 name: verify-stock-edits
-description: Model-check how Pinventory saves an item's stock when edit pages, the MCP agent tools, and item or location deletes race each other, using a TLA+ model whose guard settings are read from the code. Use when a change touches Items.update_item, the Item section versions, change_stock, move_stock, delete_item, Locations.delete, DraftStock, the edit page's save, live-notice, or stale handling, item_locations constraints, or the repo's transaction mode, or when running /verify-stock-edits.
+description: Model-check how Pinventory saves an item's stock when edit pages, the MCP agent tools, and item or location deletes race each other, using a TLA+ model whose guard settings are read from the code. Use when a change touches Items.update_item, the Item section comparison, change_stock, move_stock, delete_item, Locations.delete, DraftStock, the edit page's save, live-notice, or stale handling, item_locations constraints, or the repo's transaction mode, or when running /verify-stock-edits.
 ---
 
 # Verify stock edits
@@ -56,8 +56,7 @@ The script prints `code facts` first. Each is a model constant read from the cod
 
 | Constant | TRUE when the code has |
 |---|---|
-| `StockLock` | `stock: {:item_locations, :stock_version}` in `Item`'s section table, `:stock -> stock_changed?` in `edited_sections/2`, and `save_item/4` passing the edited sections to `lock_sections/2`, which calls `optimistic_lock(field)`. A save that changes stock checks `stock_version` |
-| `ForceVersionBump` | `force_change(field, Map.fetch!(changeset.data, field))` in `lock_sections/2`, so stock-only saves also update the row and check the version |
+| `StockLock` | `stock: :item_locations` in `Item`'s section table, `:stock -> stock_changed?` in `edited_sections/2`, `save_item/4` starting its Multi with `check_sections/3`, which rejects the save when `Item.changed_sections/2` lists an edited section, and `default_transaction_mode: :immediate` so the read and the write are one step. A save that changes stock compares the stored stock with the stock it started from |
 | `SyncOnlyChangedStock` | `if stock_changed?, do: sync_stock(...)` in `save_item/4`, so a name or notes save never writes back the stock it started from |
 | `AgentReadsInTx` | `write_stock/4` calling `fetch_item_for_stock/1` inside `Repo.transact`, and `default_transaction_mode: :immediate` in `config/config.exs` |
 | `ChangeStockChecksBelowZero` | `new < 0 -> {:error, {:below_zero, current}}` in `changed_count/3` |
@@ -93,8 +92,8 @@ Each action is one SQLite transaction. The repo runs immediate transactions, so 
 | `Type` | `handle_event("set_quantity")` with `DraftStock.parse_quantity/1` |
 | `Adjust` | `handle_event("adjust")` with `DraftStock.adjust/3` |
 | `EditFields` | typing a new name or notes |
-| `Save`, `Outcome`, `Commit` | `handle_event("save")` calling `Items.update_item/4`: Multi.update with the lock, `sync_stock/3`, `validate_locations_exist/3`, `ItemLocation.changeset/2` |
-| `Reconcile` | `reconcile/2`: compares the page's base item with the latest one by section version. Edited stock keeps its draft and shows the warning. Unedited stock reloads in place, which also clears a stock warning whose draft was typed back to the baseline |
+| `Save`, `Outcome`, `Commit` | `handle_event("save")` calling `Items.update_item/4`: `check_sections/3`, Multi.update, `sync_stock/3`, `validate_locations_exist/3`, `ItemLocation.changeset/2` |
+| `Reconcile` | `reconcile/2`: compares the page's base item with the latest one by section value. Edited stock keeps its draft and shows the warning. Unedited stock reloads in place, which also clears a stock warning whose draft was typed back to the baseline. Stock changed back to the baseline clears the warning too |
 | `Save` with a stale outcome | `reconcile/2` after `{:error, :stale}`, or the items list when the item is gone |
 | `Notice` | `handle_info` for a `Pinventory.LiveEdits` `:saved` or `:deleted` notice, then `reconcile/2`, or the items list when the item is gone |
 | `KeepMyEdits`, `LoadLatest` | `handle_event("keep_my_edits")`, `handle_event("load_latest")` with `"section" => "stock"`. Both use the item the last `reconcile/2` fetched, and neither touches name or notes edits |
@@ -106,7 +105,7 @@ Each action is one SQLite transaction. The repo runs immediate transactions, so 
 
 The MCP `rename_item` tool is a name-only `update_item/4` that reads the item in its own transaction first. Under `SyncOnlyChangedStock` it writes no stock, and otherwise it behaves like a page that opens, edits the name, and saves.
 
-Two ghost variables exist only to state properties. `writes` counts committed writes to the stock, and each reader remembers the count it saw. `bad` records which properties a step broke.
+Two ghost variables exist only for checking. `writes` counts committed writes to the stock, to bound the state space. `bad` records which properties a step broke. A save breaks `NoLostUpdate` when it writes stock while the stored stock differs from the stock its writer started from, so a change that was undone before the save is not a lost update.
 
 ## Bounds and assumptions
 
@@ -115,16 +114,16 @@ Two ghost variables exist only to state properties. `writes` counts committed wr
 - At most 2 committed writes to the item. Page opens, drafts, stale banners, and failed saves are not limited.
 - The agent may call `change_stock` with any add from -2 to 2 and any set from 0 to 2, and `move_stock` with any quantity from 1 to 2.
 - Writes to other items are left out. Each save locks only its own item's row and stock.
-- A save on a deleted item that issues no item UPDATE is modeled as an error with no change. In the code it fails on the item_locations foreign key, or does nothing when every count is 0.
-- If `AgentReadsInTx` turns FALSE because the transaction mode is no longer immediate, the model lets the stale write through the lock rules. SQLite in WAL mode would reject some of those writes as busy instead, so the model is stricter than the database there.
+- A save on a deleted item is stale, because `check_sections/3` finds no row. Without that check it is modeled as an error with no change.
+- If `AgentReadsInTx` turns FALSE, the agent's write still goes through `check_sections/3`, which rejects a snapshot that no longer matches. If the transaction mode is no longer immediate, `StockLock` turns FALSE too, since the comparison and the write could be split. SQLite in WAL mode would reject some of those writes as busy instead, so the model is stricter than the database there.
 
 ## Not covered
 
-- `create_item/3`, name and notes contents, their section versions, and audit events. The model only tracks whether a save changed the name or notes. A name or notes save that loses to another save of the same section is a test case in `test/pinventory/items_test.exs`, not a model property.
-- `delete_item/2` deletes without checking any section version. The model treats a delete as intended, not as a lost update.
-- A save that conflicts only on the name or notes version. The model lets it through, which allows more stock writes than the code does.
+- `create_item/3`, name and notes contents, and audit events. The model only tracks whether a save changed the name or notes. A name or notes save that loses to another save of the same section is a test case in `test/pinventory/items_test.exs`, not a model property.
+- `delete_item/2` deletes without comparing any section. The model treats a delete as intended, not as a lost update.
+- A save that conflicts only on the name or notes. The model lets it through, which allows more stock writes than the code does.
 - What the user sees. The model counts a page that loads newer stock as having seen it, so "keep my edits" on top of someone else's save is not a lost update.
-- Notices arrive in any order and at any time. The model lets a page reconcile whenever its stock version is behind, without tracking the PubSub message itself.
+- Notices arrive in any order and at any time. The model lets a page reconcile at any time, without tracking the PubSub message itself.
 - `Pinventory.LiveEdits`, `PinventoryWeb.Presence`, the location and naming convention pages.
 - Floor plans, accounts, API tokens, search, and the LiveView's other events.
 - Anything beyond 2 writes, 2 pages, or 2 locations.
@@ -135,11 +134,11 @@ None. Every property holds for the current code, and `KNOWN_FINDINGS` in the scr
 
 ## Coverage
 
-Sync commit: `87e5fe0fb9ae6de79e1ccaf54d753ae4eb78d2fd`
+Sync commit: `c1128e5da3cf5a4846067f4f4e92e863134fbe3d`
 
 Move the sync commit forward only after you confirm, at the new commit, that the model and the code facts still describe the code below. The script lists covered files changed since the sync commit.
 
-- `lib/pinventory/items.ex`: `update_item/4`, `save_item/4`, `edited_sections/2`, `lock_sections/2`, `change_stock/4`, `move_stock/5`, `changed_count/3`, `moved_counts/4`, `write_stock/4`, `fetch_item_for_stock/1`, `check_locations/1`, `delete_item/2`, `sync_stock/3`, `validate_locations_exist/3`, `normalize_desired_stock/1`, `unwrap_item_transaction/1`
+- `lib/pinventory/items.ex`: `update_item/4`, `save_item/4`, `edited_sections/2`, `check_sections/3`, `change_stock/4`, `move_stock/5`, `changed_count/3`, `moved_counts/4`, `write_stock/4`, `fetch_item_for_stock/1`, `check_locations/1`, `delete_item/2`, `sync_stock/3`, `validate_locations_exist/3`, `normalize_desired_stock/1`, `unwrap_item_transaction/1`
 - `lib/pinventory/items/item.ex`: the section table, `changed_sections/2`, `put_section/3`
 - `lib/pinventory/items/draft_stock.ex`: `put/3`, `adjust/3`, `parse_quantity/1`, `max_quantity/0`
 - `lib/pinventory/items/item_location.ex`: `changeset/2`
