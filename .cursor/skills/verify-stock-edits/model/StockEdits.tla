@@ -62,7 +62,12 @@ CONSTANTS
     \* EditItemLive's {:error, :stale} branch reloads with Items.get_item!/1,
     \* which raises when the item is gone. When FALSE, the branch reloads
     \* with Items.get_item/1 and leaves for the items list on nil.
-    StaleReloadRaises
+    StaleReloadRaises,
+    \* EditItemLive's reconcile/2 splits the changed sections by
+    \* section_dirty?/2 and reloads only the clean ones, and stock counts as
+    \* dirty while its draft differs from the baseline. When FALSE, reconcile
+    \* reloads edited stock in place and drops the draft.
+    ReconcileKeepsEditedStock
 
 ASSUME Max \in Nat /\ Max >= 1 /\ MaxWrites \in Nat
 
@@ -91,7 +96,7 @@ ClosedPage == [state |-> "closed", base |-> 0, seen |-> 0, baseStock |-> Zero,
                stale |-> FALSE, staleBase |-> 0, staleSeen |-> 0, staleStock |-> Zero]
 
 NoBad == [lostUpdate |-> FALSE, pageOverMax |-> FALSE, agentOverMax |-> FALSE,
-          moveTotal |-> FALSE, stockDiscarded |-> FALSE]
+          moveTotal |-> FALSE, stockDiscarded |-> FALSE, draftDropped |-> FALSE]
 
 Init ==
     /\ itemExists = TRUE
@@ -177,6 +182,25 @@ EditFields(p) ==
     /\ page' = [page EXCEPT ![p].fields = TRUE]
     /\ UNCHANGED <<itemExists, version, stock, locExists, agent, writes, bad>>
 
+\* reconcile/2 with the refetched item, for a page whose item still exists.
+\* It compares the page's base item with the latest one, section by section.
+\* Edited stock keeps its draft and shows the conflict. Unedited stock reloads
+\* in place. reconcile/2 replaces the conflict list, so a reload also clears
+\* a stock conflict whose draft was typed back to the baseline.
+Reconcile(pg) ==
+    IF version = pg.base THEN pg
+    ELSE IF ReconcileKeepsEditedStock /\ pg.draft # pg.baseStock
+    THEN [pg EXCEPT !.stale = TRUE, !.staleBase = version,
+                    !.staleSeen = writes, !.staleStock = stock]
+    ELSE [pg EXCEPT !.stale = FALSE, !.base = version, !.seen = writes,
+                    !.baseStock = stock, !.draft = stock]
+
+\* Reconcile reloads stock over an unsaved draft that differs from both the
+\* baseline and the latest counts.
+DropsDraft(pg) ==
+    /\ itemExists /\ version # pg.base /\ ~ReconcileKeepsEditedStock
+    /\ pg.draft # pg.baseStock /\ pg.draft # stock
+
 \* handle_event("save") -> Items.update_item(scope, socket.assigns.item, ...)
 Save(p) ==
     LET pg == page[p]
@@ -201,46 +225,41 @@ Save(p) ==
                    IF ~itemExists /\ StaleReloadRaises
                    THEN [ClosedPage EXCEPT !.state = "crashed"]
                    ELSE IF ~itemExists
-                   THEN ClosedPage   \* show_stale/3 with nil: flash, then the list
-                   ELSE [pg EXCEPT !.stale = TRUE, !.staleBase = version,
-                                   !.staleSeen = writes, !.staleStock = stock]]
-             /\ UNCHANGED <<itemExists, version, stock, locExists, writes, bad>>
+                   THEN ClosedPage   \* reconcile/2 with nil: flash, then the list
+                   ELSE Reconcile(pg)]
+             /\ bad' = [bad EXCEPT !.draftDropped = @ \/ DropsDraft(pg)]
+             /\ UNCHANGED <<itemExists, version, stock, locExists, writes>>
           \/ /\ out = "error"
              /\ UNCHANGED <<itemExists, version, stock, locExists, page, writes, bad>>
        /\ UNCHANGED agent
 
-\* handle_info for a Pinventory.LiveEdits notice: the page refetches the item.
-\* A deleted item sends the page to the items list. A newer stock section
-\* reloads in place when the page's stock is unedited, and otherwise shows
-\* the stock conflict, which a later notice keeps up to date.
+\* handle_info for a Pinventory.LiveEdits notice. Every committed save or
+\* delete of the item broadcasts one, and the page then refetches the item.
+\* A deleted item sends the page to the items list. Otherwise reconcile/2.
 Notice(p) ==
     LET pg == page[p]
     IN /\ pg.state = "editing"
-       /\ ~itemExists \/ version # IF pg.stale THEN pg.staleBase ELSE pg.base
-       /\ page' = [page EXCEPT ![p] =
-             IF ~itemExists THEN ClosedPage
-             ELSE IF pg.stale \/ pg.draft # pg.baseStock
-             THEN [pg EXCEPT !.stale = TRUE, !.staleBase = version,
-                             !.staleSeen = writes, !.staleStock = stock]
-             ELSE [pg EXCEPT !.base = version, !.seen = writes,
-                             !.baseStock = stock, !.draft = stock]]
-       /\ UNCHANGED <<itemExists, version, stock, locExists, agent, writes, bad>>
+       /\ ~itemExists \/ version # pg.base
+       /\ page' = [page EXCEPT ![p] = IF ~itemExists THEN ClosedPage ELSE Reconcile(pg)]
+       /\ bad' = [bad EXCEPT !.draftDropped = @ \/ DropsDraft(pg)]
+       /\ UNCHANGED <<itemExists, version, stock, locExists, agent, writes>>
 
-\* handle_event("keep_my_edits"): the stale_item fetched at the stale error
-\* becomes the baseline; the draft stays.
+\* handle_event("keep_my_edits") for stock: the stock section of the item the
+\* last reconcile fetched (socket.assigns.latest) becomes the baseline, and
+\* the draft stays.
 KeepMyEdits(p) ==
     /\ page[p].state = "editing" /\ page[p].stale
     /\ page' = [page EXCEPT ![p] = [@ EXCEPT !.stale = FALSE, !.base = page[p].staleBase,
                    !.seen = page[p].staleSeen, !.baseStock = page[p].staleStock]]
     /\ UNCHANGED <<itemExists, version, stock, locExists, agent, writes, bad>>
 
-\* handle_event("load_latest"): show_item/2 with stale_item.
+\* handle_event("load_latest") for stock: load_section/3 takes the latest
+\* stock as baseline and draft. Name and notes edits stay.
 LoadLatest(p) ==
     /\ page[p].state = "editing" /\ page[p].stale
-    /\ page' = [page EXCEPT ![p] = [ClosedPage EXCEPT
-                   !.state = "editing", !.base = page[p].staleBase,
-                   !.seen = page[p].staleSeen, !.baseStock = page[p].staleStock,
-                   !.draft = page[p].staleStock]]
+    /\ page' = [page EXCEPT ![p] = [@ EXCEPT !.stale = FALSE,
+                   !.base = page[p].staleBase, !.seen = page[p].staleSeen,
+                   !.baseStock = page[p].staleStock, !.draft = page[p].staleStock]]
     /\ UNCHANGED <<itemExists, version, stock, locExists, agent, writes, bad>>
 
 -----------------------------------------------------------------------------
@@ -312,7 +331,7 @@ MoveStock(f, t, q) ==
 -----------------------------------------------------------------------------
 (* Deletes                                                                 *)
 
-\* Items.delete_item/2: deletes regardless of lock_version; item_locations
+\* Items.delete_item/2: deletes without checking any section version; item_locations
 \* cascade (on_delete: :delete_all).
 DeleteItem ==
     /\ itemExists
@@ -389,4 +408,7 @@ LocationDeleteKeepsStock == ~bad.stockDiscarded
 
 \* A save that loses a race never crashes the edit page.
 StaleSaveNeverCrashes == \A p \in Pages : page[p].state # "crashed"
+
+\* A notice or a stale save never throws away a page's unsaved stock edits.
+UnsavedStockSurvives == ~bad.draftDropped
 =============================================================================

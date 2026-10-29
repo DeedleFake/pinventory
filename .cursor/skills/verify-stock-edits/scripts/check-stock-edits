@@ -15,7 +15,7 @@ KNOWN_FINDINGS=()
 
 PROPERTIES=(NoLostUpdate StockNeverNegative AgentNeverStoresOverMax
   EditPageNeverStoresOverMax MoveKeepsTotal LocationDeleteKeepsStock
-  StaleSaveNeverCrashes)
+  StaleSaveNeverCrashes UnsavedStockSurvives)
 
 ONLY=
 if [[ ${1:-} == --only ]]; then
@@ -76,6 +76,9 @@ flag SaveChecksMax "$(anchor lib/pinventory/items/item_location.ex 'validate_num
 flag AdjustCapsAtMax "$(anchor lib/pinventory/items/draft_stock.ex 'def put\((?:(?!\n  def ).)*?max_quantity')"
 flag LocationDeleteChecksStock "$(anchor lib/pinventory/locations.ex 'def delete\((?:(?!\n  def ).)*?Multi\.run\(:empty\?, fn repo, _ ->\s*if location_has_items\?\(repo, location\.id\) do\s*\{:error, :location_has_items\}')"
 flag StaleReloadRaises "$(anchor lib/pinventory_web/live/edit_item_live.ex '\{:error, :stale\} ->(?:(?!\n      \{:error).)*?Items\.get_item!\(')"
+splits=$(anchor lib/pinventory_web/live/edit_item_live.ex 'defp reconcile\(socket, %Item\{\} = latest\) do(?:(?!\n  defp? ).)*?Enum\.split_with\(&section_dirty\?\(socket\.assigns, &1\)\)\s*reloads\s*\|> Enum\.reduce\(socket, &load_section\(&2, latest, &1\)\)')
+stock_dirty=$(anchor lib/pinventory_web/live/edit_item_live.ex 'defp section_dirty\?\(assigns, :stock\),\s*do: assigns\.stock_total_mode != :clean')
+if [[ $splits == TRUE && $stock_dirty == TRUE ]]; then flag ReconcileKeepsEditedStock TRUE; else flag ReconcileKeepsEditedStock FALSE; fi
 
 echo "code facts (model constants):"
 for k in "${FLAG_NAMES[@]}"; do
