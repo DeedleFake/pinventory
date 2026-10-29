@@ -1,9 +1,11 @@
 defmodule PinventoryWeb.NamingConventionLive do
   use PinventoryWeb, :live_view
 
+  alias Pinventory.LiveEdits
   alias Pinventory.Markdown
   alias Pinventory.NamingConvention
 
+  import PinventoryWeb.LiveEditComponents
   import PinventoryWeb.MarkdownComponents
   import PinventoryWeb.VersionHistoryComponents
 
@@ -41,7 +43,7 @@ defmodule PinventoryWeb.NamingConventionLive do
               id="convention-save"
               variant="primary"
               class="btn btn-primary transition-transform active:scale-95"
-              disabled={not @dirty?}
+              disabled={not @dirty? or @stale != nil}
               phx-disable-with="Saving..."
             >
               Save
@@ -49,7 +51,23 @@ defmodule PinventoryWeb.NamingConventionLive do
           </div>
         </div>
 
-        <.stale_warning :if={@stale} newest={@stale} text={@text} />
+        <.stale_section
+          :if={@stale}
+          id="convention-stale"
+          by={author(@stale)}
+          saved={"version #{@stale.number}"}
+        >
+          <%!-- On large screens the diff gives up its height first, so the editor stays in the window. --%>
+          <div :if={@stale.text != @text} class="flex min-h-0 flex-col gap-1">
+            <p class="text-xs font-semibold opacity-70">Their version → yours</p>
+            <div class="max-h-48 min-h-16 overflow-y-auto">
+              <.text_diff
+                id="convention-stale-diff"
+                rows={Pinventory.TextDiff.rows(@stale.text, @text)}
+              />
+            </div>
+          </div>
+        </.stale_section>
 
         <p id="convention-last-edit" class="text-xs opacity-60">
           <%= if @base.number == 0 do %>
@@ -346,59 +364,6 @@ defmodule PinventoryWeb.NamingConventionLive do
     """
   end
 
-  attr :newest, :any, required: true
-  attr :text, :string, required: true
-
-  defp stale_warning(assigns) do
-    assigns = assign(assigns, :rows, Pinventory.TextDiff.rows(assigns.newest.text, assigns.text))
-
-    ~H"""
-    <div
-      id="convention-stale-warning"
-      role="alert"
-      class="flex flex-col gap-3 rounded-xl border border-warning/60 bg-warning/10 px-4 py-3 lg:min-h-0"
-    >
-      <div class="flex items-start gap-2">
-        <.icon name="hero-exclamation-triangle" class="mt-0.5 size-5 shrink-0 text-warning" />
-        <div class="space-y-1 text-sm">
-          <p class="font-medium">
-            {author(@newest)} saved the naming convention while you were editing.
-          </p>
-          <p class="opacity-80">
-            Your changes were not saved and are still in the form. Keep your edits to save them
-            on top of the new version, or load the new version and drop your edits.
-          </p>
-        </div>
-      </div>
-      <%!-- On large screens the diff gives up its height first, so the editor stays in the window. --%>
-      <div :if={@newest.text != @text} class="flex min-h-0 flex-col gap-1">
-        <p class="text-xs font-semibold opacity-70">Their version → yours</p>
-        <div class="max-h-48 min-h-16 overflow-y-auto">
-          <.text_diff id="convention-stale-diff" rows={@rows} />
-        </div>
-      </div>
-      <div class="flex flex-wrap justify-end gap-2">
-        <button
-          type="button"
-          id="convention-stale-load"
-          class="btn btn-ghost btn-sm transition-transform active:scale-95"
-          phx-click="load_latest"
-        >
-          Load their version
-        </button>
-        <button
-          type="button"
-          id="convention-stale-keep"
-          class="btn btn-warning btn-sm transition-transform active:scale-95"
-          phx-click="keep_my_edits"
-        >
-          Keep my edits
-        </button>
-      </div>
-    </div>
-    """
-  end
-
   attr :action, :string, required: true
   attr :icon, :string, default: nil
 
@@ -448,7 +413,8 @@ defmodule PinventoryWeb.NamingConventionLive do
      |> assign(:dirty?, false)
      |> assign(:history, nil)
      |> assign(:format_status, nil)
-     |> show_version(NamingConvention.current())}
+     |> show_version(NamingConvention.current())
+     |> tap(fn socket -> if connected?(socket), do: LiveEdits.subscribe(:naming_convention) end)}
   end
 
   @impl true
@@ -483,11 +449,7 @@ defmodule PinventoryWeb.NamingConventionLive do
          |> show_version(version)}
 
       {:error, :stale, newest} ->
-        {:noreply,
-         socket
-         |> put_text(text)
-         |> assign(:stale, newest)
-         |> assign(:versions, NamingConvention.versions())}
+        {:noreply, socket |> put_text(text) |> reconcile(newest)}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, put_flash(socket, :error, error_message(changeset))}
@@ -528,6 +490,28 @@ defmodule PinventoryWeb.NamingConventionLive do
      socket
      |> put_text(text, number)
      |> push_patch(to: ~p"/items/naming-convention")}
+  end
+
+  @impl true
+  def handle_info({LiveEdits, :naming_convention, :saved}, socket) do
+    {:noreply, reconcile(socket, NamingConvention.current())}
+  end
+
+  # Brings the page up to the newest saved version. Unedited text reloads in
+  # place; edited text stays and the warning shows.
+  defp reconcile(socket, newest) do
+    cond do
+      newest.number == socket.assigns.base.number ->
+        socket
+
+      socket.assigns.dirty? ->
+        socket
+        |> assign(:stale, newest)
+        |> assign(:versions, NamingConvention.versions())
+
+      true ->
+        show_version(socket, newest)
+    end
   end
 
   defp show_version(socket, version) do
