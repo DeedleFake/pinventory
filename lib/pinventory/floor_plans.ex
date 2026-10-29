@@ -14,6 +14,8 @@ defmodule Pinventory.FloorPlans do
   import Ecto.Query, warn: false
 
   alias Ecto.Multi
+  alias Pinventory.Accounts.Scope
+  alias Pinventory.Audit
   alias Pinventory.FloorPlans.{Floor, Geometry, ImpassableArea, LocationPlacement, Wall}
   alias Pinventory.Locations.Location
   alias Pinventory.Repo
@@ -24,7 +26,9 @@ defmodule Pinventory.FloorPlans do
 
   @doc """
   Subscribes the caller to plan changes. Every successful write here sends
-  `:floor_plan_changed` to all subscribers except the process that made it.
+  `{:floor_plan_changed, by}` to all subscribers except the process that made
+  it. `by` is `Pinventory.Audit.actor/1` for writes that take a scope, which
+  are the ones that can delete something, and nil otherwise.
   """
   def subscribe do
     Phoenix.PubSub.subscribe(Pinventory.PubSub, @topic)
@@ -79,10 +83,10 @@ defmodule Pinventory.FloorPlans do
   @doc """
   Deletes every floor (walls, placements, and impassable areas cascade). Locations remain.
   """
-  def delete_floor_plan do
+  def delete_floor_plan(%Scope{} = scope) do
     if floor_plan_exists?() do
       {_count, _} = Repo.delete_all(Floor)
-      announce({:ok, :deleted})
+      announce({:ok, :deleted}, scope)
     else
       {:error, :not_found}
     end
@@ -183,7 +187,7 @@ defmodule Pinventory.FloorPlans do
   Deletes a floor and its walls, placements, and impassable areas. Refuses when
   it is the last floor.
   """
-  def delete_floor(%Floor{} = floor) do
+  def delete_floor(%Scope{} = scope, %Floor{} = floor) do
     count = Repo.aggregate(Floor, :count)
 
     if count <= 1 do
@@ -191,7 +195,7 @@ defmodule Pinventory.FloorPlans do
     else
       floor
       |> Repo.delete(stale_error_field: :id)
-      |> announce()
+      |> announce(scope)
     end
   end
 
@@ -352,10 +356,10 @@ defmodule Pinventory.FloorPlans do
   @doc """
   Removes a location's placement from the plan (location itself is kept).
   """
-  def unplace_location(location_id) when is_binary(location_id) do
+  def unplace_location(%Scope{} = scope, location_id) when is_binary(location_id) do
     case Repo.get_by(LocationPlacement, location_id: location_id) do
       nil -> {:ok, :already_unplaced}
-      placement -> placement |> Repo.delete(stale_error_field: :id) |> announce()
+      placement -> placement |> Repo.delete(stale_error_field: :id) |> announce(scope)
     end
   end
 
@@ -419,7 +423,7 @@ defmodule Pinventory.FloorPlans do
   snapshot are re-inserted with their original ids so undo can revive a removed
   floor (and its walls/placements/impassable areas).
   """
-  def restore_plan_geometry(snapshot) when is_list(snapshot) do
+  def restore_plan_geometry(%Scope{} = scope, snapshot) when is_list(snapshot) do
     if floor_plan_exists?() or snapshot != [] do
       Repo.transaction(fn ->
         snapshot_ids =
@@ -499,7 +503,7 @@ defmodule Pinventory.FloorPlans do
         {:ok, :ok} -> {:ok, list_floors()}
         {:error, reason} -> {:error, reason}
       end
-      |> announce()
+      |> announce(scope)
     else
       {:error, :not_found}
     end
@@ -651,12 +655,15 @@ defmodule Pinventory.FloorPlans do
     |> announce()
   end
 
-  defp announce({:ok, _} = result) do
-    Phoenix.PubSub.broadcast_from(Pinventory.PubSub, self(), @topic, :floor_plan_changed)
+  defp announce(result, scope \\ nil)
+
+  defp announce({:ok, _} = result, scope) do
+    by = scope && Audit.actor(scope)
+    Phoenix.PubSub.broadcast_from(Pinventory.PubSub, self(), @topic, {:floor_plan_changed, by})
     result
   end
 
-  defp announce(error), do: error
+  defp announce(error, _scope), do: error
 
   defp wall_coords(wall) when is_map(wall) do
     %{

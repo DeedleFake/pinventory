@@ -834,6 +834,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
     end
 
     test "removing a floor closes another viewer's rename or delete prompt for it", %{
+      scope: scope,
       mine: mine,
       theirs: theirs
     } do
@@ -843,7 +844,7 @@ defmodule PinventoryWeb.FloorPlanLiveTest do
       mine |> element("#floor-edit-#{floor3.id}") |> render_click()
       assert has_element?(mine, "#floor-rename-form-#{floor3.id}")
 
-      {:ok, _} = FloorPlans.delete_floor(floor3)
+      {:ok, _} = FloorPlans.delete_floor(scope, floor3)
       refute has_element?(mine, "#floor-rename-form-#{floor3.id}")
       refute has_element?(mine, "#floor-rail-item-#{floor3.id}")
 

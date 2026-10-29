@@ -149,18 +149,19 @@ defmodule Pinventory.LocationsTest do
       in_other_process = fn fun -> fun |> Task.async() |> Task.await() end
 
       {:ok, garage} = in_other_process.(fn -> Locations.create(scope, %{name: "Garage"}) end)
-      assert_receive :locations_changed
+      assert_receive {:locations_changed, _}
 
       {:ok, garage} =
         in_other_process.(fn -> Locations.update(scope, garage, %{name: "Shed"}) end)
 
-      assert_receive :locations_changed
+      assert_receive {:locations_changed, _}
 
       {:ok, _} = in_other_process.(fn -> Locations.delete(scope, garage) end)
-      assert_receive :locations_changed
+      user_id = scope.user.id
+      assert_receive {:locations_changed, %{user: %{id: ^user_id}}}
 
       {:ok, _} = Locations.create(scope, %{name: "Attic"})
-      refute_receive :locations_changed
+      refute_receive {:locations_changed, _}
     end
   end
 end

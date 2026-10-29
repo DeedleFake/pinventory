@@ -743,7 +743,7 @@ defmodule PinventoryWeb.FloorPlanLive do
       true ->
         socket = push_undo_snapshot(socket)
 
-        case FloorPlans.delete_floor(floor) do
+        case FloorPlans.delete_floor(socket.assigns.current_scope, floor) do
           {:ok, _} ->
             floors = FloorPlans.list_floors()
 
@@ -889,7 +889,7 @@ defmodule PinventoryWeb.FloorPlanLive do
 
   def handle_event("unplace_location", %{"id" => location_id}, socket) do
     socket = push_undo_snapshot(socket)
-    _ = FloorPlans.unplace_location(location_id)
+    _ = FloorPlans.unplace_location(socket.assigns.current_scope, location_id)
     floor = FloorPlans.get_floor!(socket.assigns.selected_floor.id)
 
     selected_placement =
@@ -924,7 +924,7 @@ defmodule PinventoryWeb.FloorPlanLive do
         # Keep the affected floor id so redo also switches back to that floor.
         current = history_entry(socket, entry.floor_id)
 
-        case FloorPlans.restore_plan_geometry(entry.snapshot) do
+        case FloorPlans.restore_plan_geometry(socket.assigns.current_scope, entry.snapshot) do
           {:ok, floors} ->
             {:noreply,
              socket
@@ -948,7 +948,7 @@ defmodule PinventoryWeb.FloorPlanLive do
       [entry | rest] ->
         current = history_entry(socket, entry.floor_id)
 
-        case FloorPlans.restore_plan_geometry(entry.snapshot) do
+        case FloorPlans.restore_plan_geometry(socket.assigns.current_scope, entry.snapshot) do
           {:ok, floors} ->
             {:noreply,
              socket
@@ -973,7 +973,7 @@ defmodule PinventoryWeb.FloorPlanLive do
   end
 
   def handle_event("confirm_delete_plan", _params, socket) do
-    case FloorPlans.delete_floor_plan() do
+    case FloorPlans.delete_floor_plan(socket.assigns.current_scope) do
       {:ok, _} ->
         {:noreply, push_navigate(socket, to: ~p"/locations")}
 
@@ -1055,7 +1055,8 @@ defmodule PinventoryWeb.FloorPlanLive do
     {:noreply, push_patch(socket, to: floor_plan_path(floor_id))}
   end
 
-  def handle_info(change, socket) when change in [:floor_plan_changed, :locations_changed] do
+  def handle_info({change, _by}, socket)
+      when change in [:floor_plan_changed, :locations_changed] do
     {:noreply, apply_remote_change(socket)}
   end
 

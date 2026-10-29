@@ -26,8 +26,8 @@ defmodule Pinventory.Locations do
 
   @doc """
   Subscribes the caller to location changes. Every successful create, update,
-  or delete sends `:locations_changed` to all subscribers except the process
-  that made it.
+  or delete sends `{:locations_changed, by}` to all subscribers except the
+  process that made it, with `by` from `Pinventory.Audit.actor/1`.
   """
   def subscribe do
     Phoenix.PubSub.subscribe(Pinventory.PubSub, @topic)
@@ -57,7 +57,7 @@ defmodule Pinventory.Locations do
     end)
     |> Multi.run(:result, fn _repo, %{location: location} -> {:ok, location} end)
     |> Repo.transaction()
-    |> unwrap_location_transaction()
+    |> unwrap_location_transaction(scope)
   end
 
   def create(%Scope{} = scope, attrs) do
@@ -100,7 +100,7 @@ defmodule Pinventory.Locations do
         end)
         |> Multi.run(:result, fn _repo, %{location: location} -> {:ok, location} end)
         |> Repo.transaction()
-        |> unwrap_location_transaction()
+        |> unwrap_location_transaction(scope)
     end
   end
 
@@ -141,7 +141,7 @@ defmodule Pinventory.Locations do
     |> Multi.delete(:location, location)
     |> Multi.run(:result, fn _repo, %{location: deleted} -> {:ok, deleted} end)
     |> Repo.transaction()
-    |> unwrap_location_transaction()
+    |> unwrap_location_transaction(scope)
   end
 
   def list do
@@ -222,17 +222,18 @@ defmodule Pinventory.Locations do
     end
   end
 
-  defp unwrap_location_transaction(result) do
+  defp unwrap_location_transaction(result, scope) do
     case result do
-      {:ok, %{result: location}} -> announce({:ok, location})
+      {:ok, %{result: location}} -> announce({:ok, location}, scope)
       {:error, :location, changeset, _} -> {:error, changeset}
       {:error, :audit_events, reason, _} -> {:error, reason}
       {:error, _step, reason, _} -> {:error, reason}
     end
   end
 
-  defp announce(result) do
-    Phoenix.PubSub.broadcast_from(Pinventory.PubSub, self(), @topic, :locations_changed)
+  defp announce(result, scope) do
+    by = Audit.actor(scope)
+    Phoenix.PubSub.broadcast_from(Pinventory.PubSub, self(), @topic, {:locations_changed, by})
     result
   end
 end
