@@ -513,6 +513,102 @@ defmodule Pinventory.FloorPlansTest do
     end
   end
 
+  describe "restore_deleted/2" do
+    setup %{scope: scope} do
+      {:ok, [ground]} = FloorPlans.create_floor_plan()
+      {:ok, upstairs} = FloorPlans.add_floor(%{name: "Upstairs"})
+      {:ok, attic} = FloorPlans.add_floor(%{name: "Attic"})
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, shed} = Locations.create(scope, %{name: "Shed"})
+      {:ok, _} = FloorPlans.add_wall(upstairs, %{x1: 0, y1: 0, x2: 1, y2: 0})
+      {:ok, _} = FloorPlans.add_impassable_area(upstairs, triangle())
+      {:ok, _} = FloorPlans.place_location(upstairs, garage.id, triangle())
+      {:ok, _} = FloorPlans.place_location(upstairs, shed.id, triangle(0.4))
+
+      %{ground: ground, upstairs: upstairs, attic: attic, garage: garage, shed: shed}
+    end
+
+    # Placements have no preload order, so compare them as a set.
+    defp geometry(floors \\ FloorPlans.list_floors()) do
+      for floor <- FloorPlans.plan_geometry_snapshot(floors) do
+        Map.update!(floor, :placements, &Enum.sort_by(&1, fn p -> p.location_id end))
+      end
+    end
+
+    defp snapshot_of(floor_id) do
+      FloorPlans.list_floors()
+      |> FloorPlans.plan_geometry_snapshot()
+      |> Enum.find(&(&1.id == floor_id))
+    end
+
+    test "puts a deleted floor back in place with its contents", %{
+      scope: scope,
+      upstairs: upstairs
+    } do
+      before = FloorPlans.list_floors()
+      snapshot = snapshot_of(upstairs.id)
+      {:ok, _} = FloorPlans.delete_floor(scope, upstairs)
+
+      assert {:ok, []} = FloorPlans.restore_deleted(scope, %{floors: [snapshot], placements: []})
+
+      assert geometry() == geometry(before)
+    end
+
+    test "keeps what changed since and skips placements that no longer fit", %{
+      scope: scope,
+      ground: ground,
+      upstairs: upstairs,
+      garage: garage,
+      shed: shed
+    } do
+      snapshot = snapshot_of(upstairs.id)
+      {:ok, _} = FloorPlans.delete_floor(scope, upstairs)
+      {:ok, _} = FloorPlans.place_location(ground, garage.id, triangle())
+      {:ok, _} = Locations.delete(scope, shed)
+      {:ok, cellar} = FloorPlans.add_floor(%{name: "Cellar"})
+
+      assert {:ok, skipped} =
+               FloorPlans.restore_deleted(scope, %{floors: [snapshot], placements: []})
+
+      assert Enum.sort(skipped) == Enum.sort([garage.id, shed.id])
+
+      assert ["Floor 1", "Upstairs", "Attic", "Cellar"] =
+               Enum.map(FloorPlans.list_floors(), & &1.name)
+
+      assert %{walls: [_], impassable_areas: [_], location_placements: []} =
+               FloorPlans.get_floor!(upstairs.id)
+
+      assert FloorPlans.placement_index()[garage.id].floor_id == ground.id
+      assert FloorPlans.get_floor!(cellar.id)
+    end
+
+    test "restores a whole plan and a lone placement, and is safe to repeat", %{
+      scope: scope,
+      upstairs: upstairs,
+      garage: garage
+    } do
+      before = FloorPlans.list_floors()
+      snapshot = FloorPlans.plan_geometry_snapshot(before)
+      {:ok, _} = FloorPlans.delete_floor_plan(scope)
+      restore = %{floors: snapshot, placements: []}
+
+      assert {:ok, []} = FloorPlans.restore_deleted(scope, restore)
+      assert {:ok, _} = FloorPlans.restore_deleted(scope, restore)
+
+      assert geometry() == geometry(before)
+
+      [placement] =
+        Enum.filter(snapshot_of(upstairs.id).placements, &(&1.location_id == garage.id))
+
+      {:ok, _} = FloorPlans.unplace_location(scope, garage.id)
+      lone = Map.put(placement, :floor_id, upstairs.id)
+
+      assert {:ok, []} = FloorPlans.restore_deleted(scope, %{floors: [], placements: [lone]})
+      assert {:ok, [_]} = FloorPlans.restore_deleted(scope, %{floors: [], placements: [lone]})
+      assert geometry() == geometry(before)
+    end
+  end
+
   describe "subscribe/0" do
     defp in_other_process(fun), do: fun |> Task.async() |> Task.await()
 

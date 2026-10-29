@@ -141,6 +141,26 @@ defmodule Pinventory.LocationsTest do
     end
   end
 
+  describe "restore/2" do
+    test "puts a deleted location back with its id and name", %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, _} = Locations.delete(scope, garage)
+
+      assert {:ok, %Location{id: id, name: "Garage"}} = Locations.restore(scope, garage)
+      assert id == garage.id
+      assert {:ok, %Location{id: ^id}} = Locations.restore(scope, garage)
+      assert [%{name: "Garage"}] = Locations.list()
+    end
+
+    test "fails when another location took the name", %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, _} = Locations.delete(scope, garage)
+      {:ok, _} = Locations.create(scope, %{name: "Garage"})
+
+      assert {:error, %Ecto.Changeset{}} = Locations.restore(scope, garage)
+    end
+  end
+
   describe "subscribe/0" do
     test "tells subscribers about creates, renames, and deletes made by other processes", %{
       scope: scope

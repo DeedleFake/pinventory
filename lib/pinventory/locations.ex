@@ -144,6 +144,17 @@ defmodule Pinventory.Locations do
     |> unwrap_location_transaction(scope)
   end
 
+  @doc """
+  Puts back a deleted location with its old id and name, recorded as
+  `location.created`. A location that exists again is returned as it is.
+  """
+  def restore(%Scope{} = scope, %Location{id: id, name: name}) do
+    case get(id) do
+      nil -> create(scope, change_location(%Location{id: id}, %{name: name}))
+      location -> {:ok, location}
+    end
+  end
+
   def list do
     query =
       from location in Location,

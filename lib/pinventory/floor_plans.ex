@@ -509,6 +509,86 @@ defmodule Pinventory.FloorPlans do
     end
   end
 
+  @doc """
+  Puts back floors and placements that someone deleted. Floors are
+  `plan_geometry_snapshot/1` entries and come back with their walls,
+  impassable areas, and placements. Placements are
+  `%{location_id, floor_id, points}` maps.
+
+  It only adds. A floor that exists again is left alone. A restored floor goes
+  back at its old position among the floors there now. A placement is skipped
+  when its floor or location is gone or the location has been placed since.
+
+  Returns `{:ok, skipped}` with the location ids of the skipped placements.
+  """
+  def restore_deleted(%Scope{} = scope, %{floors: floors, placements: placements}) do
+    Repo.transaction(fn ->
+      current = Repo.all(from f in Floor, order_by: [asc: f.position])
+      current_ids = MapSet.new(current, & &1.id)
+
+      missing =
+        floors
+        |> Enum.reject(&MapSet.member?(current_ids, &1.id))
+        |> Enum.sort_by(& &1.position)
+
+      restored = Enum.map(missing, &insert_floor_snapshot/1)
+      renumber_floors(current, Enum.zip(missing, restored))
+
+      floor_placements =
+        for floor <- missing, placement <- floor.placements do
+          Map.put(placement, :floor_id, floor.id)
+        end
+
+      for placement <- floor_placements ++ placements,
+          restore_placement(placement) == :skipped,
+          do: placement.location_id
+    end)
+    |> announce(scope)
+  end
+
+  defp insert_floor_snapshot(snapshot) do
+    floor =
+      %Floor{id: snapshot.id}
+      |> Floor.changeset(%{name: snapshot.name, position: snapshot.position})
+      |> Repo.insert!()
+
+    replace_walls_for_floor(floor.id, snapshot.walls)
+    replace_impassable_areas_for_floor(floor.id, snapshot.impassable_areas)
+    floor
+  end
+
+  defp renumber_floors(current, restored) do
+    ordered =
+      Enum.reduce(restored, current, fn {snapshot, floor}, acc ->
+        List.insert_at(acc, min(snapshot.position, length(acc)), floor)
+      end)
+
+    for {floor, position} <- Enum.with_index(ordered), floor.position != position do
+      floor |> Floor.changeset(%{position: position}) |> Repo.update!()
+    end
+  end
+
+  defp restore_placement(%{location_id: location_id, floor_id: floor_id} = snapshot) do
+    restorable? =
+      Repo.exists?(from f in Floor, where: f.id == ^floor_id) and
+        Repo.exists?(from l in Location, where: l.id == ^location_id) and
+        not Repo.exists?(from p in LocationPlacement, where: p.location_id == ^location_id)
+
+    if restorable? do
+      %LocationPlacement{}
+      |> LocationPlacement.changeset(%{
+        location_id: location_id,
+        floor_id: floor_id,
+        points: normalize_points(snapshot.points)
+      })
+      |> Repo.insert!()
+
+      :ok
+    else
+      :skipped
+    end
+  end
+
   defp snapshot_get(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
