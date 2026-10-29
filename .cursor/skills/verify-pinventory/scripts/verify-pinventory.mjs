@@ -69,6 +69,9 @@ Browser (Chromium over CDP, persistent until cleanup):
   browser screenshot <relpath>
   browser html <relpath>
 
+  PINVENTORY_TAB=<n> runs a browser command in tab n (default 1). Tabs share
+  the login, so two tabs act as two people viewing the same page.
+
 Database:
   sqlite <sql>
 `;
@@ -419,8 +422,14 @@ async function withPage(fn) {
   try {
     const context = browser.contexts()[0];
     if (!context) throw new Error("Chromium has no context; relaunch");
-    let page = context.pages()[0];
-    if (!page) page = await context.newPage();
+    const tab = Number(process.env.PINVENTORY_TAB || "1");
+    if (!Number.isInteger(tab) || tab < 1) {
+      throw new Error(`PINVENTORY_TAB must be 1 or more, got ${process.env.PINVENTORY_TAB}`);
+    }
+    while (context.pages().length < tab) await context.newPage();
+    const page = context.pages()[tab - 1];
+    // Background tabs don't paint, so screenshots there time out.
+    await page.bringToFront();
     page.setDefaultTimeout(15000);
     return await fn(page, state);
   } finally {
