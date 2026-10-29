@@ -27,6 +27,14 @@ defmodule Pinventory.Audit do
   end
 
   @doc """
+  Who made a change, for telling other viewers about it: the scope's user, and
+  the API token's name when an agent made it.
+  """
+  def actor(%Scope{user: user, api_token: api_token}) do
+    %{user: user, via_token_name: api_token && api_token.name}
+  end
+
+  @doc """
   Marks events written through an agent's API token with the token's id and
   name in `metadata`. Events from a browser session are returned as they are.
   """

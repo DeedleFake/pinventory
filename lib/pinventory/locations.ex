@@ -22,6 +22,17 @@ defmodule Pinventory.Locations do
 
   alias Pinventory.Locations.Location
 
+  @topic "locations"
+
+  @doc """
+  Subscribes the caller to location changes. Every successful create, update,
+  or delete sends `{:locations_changed, by}` to all subscribers except the
+  process that made it, with `by` from `Pinventory.Audit.actor/1`.
+  """
+  def subscribe do
+    Phoenix.PubSub.subscribe(Pinventory.PubSub, @topic)
+  end
+
   def change_location(%Location{} = location, attrs \\ %{}) do
     Location.changeset(location, attrs)
   end
@@ -46,7 +57,7 @@ defmodule Pinventory.Locations do
     end)
     |> Multi.run(:result, fn _repo, %{location: location} -> {:ok, location} end)
     |> Repo.transaction()
-    |> unwrap_location_transaction()
+    |> unwrap_location_transaction(scope)
   end
 
   def create(%Scope{} = scope, attrs) do
@@ -89,7 +100,7 @@ defmodule Pinventory.Locations do
         end)
         |> Multi.run(:result, fn _repo, %{location: location} -> {:ok, location} end)
         |> Repo.transaction()
-        |> unwrap_location_transaction()
+        |> unwrap_location_transaction(scope)
     end
   end
 
@@ -130,7 +141,18 @@ defmodule Pinventory.Locations do
     |> Multi.delete(:location, location)
     |> Multi.run(:result, fn _repo, %{location: deleted} -> {:ok, deleted} end)
     |> Repo.transaction()
-    |> unwrap_location_transaction()
+    |> unwrap_location_transaction(scope)
+  end
+
+  @doc """
+  Puts back a deleted location with its old id and name, recorded as
+  `location.created`. A location that exists again is returned as it is.
+  """
+  def restore(%Scope{} = scope, %Location{id: id, name: name}) do
+    case get(id) do
+      nil -> create(scope, change_location(%Location{id: id}, %{name: name}))
+      location -> {:ok, location}
+    end
   end
 
   def list do
@@ -211,12 +233,18 @@ defmodule Pinventory.Locations do
     end
   end
 
-  defp unwrap_location_transaction(result) do
+  defp unwrap_location_transaction(result, scope) do
     case result do
-      {:ok, %{result: location}} -> {:ok, location}
+      {:ok, %{result: location}} -> announce({:ok, location}, scope)
       {:error, :location, changeset, _} -> {:error, changeset}
       {:error, :audit_events, reason, _} -> {:error, reason}
       {:error, _step, reason, _} -> {:error, reason}
     end
+  end
+
+  defp announce(result, scope) do
+    by = Audit.actor(scope)
+    Phoenix.PubSub.broadcast_from(Pinventory.PubSub, self(), @topic, {:locations_changed, by})
+    result
   end
 end

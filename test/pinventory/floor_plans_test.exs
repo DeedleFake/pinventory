@@ -47,7 +47,7 @@ defmodule Pinventory.FloorPlansTest do
       floor = hd(floors)
 
       assert {:ok, _} = FloorPlans.place_location(floor, location.id, triangle())
-      assert {:ok, _} = FloorPlans.delete_floor_plan()
+      assert {:ok, _} = FloorPlans.delete_floor_plan(scope)
 
       refute FloorPlans.floor_plan_exists?()
       assert Locations.get!(location.id).name == "Garage"
@@ -61,20 +61,20 @@ defmodule Pinventory.FloorPlansTest do
       :ok
     end
 
-    test "adds, renames, and removes floors" do
+    test "adds, renames, and removes floors", %{scope: scope} do
       assert {:ok, %Floor{name: "Floor 2"} = floor2} = FloorPlans.add_floor()
       assert {:ok, %Floor{name: "Basement"}} = FloorPlans.rename_floor(floor2, "Basement")
 
       assert Enum.map(FloorPlans.list_floors(), & &1.name) == ["Floor 1", "Basement"]
 
       basement = Enum.find(FloorPlans.list_floors(), &(&1.name == "Basement"))
-      assert {:ok, _} = FloorPlans.delete_floor(basement)
+      assert {:ok, _} = FloorPlans.delete_floor(scope, basement)
       assert [%Floor{name: "Floor 1"}] = FloorPlans.list_floors()
     end
 
-    test "refuses to delete the last floor" do
+    test "refuses to delete the last floor", %{scope: scope} do
       [floor] = FloorPlans.list_floors()
-      assert {:error, :last_floor} = FloorPlans.delete_floor(floor)
+      assert {:error, :last_floor} = FloorPlans.delete_floor(scope, floor)
     end
 
     test "reorders floors by position" do
@@ -185,14 +185,15 @@ defmodule Pinventory.FloorPlansTest do
       assert changeset.errors[:points]
     end
 
-    test "unplace removes polygon only", %{garage: garage, floor: floor} do
+    test "unplace removes polygon only", %{scope: scope, garage: garage, floor: floor} do
       assert {:ok, _} = FloorPlans.place_location(floor, garage.id, triangle())
-      assert {:ok, _} = FloorPlans.unplace_location(garage.id)
+      assert {:ok, _} = FloorPlans.unplace_location(scope, garage.id)
       assert FloorPlans.placement_index() == %{}
       assert Locations.get!(garage.id).name == "Garage"
     end
 
     test "restore_plan_geometry rewinds walls and placements", %{
+      scope: scope,
       garage: garage,
       floor: floor
     } do
@@ -212,7 +213,7 @@ defmodule Pinventory.FloorPlansTest do
                  "y2" => 1.0
                })
 
-      assert {:ok, restored} = FloorPlans.restore_plan_geometry(before)
+      assert {:ok, restored} = FloorPlans.restore_plan_geometry(scope, before)
       restored_floor = hd(restored)
       assert length(restored_floor.walls) == 1
       assert restored_floor.location_placements == []
@@ -257,7 +258,7 @@ defmodule Pinventory.FloorPlansTest do
       assert length(FloorPlans.get_floor!(floor.id).impassable_areas) == 1
     end
 
-    test "restore_plan_geometry restores an impassable polygon", %{floor: floor} do
+    test "restore_plan_geometry restores an impassable polygon", %{scope: scope, floor: floor} do
       points = triangle()
       assert {:ok, updated} = FloorPlans.add_impassable_area(floor, points)
       [saved] = updated.impassable_areas
@@ -266,12 +267,12 @@ defmodule Pinventory.FloorPlansTest do
       assert {:ok, _} = FloorPlans.remove_impassable_area(updated, saved.id)
       assert hd(FloorPlans.list_floors()).impassable_areas == []
 
-      assert {:ok, restored} = FloorPlans.restore_plan_geometry(before)
+      assert {:ok, restored} = FloorPlans.restore_plan_geometry(scope, before)
       assert [%ImpassableArea{id: restored_id, points: ^points}] = hd(restored).impassable_areas
       assert restored_id == saved.id
     end
 
-    test "restore_plan_geometry recreates a deleted floor", %{floor: floor} do
+    test "restore_plan_geometry recreates a deleted floor", %{scope: scope, floor: floor} do
       {:ok, extra} = FloorPlans.add_floor()
 
       assert {:ok, _} =
@@ -286,10 +287,10 @@ defmodule Pinventory.FloorPlansTest do
       assert length(before) == 2
       assert Enum.any?(before, &(&1.id == extra.id and &1.name == "Floor 2"))
 
-      assert {:ok, _} = FloorPlans.delete_floor(FloorPlans.get_floor!(extra.id))
+      assert {:ok, _} = FloorPlans.delete_floor(scope, FloorPlans.get_floor!(extra.id))
       assert Enum.map(FloorPlans.list_floors(), & &1.id) == [floor.id]
 
-      assert {:ok, restored} = FloorPlans.restore_plan_geometry(before)
+      assert {:ok, restored} = FloorPlans.restore_plan_geometry(scope, before)
       ids = Enum.map(restored, & &1.id)
       assert floor.id in ids
       assert extra.id in ids
@@ -509,6 +510,150 @@ defmodule Pinventory.FloorPlansTest do
       {cx, cy} = FloorPlans.polygon_centroid(points)
       assert_in_delta cx, 0.3, 0.0001
       assert_in_delta cy, 0.2, 0.0001
+    end
+  end
+
+  describe "restore_deleted/2" do
+    setup %{scope: scope} do
+      {:ok, [ground]} = FloorPlans.create_floor_plan()
+      {:ok, upstairs} = FloorPlans.add_floor(%{name: "Upstairs"})
+      {:ok, attic} = FloorPlans.add_floor(%{name: "Attic"})
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, shed} = Locations.create(scope, %{name: "Shed"})
+      {:ok, _} = FloorPlans.add_wall(upstairs, %{x1: 0, y1: 0, x2: 1, y2: 0})
+      {:ok, _} = FloorPlans.add_impassable_area(upstairs, triangle())
+      {:ok, _} = FloorPlans.place_location(upstairs, garage.id, triangle())
+      {:ok, _} = FloorPlans.place_location(upstairs, shed.id, triangle(0.4))
+
+      %{ground: ground, upstairs: upstairs, attic: attic, garage: garage, shed: shed}
+    end
+
+    # Placements have no preload order, so compare them as a set.
+    defp geometry(floors \\ FloorPlans.list_floors()) do
+      for floor <- FloorPlans.plan_geometry_snapshot(floors) do
+        Map.update!(floor, :placements, &Enum.sort_by(&1, fn p -> p.location_id end))
+      end
+    end
+
+    defp snapshot_of(floor_id) do
+      FloorPlans.list_floors()
+      |> FloorPlans.plan_geometry_snapshot()
+      |> Enum.find(&(&1.id == floor_id))
+    end
+
+    test "puts a deleted floor back in place with its contents", %{
+      scope: scope,
+      upstairs: upstairs
+    } do
+      before = FloorPlans.list_floors()
+      snapshot = snapshot_of(upstairs.id)
+      {:ok, _} = FloorPlans.delete_floor(scope, upstairs)
+
+      assert {:ok, []} = FloorPlans.restore_deleted(scope, %{floors: [snapshot], placements: []})
+
+      assert geometry() == geometry(before)
+    end
+
+    test "keeps what changed since and skips placements that no longer fit", %{
+      scope: scope,
+      ground: ground,
+      upstairs: upstairs,
+      garage: garage,
+      shed: shed
+    } do
+      snapshot = snapshot_of(upstairs.id)
+      {:ok, _} = FloorPlans.delete_floor(scope, upstairs)
+      {:ok, _} = FloorPlans.place_location(ground, garage.id, triangle())
+      {:ok, _} = Locations.delete(scope, shed)
+      {:ok, cellar} = FloorPlans.add_floor(%{name: "Cellar"})
+
+      assert {:ok, skipped} =
+               FloorPlans.restore_deleted(scope, %{floors: [snapshot], placements: []})
+
+      assert Enum.sort(skipped) == Enum.sort([garage.id, shed.id])
+
+      assert ["Floor 1", "Upstairs", "Attic", "Cellar"] =
+               Enum.map(FloorPlans.list_floors(), & &1.name)
+
+      assert %{walls: [_], impassable_areas: [_], location_placements: []} =
+               FloorPlans.get_floor!(upstairs.id)
+
+      assert FloorPlans.placement_index()[garage.id].floor_id == ground.id
+      assert FloorPlans.get_floor!(cellar.id)
+    end
+
+    test "restores a whole plan and a lone placement, and is safe to repeat", %{
+      scope: scope,
+      upstairs: upstairs,
+      garage: garage
+    } do
+      before = FloorPlans.list_floors()
+      snapshot = FloorPlans.plan_geometry_snapshot(before)
+      {:ok, _} = FloorPlans.delete_floor_plan(scope)
+      restore = %{floors: snapshot, placements: []}
+
+      assert {:ok, []} = FloorPlans.restore_deleted(scope, restore)
+      assert {:ok, _} = FloorPlans.restore_deleted(scope, restore)
+
+      assert geometry() == geometry(before)
+
+      [placement] =
+        Enum.filter(snapshot_of(upstairs.id).placements, &(&1.location_id == garage.id))
+
+      {:ok, _} = FloorPlans.unplace_location(scope, garage.id)
+      lone = Map.put(placement, :floor_id, upstairs.id)
+
+      assert {:ok, []} = FloorPlans.restore_deleted(scope, %{floors: [], placements: [lone]})
+      assert {:ok, [_]} = FloorPlans.restore_deleted(scope, %{floors: [], placements: [lone]})
+      assert geometry() == geometry(before)
+    end
+  end
+
+  describe "subscribe/0" do
+    defp in_other_process(fun), do: fun |> Task.async() |> Task.await()
+
+    test "tells subscribers about writes made by other processes", %{scope: scope} do
+      FloorPlans.subscribe()
+
+      {:ok, [floor]} = in_other_process(&FloorPlans.create_floor_plan/0)
+      assert_receive {:floor_plan_changed, nil}
+
+      {:ok, _} =
+        in_other_process(fn -> FloorPlans.add_wall(floor, %{x1: 0, y1: 0, x2: 1, y2: 0}) end)
+
+      assert_receive {:floor_plan_changed, _}
+
+      {:ok, _} = in_other_process(fn -> FloorPlans.rename_floor(floor, "Ground") end)
+      assert_receive {:floor_plan_changed, _}
+
+      {:ok, _} = in_other_process(fn -> FloorPlans.delete_floor_plan(scope) end)
+      user_id = scope.user.id
+      assert_receive {:floor_plan_changed, %{user: %{id: ^user_id}, via_token_name: nil}}
+    end
+
+    test "skips the process that made the write and failed writes", %{scope: scope} do
+      {:ok, [floor]} = FloorPlans.create_floor_plan()
+      FloorPlans.subscribe()
+
+      {:ok, _} = FloorPlans.rename_floor(floor, "Ground")
+      refute_receive {:floor_plan_changed, _}
+
+      {:error, :last_floor} = in_other_process(fn -> FloorPlans.delete_floor(scope, floor) end)
+      {:error, _} = in_other_process(fn -> FloorPlans.rename_floor(floor, "") end)
+      refute_receive {:floor_plan_changed, _}
+    end
+  end
+
+  describe "writes against a floor someone else removed" do
+    test "return an error instead of raising", %{scope: scope} do
+      {:ok, [floor]} = FloorPlans.create_floor_plan()
+      {:ok, other} = FloorPlans.add_floor()
+      {:ok, _} = FloorPlans.delete_floor(scope, other)
+
+      assert {:error, %Ecto.Changeset{}} = FloorPlans.rename_floor(other, "Attic")
+      {:ok, _} = FloorPlans.add_floor()
+      assert {:error, %Ecto.Changeset{}} = FloorPlans.delete_floor(scope, other)
+      assert FloorPlans.get_floor!(floor.id)
     end
   end
 end

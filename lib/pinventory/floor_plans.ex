@@ -14,12 +14,25 @@ defmodule Pinventory.FloorPlans do
   import Ecto.Query, warn: false
 
   alias Ecto.Multi
+  alias Pinventory.Accounts.Scope
+  alias Pinventory.Audit
   alias Pinventory.FloorPlans.{Floor, Geometry, ImpassableArea, LocationPlacement, Wall}
   alias Pinventory.Locations.Location
   alias Pinventory.Repo
 
   @default_floor_name "Floor 1"
   @undo_limit 50
+  @topic "floor_plan"
+
+  @doc """
+  Subscribes the caller to plan changes. Every successful write here sends
+  `{:floor_plan_changed, by}` to all subscribers except the process that made
+  it. `by` is `Pinventory.Audit.actor/1` for writes that take a scope, which
+  are the ones that can delete something, and nil otherwise.
+  """
+  def subscribe do
+    Phoenix.PubSub.subscribe(Pinventory.PubSub, @topic)
+  end
 
   @doc """
   Returns all floors ordered by position, with walls, impassable areas, and
@@ -63,16 +76,17 @@ defmodule Pinventory.FloorPlans do
         {:ok, _floor} -> {:ok, list_floors()}
         {:error, changeset} -> {:error, changeset}
       end
+      |> announce()
     end
   end
 
   @doc """
   Deletes every floor (walls, placements, and impassable areas cascade). Locations remain.
   """
-  def delete_floor_plan do
+  def delete_floor_plan(%Scope{} = scope) do
     if floor_plan_exists?() do
       {_count, _} = Repo.delete_all(Floor)
-      {:ok, :deleted}
+      announce({:ok, :deleted}, scope)
     else
       {:error, :not_found}
     end
@@ -108,6 +122,7 @@ defmodule Pinventory.FloorPlans do
       {:ok, floor} -> {:ok, preload_floor(floor)}
       error -> error
     end
+    |> announce()
   end
 
   @doc """
@@ -116,11 +131,12 @@ defmodule Pinventory.FloorPlans do
   def rename_floor(%Floor{} = floor, name) when is_binary(name) do
     floor
     |> Floor.changeset(%{name: name})
-    |> Repo.update()
+    |> Repo.update(stale_error_field: :id)
     |> case do
       {:ok, updated} -> {:ok, preload_floor(updated)}
       error -> error
     end
+    |> announce()
   end
 
   @doc """
@@ -163,6 +179,7 @@ defmodule Pinventory.FloorPlans do
           {:ok, _} -> {:ok, list_floors()}
           {:error, _step, reason, _} -> {:error, reason}
         end
+        |> announce()
     end
   end
 
@@ -170,13 +187,15 @@ defmodule Pinventory.FloorPlans do
   Deletes a floor and its walls, placements, and impassable areas. Refuses when
   it is the last floor.
   """
-  def delete_floor(%Floor{} = floor) do
+  def delete_floor(%Scope{} = scope, %Floor{} = floor) do
     count = Repo.aggregate(Floor, :count)
 
     if count <= 1 do
       {:error, :last_floor}
     else
-      Repo.delete(floor)
+      floor
+      |> Repo.delete(stale_error_field: :id)
+      |> announce(scope)
     end
   end
 
@@ -205,6 +224,7 @@ defmodule Pinventory.FloorPlans do
       {:ok, _} -> {:ok, get_floor!(floor.id)}
       {:error, _step, reason, _} -> {:error, reason}
     end
+    |> announce()
   end
 
   @doc """
@@ -219,10 +239,11 @@ defmodule Pinventory.FloorPlans do
         {:error, :not_found}
 
       wall ->
-        case Repo.delete(wall) do
+        case Repo.delete(wall, stale_error_field: :id) do
           {:ok, _} -> {:ok, get_floor!(floor_id)}
           error -> error
         end
+        |> announce()
     end
   end
 
@@ -273,6 +294,7 @@ defmodule Pinventory.FloorPlans do
       {:ok, _} -> {:ok, get_floor!(floor.id)}
       error -> error
     end
+    |> announce()
   end
 
   @doc """
@@ -284,10 +306,11 @@ defmodule Pinventory.FloorPlans do
         {:error, :not_found}
 
       area ->
-        case Repo.delete(area) do
+        case Repo.delete(area, stale_error_field: :id) do
           {:ok, _} -> {:ok, get_floor!(floor.id)}
           error -> error
         end
+        |> announce()
     end
   end
 
@@ -323,10 +346,7 @@ defmodule Pinventory.FloorPlans do
     end
     |> case do
       {:ok, placement} ->
-        {:ok, Repo.preload(placement, [:location, :floor])}
-
-      {:error, :already_placed} = error ->
-        error
+        announce({:ok, Repo.preload(placement, [:location, :floor])})
 
       error ->
         error
@@ -336,10 +356,10 @@ defmodule Pinventory.FloorPlans do
   @doc """
   Removes a location's placement from the plan (location itself is kept).
   """
-  def unplace_location(location_id) when is_binary(location_id) do
+  def unplace_location(%Scope{} = scope, location_id) when is_binary(location_id) do
     case Repo.get_by(LocationPlacement, location_id: location_id) do
       nil -> {:ok, :already_unplaced}
-      placement -> Repo.delete(placement)
+      placement -> placement |> Repo.delete(stale_error_field: :id) |> announce(scope)
     end
   end
 
@@ -403,7 +423,7 @@ defmodule Pinventory.FloorPlans do
   snapshot are re-inserted with their original ids so undo can revive a removed
   floor (and its walls/placements/impassable areas).
   """
-  def restore_plan_geometry(snapshot) when is_list(snapshot) do
+  def restore_plan_geometry(%Scope{} = scope, snapshot) when is_list(snapshot) do
     if floor_plan_exists?() or snapshot != [] do
       Repo.transaction(fn ->
         snapshot_ids =
@@ -483,8 +503,89 @@ defmodule Pinventory.FloorPlans do
         {:ok, :ok} -> {:ok, list_floors()}
         {:error, reason} -> {:error, reason}
       end
+      |> announce(scope)
     else
       {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Puts back floors and placements that someone deleted. Floors are
+  `plan_geometry_snapshot/1` entries and come back with their walls,
+  impassable areas, and placements. Placements are
+  `%{location_id, floor_id, points}` maps.
+
+  It only adds. A floor that exists again is left alone. A restored floor goes
+  back at its old position among the floors there now. A placement is skipped
+  when its floor or location is gone or the location has been placed since.
+
+  Returns `{:ok, skipped}` with the location ids of the skipped placements.
+  """
+  def restore_deleted(%Scope{} = scope, %{floors: floors, placements: placements}) do
+    Repo.transaction(fn ->
+      current = Repo.all(from f in Floor, order_by: [asc: f.position])
+      current_ids = MapSet.new(current, & &1.id)
+
+      missing =
+        floors
+        |> Enum.reject(&MapSet.member?(current_ids, &1.id))
+        |> Enum.sort_by(& &1.position)
+
+      restored = Enum.map(missing, &insert_floor_snapshot/1)
+      renumber_floors(current, Enum.zip(missing, restored))
+
+      floor_placements =
+        for floor <- missing, placement <- floor.placements do
+          Map.put(placement, :floor_id, floor.id)
+        end
+
+      for placement <- floor_placements ++ placements,
+          restore_placement(placement) == :skipped,
+          do: placement.location_id
+    end)
+    |> announce(scope)
+  end
+
+  defp insert_floor_snapshot(snapshot) do
+    floor =
+      %Floor{id: snapshot.id}
+      |> Floor.changeset(%{name: snapshot.name, position: snapshot.position})
+      |> Repo.insert!()
+
+    replace_walls_for_floor(floor.id, snapshot.walls)
+    replace_impassable_areas_for_floor(floor.id, snapshot.impassable_areas)
+    floor
+  end
+
+  defp renumber_floors(current, restored) do
+    ordered =
+      Enum.reduce(restored, current, fn {snapshot, floor}, acc ->
+        List.insert_at(acc, min(snapshot.position, length(acc)), floor)
+      end)
+
+    for {floor, position} <- Enum.with_index(ordered), floor.position != position do
+      floor |> Floor.changeset(%{position: position}) |> Repo.update!()
+    end
+  end
+
+  defp restore_placement(%{location_id: location_id, floor_id: floor_id} = snapshot) do
+    restorable? =
+      Repo.exists?(from f in Floor, where: f.id == ^floor_id) and
+        Repo.exists?(from l in Location, where: l.id == ^location_id) and
+        not Repo.exists?(from p in LocationPlacement, where: p.location_id == ^location_id)
+
+    if restorable? do
+      %LocationPlacement{}
+      |> LocationPlacement.changeset(%{
+        location_id: location_id,
+        floor_id: floor_id,
+        points: normalize_points(snapshot.points)
+      })
+      |> Repo.insert!()
+
+      :ok
+    else
+      :skipped
     end
   end
 
@@ -631,7 +732,18 @@ defmodule Pinventory.FloorPlans do
       {:ok, _} -> {:ok, get_floor!(wall.floor_id)}
       {:error, _step, reason, _} -> {:error, reason}
     end
+    |> announce()
   end
+
+  defp announce(result, scope \\ nil)
+
+  defp announce({:ok, _} = result, scope) do
+    by = scope && Audit.actor(scope)
+    Phoenix.PubSub.broadcast_from(Pinventory.PubSub, self(), @topic, {:floor_plan_changed, by})
+    result
+  end
+
+  defp announce(error, _scope), do: error
 
   defp wall_coords(wall) when is_map(wall) do
     %{

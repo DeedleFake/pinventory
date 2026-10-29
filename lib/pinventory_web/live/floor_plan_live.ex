@@ -3,8 +3,17 @@ defmodule PinventoryWeb.FloorPlanLive do
 
   alias Pinventory.FloorPlans
   alias Pinventory.FloorPlans.Floor
+  alias Pinventory.Locations
+  alias PinventoryWeb.VersionHistoryComponents
 
   import PinventoryWeb.FloorPlanComponents
+
+  @resume_keys [
+    :editing_floor_id,
+    :removing_floor_id,
+    :selected_placement_id,
+    :placing_location_id
+  ]
 
   @impl true
   def render(assigns) do
@@ -27,7 +36,7 @@ defmodule PinventoryWeb.FloorPlanLive do
             <span class="font-medium tracking-tight">Floor plan</span>
           </div>
 
-          <div class="ml-auto flex flex-wrap items-center gap-1">
+          <div :if={@floors != []} class="ml-auto flex flex-wrap items-center gap-1">
             <button
               type="button"
               id="floor-plan-delete"
@@ -68,6 +77,38 @@ defmodule PinventoryWeb.FloorPlanLive do
         </div>
 
         <div
+          :for={deletion <- @deletions}
+          id={"deletion-#{deletion.id}"}
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3"
+        >
+          <.icon name="hero-exclamation-triangle" class="size-5 shrink-0 text-warning" />
+          <p class="min-w-0 flex-1 text-sm">
+            <span class="font-medium">{deleted_by(deletion.by)}</span> {deletion.text}.
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              id={"deletion-restore-#{deletion.id}"}
+              class="btn btn-sm btn-primary"
+              phx-click="restore_deleted"
+              phx-value-id={deletion.id}
+            >
+              <.icon name="hero-arrow-uturn-left" class="size-4" /> Restore
+            </button>
+            <button
+              type="button"
+              id={"deletion-dismiss-#{deletion.id}"}
+              class="btn btn-sm btn-ghost"
+              phx-click="dismiss_deleted"
+              phx-value-id={deletion.id}
+            >
+              {if @floors == [] and deletion.id == "plan", do: "Leave", else: "Dismiss"}
+            </button>
+          </div>
+        </div>
+
+        <div
+          :if={@floors != []}
           id="floor-plan-workspace"
           class="flex min-h-0 flex-col gap-3 lg:flex-row lg:items-stretch"
         >
@@ -585,6 +626,11 @@ defmodule PinventoryWeb.FloorPlanLive do
       floors ->
         selected = List.first(floors)
 
+        if connected?(socket) do
+          FloorPlans.subscribe()
+          Locations.subscribe()
+        end
+
         {:ok,
          socket
          |> assign(:page_title, "Floor plan")
@@ -598,6 +644,7 @@ defmodule PinventoryWeb.FloorPlanLive do
          |> assign(:delete_plan?, false)
          |> assign(:removing_floor_id, nil)
          |> assign(:editing_floor_id, nil)
+         |> assign(:deletions, [])
          |> assign(:undo_stack, [])
          |> assign(:redo_stack, [])
          |> assign_location_lists()}
@@ -737,7 +784,7 @@ defmodule PinventoryWeb.FloorPlanLive do
       true ->
         socket = push_undo_snapshot(socket)
 
-        case FloorPlans.delete_floor(floor) do
+        case FloorPlans.delete_floor(socket.assigns.current_scope, floor) do
           {:ok, _} ->
             floors = FloorPlans.list_floors()
 
@@ -773,19 +820,7 @@ defmodule PinventoryWeb.FloorPlanLive do
   end
 
   def handle_event("select_location", %{"id" => id}, socket) do
-    if Map.has_key?(socket.assigns.placement_by_location, id) do
-      {:noreply, socket}
-    else
-      {place_mode, points_json} = place_mode_for(socket, id)
-
-      {:noreply,
-       socket
-       |> assign(:mode, "place")
-       |> assign(:placing_location_id, id)
-       |> assign(:place_mode, place_mode)
-       |> assign(:existing_points_json, points_json)
-       |> assign(:selected_placement_id, id)}
-    end
+    {:noreply, start_placing(socket, id)}
   end
 
   def handle_event("wall_drawn", %{"x1" => x1, "y1" => y1, "x2" => x2, "y2" => y2}, socket) do
@@ -883,7 +918,7 @@ defmodule PinventoryWeb.FloorPlanLive do
 
   def handle_event("unplace_location", %{"id" => location_id}, socket) do
     socket = push_undo_snapshot(socket)
-    _ = FloorPlans.unplace_location(location_id)
+    _ = FloorPlans.unplace_location(socket.assigns.current_scope, location_id)
     floor = FloorPlans.get_floor!(socket.assigns.selected_floor.id)
 
     selected_placement =
@@ -918,7 +953,7 @@ defmodule PinventoryWeb.FloorPlanLive do
         # Keep the affected floor id so redo also switches back to that floor.
         current = history_entry(socket, entry.floor_id)
 
-        case FloorPlans.restore_plan_geometry(entry.snapshot) do
+        case FloorPlans.restore_plan_geometry(socket.assigns.current_scope, entry.snapshot) do
           {:ok, floors} ->
             {:noreply,
              socket
@@ -942,7 +977,7 @@ defmodule PinventoryWeb.FloorPlanLive do
       [entry | rest] ->
         current = history_entry(socket, entry.floor_id)
 
-        case FloorPlans.restore_plan_geometry(entry.snapshot) do
+        case FloorPlans.restore_plan_geometry(socket.assigns.current_scope, entry.snapshot) do
           {:ok, floors} ->
             {:noreply,
              socket
@@ -966,8 +1001,23 @@ defmodule PinventoryWeb.FloorPlanLive do
     {:noreply, assign(socket, :delete_plan?, false)}
   end
 
+  def handle_event("restore_deleted", %{"id" => id}, socket) do
+    case Enum.find(socket.assigns.deletions, &(&1.id == id)) do
+      nil -> {:noreply, socket}
+      deletion -> {:noreply, restore_deleted(socket, deletion)}
+    end
+  end
+
+  def handle_event("dismiss_deleted", %{"id" => id}, socket) do
+    if socket.assigns.floors == [] and id == "plan" do
+      {:noreply, push_navigate(socket, to: ~p"/locations")}
+    else
+      {:noreply, drop_deletion(socket, id)}
+    end
+  end
+
   def handle_event("confirm_delete_plan", _params, socket) do
-    case FloorPlans.delete_floor_plan() do
+    case FloorPlans.delete_floor_plan(socket.assigns.current_scope) do
       {:ok, _} ->
         {:noreply, push_navigate(socket, to: ~p"/locations")}
 
@@ -1047,6 +1097,293 @@ defmodule PinventoryWeb.FloorPlanLive do
   @impl true
   def handle_info({:patch_floor_url, floor_id}, socket) do
     {:noreply, push_patch(socket, to: floor_plan_path(floor_id))}
+  end
+
+  def handle_info({change, by}, socket)
+      when change in [:floor_plan_changed, :locations_changed] do
+    {:noreply, apply_remote_change(socket, by)}
+  end
+
+  # Someone else wrote to the plan or its locations. Reload what the page shows,
+  # offer to restore anything this viewer was using that they deleted, then
+  # drop any in-progress action whose target is gone.
+  defp apply_remote_change(socket, by) do
+    before = socket.assigns
+    floors = FloorPlans.list_floors()
+    socket = socket |> assign(:floors, floors) |> assign_location_lists()
+
+    socket
+    |> track_deletions(deleted_in_use(before, socket.assigns, by))
+    |> follow_selected_floor(floors)
+    |> drop_stale_history(before.floors, floors)
+    |> drop_stale_actions(floors)
+  end
+
+  defp follow_selected_floor(socket, []), do: socket
+
+  defp follow_selected_floor(socket, floors) do
+    case Enum.find(floors, &(&1.id == socket.assigns.selected_floor.id)) do
+      nil ->
+        first = List.first(floors)
+
+        socket
+        |> apply_selected_floor(first)
+        |> push_patch(to: floor_plan_path(first.id))
+
+      floor ->
+        assign(socket, :selected_floor, floor)
+    end
+  end
+
+  # A deletion is something this viewer was using that someone else deleted:
+  # the plan, a floor they were on, renaming, or about to delete, or a location
+  # they were drawing or had selected. It holds what `restore_deleted/2` needs
+  # to put it back and the page state to return to afterwards.
+  defp deleted_in_use(%{floors: []}, _now, _by), do: []
+
+  defp deleted_in_use(before, %{floors: []}, by) do
+    [
+      %{
+        id: "plan",
+        text: "deleted the floor plan",
+        by: by,
+        restore: %{
+          floors: FloorPlans.plan_geometry_snapshot(before.floors),
+          placements: [],
+          location: nil
+        },
+        resume: Map.take(before, @resume_keys) |> Map.put(:floor_id, before.selected_floor.id)
+      }
+    ]
+  end
+
+  defp deleted_in_use(before, now, by) do
+    floor_ids = MapSet.new(now.floors, & &1.id)
+
+    deleted_floors =
+      for floor <- before.floors,
+          not MapSet.member?(floor_ids, floor.id),
+          floor.id in [
+            before.selected_floor.id,
+            before.editing_floor_id,
+            before.removing_floor_id
+          ] do
+        %{
+          id: floor.id,
+          text: "deleted #{floor.name}",
+          by: by,
+          restore: %{
+            floors: FloorPlans.plan_geometry_snapshot([floor]),
+            placements: [],
+            location: nil
+          },
+          resume: %{
+            floor_id: if(before.selected_floor.id == floor.id, do: floor.id),
+            editing_floor_id: if(before.editing_floor_id == floor.id, do: floor.id),
+            removing_floor_id: if(before.removing_floor_id == floor.id, do: floor.id)
+          }
+        }
+      end
+
+    deleted_locations =
+      [before.selected_placement_id, before.placing_location_id]
+      |> Enum.uniq()
+      |> Enum.flat_map(&List.wrap(deleted_location(&1, before, now, floor_ids, by)))
+
+    deleted_floors ++ deleted_locations
+  end
+
+  defp deleted_location(nil, _before, _now, _floor_ids, _by), do: nil
+
+  defp deleted_location(id, before, now, floor_ids, by) do
+    location = Enum.find(before.locations, &(&1.id == id))
+    placement = restorable_placement(before.placement_by_location[id], floor_ids)
+    gone? = location != nil and not Enum.any?(now.locations, &(&1.id == id))
+    unplaced? = placement != nil and not Map.has_key?(now.placement_by_location, id)
+
+    if gone? or unplaced? do
+      %{
+        id: id,
+        text:
+          if(gone?,
+            do: "deleted #{location.name}",
+            else: "removed #{location.name} from the floor plan"
+          ),
+        by: by,
+        restore: %{
+          floors: [],
+          placements: List.wrap(placement && Map.put(placement, :location_id, id)),
+          location: if(gone?, do: location)
+        },
+        resume: %{
+          selected_placement_id: if(before.selected_placement_id == id, do: id),
+          placing_location_id: if(before.placing_location_id == id, do: id)
+        }
+      }
+    end
+  end
+
+  # A placement on a floor that was itself deleted comes back with that floor.
+  defp restorable_placement(%{floor_id: floor_id, points: points}, floor_ids) do
+    if MapSet.member?(floor_ids, floor_id), do: %{floor_id: floor_id, points: points}
+  end
+
+  defp restorable_placement(nil, _floor_ids), do: nil
+
+  # Newest first. Drops deletions someone else has already restored.
+  defp track_deletions(socket, new) do
+    new_ids = MapSet.new(new, & &1.id)
+    kept = Enum.reject(socket.assigns.deletions, &MapSet.member?(new_ids, &1.id))
+
+    assign(socket, :deletions, Enum.filter(new ++ kept, &still_deleted?(&1, socket.assigns)))
+  end
+
+  defp still_deleted?(%{restore: restore}, assigns) do
+    floor_ids = MapSet.new(assigns.floors, & &1.id)
+
+    Enum.all?(restore.floors, &(not MapSet.member?(floor_ids, &1.id))) and
+      Enum.all?(
+        restore.placements,
+        &(not Map.has_key?(assigns.placement_by_location, &1.location_id))
+      ) and
+      (restore.location == nil or
+         not Enum.any?(assigns.locations, &(&1.id == restore.location.id)))
+  end
+
+  defp drop_deletion(socket, id) do
+    assign(socket, :deletions, Enum.reject(socket.assigns.deletions, &(&1.id == id)))
+  end
+
+  defp restore_deleted(socket, %{restore: restore} = deletion) do
+    scope = socket.assigns.current_scope
+
+    with {:ok, _} <- restore_location(scope, restore.location),
+         {:ok, skipped} <-
+           FloorPlans.restore_deleted(scope, Map.take(restore, [:floors, :placements])) do
+      socket
+      |> assign(:floors, FloorPlans.list_floors())
+      |> assign_location_lists()
+      |> drop_deletion(deletion.id)
+      |> resume(deletion.resume)
+      |> put_skipped_flash(skipped)
+    else
+      {:error, %Ecto.Changeset{}} ->
+        put_flash(
+          socket,
+          :error,
+          "#{restore.location.name} can't be restored because another location now has that name."
+        )
+
+      {:error, _} ->
+        put_flash(socket, :error, "That couldn't be restored. Try again.")
+    end
+  end
+
+  defp restore_location(_scope, nil), do: {:ok, nil}
+  defp restore_location(scope, location), do: Locations.restore(scope, location)
+
+  # A lone location restored while there is no plan has nowhere to go back to.
+  defp resume(%{assigns: %{floors: []}} = socket, _resume), do: socket
+
+  defp resume(socket, resume) do
+    floors = socket.assigns.floors
+
+    floor =
+      Enum.find(floors, &(&1.id == resume[:floor_id])) ||
+        Enum.find(floors, &(&1.id == socket.assigns.selected_floor.id)) ||
+        List.first(floors)
+
+    socket =
+      socket
+      |> apply_selected_floor(floor)
+      |> assign(Map.take(resume, [:editing_floor_id, :removing_floor_id, :selected_placement_id]))
+      |> push_patch(to: floor_plan_path(floor.id))
+
+    case resume[:placing_location_id] do
+      nil -> socket
+      id -> start_placing(socket, id)
+    end
+  end
+
+  defp put_skipped_flash(socket, []), do: socket
+
+  defp put_skipped_flash(socket, skipped) do
+    put_flash(
+      socket,
+      :info,
+      "Restored, except #{length(skipped)} location #{if length(skipped) == 1, do: "area", else: "areas"} that someone placed again or deleted since."
+    )
+  end
+
+  defp deleted_by(nil), do: "Someone"
+  defp deleted_by(by), do: VersionHistoryComponents.author(by)
+
+  defp start_placing(socket, id) do
+    if Map.has_key?(socket.assigns.placement_by_location, id) do
+      socket
+    else
+      {place_mode, points_json} = place_mode_for(socket, id)
+
+      socket
+      |> assign(:mode, "place")
+      |> assign(:placing_location_id, id)
+      |> assign(:place_mode, place_mode)
+      |> assign(:existing_points_json, points_json)
+      |> assign(:selected_placement_id, id)
+    end
+  end
+
+  # Undo restores a whole-plan snapshot, so replaying one now would erase the
+  # other person's change. Location renames leave the snapshot alone.
+  defp drop_stale_history(socket, previous_floors, floors) do
+    history? = socket.assigns.undo_stack != [] or socket.assigns.redo_stack != []
+
+    if history? and
+         FloorPlans.plan_geometry_snapshot(previous_floors) !=
+           FloorPlans.plan_geometry_snapshot(floors) do
+      socket
+      |> assign(:undo_stack, [])
+      |> assign(:redo_stack, [])
+      |> put_flash(:info, "Someone else changed the floor plan, so undo history was cleared.")
+    else
+      socket
+    end
+  end
+
+  defp drop_stale_actions(socket, floors) do
+    floor_ids = MapSet.new(floors, & &1.id)
+    keep_floor = fn id -> if MapSet.member?(floor_ids, id), do: id end
+    placing = socket.assigns.placing_location_id
+
+    placed? = placing != nil and Map.has_key?(socket.assigns.placement_by_location, placing)
+    deleted? = placing != nil and not Enum.any?(socket.assigns.locations, &(&1.id == placing))
+
+    socket =
+      socket
+      |> assign(:editing_floor_id, keep_floor.(socket.assigns.editing_floor_id))
+      |> assign(
+        :removing_floor_id,
+        if(length(floors) > 1, do: keep_floor.(socket.assigns.removing_floor_id))
+      )
+
+    socket =
+      if placed? or deleted? do
+        socket
+        |> assign(:placing_location_id, nil)
+        |> assign(:place_mode, "new")
+        |> assign(:existing_points_json, "[]")
+      else
+        socket
+      end
+
+    socket =
+      if Map.has_key?(socket.assigns.placement_by_location, socket.assigns.selected_placement_id),
+        do: socket,
+        else: assign(socket, :selected_placement_id, nil)
+
+    if placed? and not deleted?,
+      do: put_flash(socket, :info, "Someone else placed the location you were drawing."),
+      else: socket
   end
 
   defp apply_selected_floor(socket, floor) do
