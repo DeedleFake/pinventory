@@ -433,7 +433,8 @@ defmodule PinventoryWeb.LocationLive do
   end
 
   # Brings the page up to the saved location. An unedited name reloads in
-  # place; an edited one keeps the user's text and shows the warning.
+  # place; an edited one keeps the user's text and shows the warning. A name
+  # renamed back to the page's baseline clears the warning.
   defp reconcile(socket, nil) do
     socket
     |> assign_dirty(false)
@@ -447,7 +448,10 @@ defmodule PinventoryWeb.LocationLive do
 
     cond do
       latest.name == location.name ->
-        assign(socket, :location_edits, edits)
+        socket
+        |> assign(:latest, nil)
+        |> assign(:latest_edit, nil)
+        |> assign(:location_edits, edits)
 
       not socket.assigns.name_dirty? ->
         show_location(socket, latest)

@@ -582,6 +582,24 @@ defmodule PinventoryWeb.LocationLiveTest do
       assert has_element?(mine, ~s(#location-name-section[data-name-dirty="false"]))
     end
 
+    test "the warning clears when the name goes back", %{conn: conn, scope: scope, garage: garage} do
+      {:ok, mine, _html} = live(conn, ~p"/location/#{garage.id}")
+      mine |> form("#location-form", location: %{name: "Attic"}) |> render_change()
+
+      {:ok, shed} = Locations.update(scope, garage, %{name: "Shed"})
+      assert has_element?(mine, "#location-name-stale")
+
+      {:ok, _} = Locations.update(scope, shed, %{name: "Garage"})
+
+      refute has_element?(mine, "#location-name-stale")
+      assert has_element?(mine, ~s(#location_name[value="Attic"]))
+      refute has_element?(mine, "#location-save[disabled]")
+
+      mine |> form("#location-form") |> render_submit()
+
+      assert Locations.get!(garage.id).name == "Attic"
+    end
+
     test "a save that loses the race warns instead of overwriting", %{
       conn: conn,
       garage: garage

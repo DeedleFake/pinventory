@@ -196,7 +196,6 @@ Two ghost variables exist only for checking. `writes` counts committed writes to
 Each finding below is in `KNOWN_FINDINGS` in the script, as `run:property`.
 
 - `item:PagesNeverCrash` and `location:PagesNeverCrash`. Two people open the same item (or location) and both confirm a delete. The first delete commits. The second runs `Multi.delete` on a row that is gone, which raises `Ecto.StaleEntryError`, and that person's page crashes. Ecto raises unless the delete passes `stale_error_field`.
-- `location:WarningsMatchSaved`. A person edits a location's name. Someone else renames the location, and the person's stale save or the live notice shows the warning, with Save disabled. Then the location is renamed back to the name the person started from. On that notice `reconcile/2` takes the `latest.name == location.name` branch, which leaves the old warning up. The page warns about a name that is no longer saved and keeps Save disabled until the person picks "Keep my edits" or "Load their version". Nothing is lost.
 - `convention:NoFalseConflict` and `convention:WarningsMatchSaved`. The naming convention checks version numbers, not text. Someone saves a change and then saves the old text back. A person who started before both saves is refused, and their page warns, although the saved text is the text they started from. This is the documented contract of `NamingConvention.save/3` and the MCP `edit_naming_convention` tool, which both take a version. Changing it changes that tool, so it stays a known finding.
 
 ## Coverage
