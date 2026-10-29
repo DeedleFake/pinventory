@@ -20,6 +20,15 @@ defmodule Pinventory.FloorPlans do
 
   @default_floor_name "Floor 1"
   @undo_limit 50
+  @topic "floor_plan"
+
+  @doc """
+  Subscribes the caller to plan changes. Every successful write here sends
+  `:floor_plan_changed` to all subscribers except the process that made it.
+  """
+  def subscribe do
+    Phoenix.PubSub.subscribe(Pinventory.PubSub, @topic)
+  end
 
   @doc """
   Returns all floors ordered by position, with walls, impassable areas, and
@@ -63,6 +72,7 @@ defmodule Pinventory.FloorPlans do
         {:ok, _floor} -> {:ok, list_floors()}
         {:error, changeset} -> {:error, changeset}
       end
+      |> announce()
     end
   end
 
@@ -72,7 +82,7 @@ defmodule Pinventory.FloorPlans do
   def delete_floor_plan do
     if floor_plan_exists?() do
       {_count, _} = Repo.delete_all(Floor)
-      {:ok, :deleted}
+      announce({:ok, :deleted})
     else
       {:error, :not_found}
     end
@@ -108,6 +118,7 @@ defmodule Pinventory.FloorPlans do
       {:ok, floor} -> {:ok, preload_floor(floor)}
       error -> error
     end
+    |> announce()
   end
 
   @doc """
@@ -116,11 +127,12 @@ defmodule Pinventory.FloorPlans do
   def rename_floor(%Floor{} = floor, name) when is_binary(name) do
     floor
     |> Floor.changeset(%{name: name})
-    |> Repo.update()
+    |> Repo.update(stale_error_field: :id)
     |> case do
       {:ok, updated} -> {:ok, preload_floor(updated)}
       error -> error
     end
+    |> announce()
   end
 
   @doc """
@@ -163,6 +175,7 @@ defmodule Pinventory.FloorPlans do
           {:ok, _} -> {:ok, list_floors()}
           {:error, _step, reason, _} -> {:error, reason}
         end
+        |> announce()
     end
   end
 
@@ -176,7 +189,9 @@ defmodule Pinventory.FloorPlans do
     if count <= 1 do
       {:error, :last_floor}
     else
-      Repo.delete(floor)
+      floor
+      |> Repo.delete(stale_error_field: :id)
+      |> announce()
     end
   end
 
@@ -205,6 +220,7 @@ defmodule Pinventory.FloorPlans do
       {:ok, _} -> {:ok, get_floor!(floor.id)}
       {:error, _step, reason, _} -> {:error, reason}
     end
+    |> announce()
   end
 
   @doc """
@@ -219,10 +235,11 @@ defmodule Pinventory.FloorPlans do
         {:error, :not_found}
 
       wall ->
-        case Repo.delete(wall) do
+        case Repo.delete(wall, stale_error_field: :id) do
           {:ok, _} -> {:ok, get_floor!(floor_id)}
           error -> error
         end
+        |> announce()
     end
   end
 
@@ -273,6 +290,7 @@ defmodule Pinventory.FloorPlans do
       {:ok, _} -> {:ok, get_floor!(floor.id)}
       error -> error
     end
+    |> announce()
   end
 
   @doc """
@@ -284,10 +302,11 @@ defmodule Pinventory.FloorPlans do
         {:error, :not_found}
 
       area ->
-        case Repo.delete(area) do
+        case Repo.delete(area, stale_error_field: :id) do
           {:ok, _} -> {:ok, get_floor!(floor.id)}
           error -> error
         end
+        |> announce()
     end
   end
 
@@ -323,10 +342,7 @@ defmodule Pinventory.FloorPlans do
     end
     |> case do
       {:ok, placement} ->
-        {:ok, Repo.preload(placement, [:location, :floor])}
-
-      {:error, :already_placed} = error ->
-        error
+        announce({:ok, Repo.preload(placement, [:location, :floor])})
 
       error ->
         error
@@ -339,7 +355,7 @@ defmodule Pinventory.FloorPlans do
   def unplace_location(location_id) when is_binary(location_id) do
     case Repo.get_by(LocationPlacement, location_id: location_id) do
       nil -> {:ok, :already_unplaced}
-      placement -> Repo.delete(placement)
+      placement -> placement |> Repo.delete(stale_error_field: :id) |> announce()
     end
   end
 
@@ -483,6 +499,7 @@ defmodule Pinventory.FloorPlans do
         {:ok, :ok} -> {:ok, list_floors()}
         {:error, reason} -> {:error, reason}
       end
+      |> announce()
     else
       {:error, :not_found}
     end
@@ -631,7 +648,15 @@ defmodule Pinventory.FloorPlans do
       {:ok, _} -> {:ok, get_floor!(wall.floor_id)}
       {:error, _step, reason, _} -> {:error, reason}
     end
+    |> announce()
   end
+
+  defp announce({:ok, _} = result) do
+    Phoenix.PubSub.broadcast_from(Pinventory.PubSub, self(), @topic, :floor_plan_changed)
+    result
+  end
+
+  defp announce(error), do: error
 
   defp wall_coords(wall) when is_map(wall) do
     %{

@@ -511,4 +511,51 @@ defmodule Pinventory.FloorPlansTest do
       assert_in_delta cy, 0.2, 0.0001
     end
   end
+
+  describe "subscribe/0" do
+    defp in_other_process(fun), do: fun |> Task.async() |> Task.await()
+
+    test "tells subscribers about writes made by other processes" do
+      FloorPlans.subscribe()
+
+      {:ok, [floor]} = in_other_process(&FloorPlans.create_floor_plan/0)
+      assert_receive :floor_plan_changed
+
+      {:ok, _} =
+        in_other_process(fn -> FloorPlans.add_wall(floor, %{x1: 0, y1: 0, x2: 1, y2: 0}) end)
+
+      assert_receive :floor_plan_changed
+
+      {:ok, _} = in_other_process(fn -> FloorPlans.rename_floor(floor, "Ground") end)
+      assert_receive :floor_plan_changed
+
+      {:ok, _} = in_other_process(&FloorPlans.delete_floor_plan/0)
+      assert_receive :floor_plan_changed
+    end
+
+    test "skips the process that made the write and failed writes" do
+      {:ok, [floor]} = FloorPlans.create_floor_plan()
+      FloorPlans.subscribe()
+
+      {:ok, _} = FloorPlans.rename_floor(floor, "Ground")
+      refute_receive :floor_plan_changed
+
+      {:error, :last_floor} = in_other_process(fn -> FloorPlans.delete_floor(floor) end)
+      {:error, _} = in_other_process(fn -> FloorPlans.rename_floor(floor, "") end)
+      refute_receive :floor_plan_changed
+    end
+  end
+
+  describe "writes against a floor someone else removed" do
+    test "return an error instead of raising" do
+      {:ok, [floor]} = FloorPlans.create_floor_plan()
+      {:ok, other} = FloorPlans.add_floor()
+      {:ok, _} = FloorPlans.delete_floor(other)
+
+      assert {:error, %Ecto.Changeset{}} = FloorPlans.rename_floor(other, "Attic")
+      {:ok, _} = FloorPlans.add_floor()
+      assert {:error, %Ecto.Changeset{}} = FloorPlans.delete_floor(other)
+      assert FloorPlans.get_floor!(floor.id)
+    end
+  end
 end
