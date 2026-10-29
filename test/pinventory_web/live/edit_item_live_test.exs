@@ -1065,8 +1065,7 @@ defmodule PinventoryWeb.EditItemLiveTest do
       # A notes save whose notice hasn't reached the page yet.
       Pinventory.Repo.update_all(
         from(i in Pinventory.Items.Item, where: i.id == ^item.id),
-        set: [notes: "Their note"],
-        inc: [notes_version: 1]
+        set: [notes: "Their note"]
       )
 
       mine |> form("#item-form", item: %{notes: "My note"}) |> render_submit()

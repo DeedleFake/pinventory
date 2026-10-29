@@ -284,7 +284,8 @@ defmodule Pinventory.Items do
 
       true ->
         Multi.new()
-        |> Multi.update(:item, lock_sections(changeset, sections), stale_error_field: :version)
+        |> Multi.run(:current, fn repo, _ -> check_sections(repo, item, sections) end)
+        |> Multi.update(:item, changeset)
         |> Multi.run(:stock, fn repo, %{item: updated} ->
           if stock_changed?, do: sync_stock(repo, updated.id, desired), else: {:ok, before_stock}
         end)
@@ -341,17 +342,17 @@ defmodule Pinventory.Items do
     end)
   end
 
-  # A stock-only save leaves the item row unchanged, and optimistic_lock
-  # skips unchanged rows, so force each edited section's version into the
-  # update. The row is then written only if all of them are still current.
-  defp lock_sections(changeset, sections) do
-    Enum.reduce(sections, changeset, fn section, changeset ->
-      field = Item.version_field(section)
-
-      changeset
-      |> Ecto.Changeset.force_change(field, Map.fetch!(changeset.data, field))
-      |> Ecto.Changeset.optimistic_lock(field)
-    end)
+  # Compares each section this save edits with what is saved now. The repo
+  # uses immediate transactions, so SQLite holds the write lock from this
+  # read until commit and no other save can land in between.
+  defp check_sections(repo, base, sections) do
+    with %Item{} = current <- repo.get(Item, base.id),
+         current = repo.preload(current, :item_locations),
+         false <- Enum.any?(Item.changed_sections(base, current), &(&1 in sections)) do
+      {:ok, current}
+    else
+      _ -> {:error, :stale}
+    end
   end
 
   @type stock_error ::
@@ -572,7 +573,6 @@ defmodule Pinventory.Items do
   defp unwrap_item_transaction(result) do
     case result do
       {:ok, %{result: item}} -> {:ok, item}
-      {:error, :item, %Ecto.Changeset{errors: [{:version, _} | _]}, _} -> {:error, :stale}
       {:error, :item, changeset, _} -> {:error, changeset}
       {:error, :stock, reason, _} -> {:error, reason}
       {:error, :audit_events, reason, _} -> {:error, reason}

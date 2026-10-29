@@ -230,6 +230,23 @@ defmodule Pinventory.ItemsTest do
                {:error, :stale}
     end
 
+    test "a section changed and changed back does not block a save", %{scope: scope} do
+      other = user_scope_fixture()
+      {:ok, item} = Items.create_item(scope, %{name: "Milk", notes: "Old"})
+      {:ok, theirs} = Items.update_item(other, item, %{notes: "Their note"})
+      {:ok, _} = Items.update_item(other, theirs, %{notes: "Old"})
+
+      assert {:ok, saved} = Items.update_item(scope, item, %{notes: "Mine"})
+      assert saved.notes == "Mine"
+    end
+
+    test "a save to a deleted item is stale", %{scope: scope} do
+      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
+      {:ok, _} = Items.delete_item(scope, item)
+
+      assert Items.update_item(scope, item, %{notes: "Mine"}) == {:error, :stale}
+    end
+
     test "a save fails whole when any section it changes is out of date", %{scope: scope} do
       other = user_scope_fixture()
       {:ok, garage} = Locations.create(scope, %{name: "Garage"})
