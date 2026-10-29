@@ -1,6 +1,6 @@
 ---
 name: verify-stock-edits
-description: Model-check how Pinventory saves an item's stock when edit pages, the MCP agent tools, and item or location deletes race each other, using a TLA+ model whose guard settings are read from the code. Use when a change touches Items.update_item, change_stock, move_stock, delete_item, Locations.delete, DraftStock, the edit page's save or stale handling, item_locations constraints, or the repo's transaction mode, or when running /verify-stock-edits.
+description: Model-check how Pinventory saves an item's stock when edit pages, the MCP agent tools, and item or location deletes race each other, using a TLA+ model whose guard settings are read from the code. Use when a change touches Items.update_item, the Item section versions, change_stock, move_stock, delete_item, Locations.delete, DraftStock, the edit page's save, live-notice, or stale handling, item_locations constraints, or the repo's transaction mode, or when running /verify-stock-edits.
 ---
 
 # Verify stock edits
@@ -55,8 +55,9 @@ The script prints `code facts` first. Each is a model constant read from the cod
 
 | Constant | TRUE when the code has |
 |---|---|
-| `OptimisticLock` | `optimistic_lock(:lock_version)` in `Items.update_item/4` |
-| `ForceVersionBump` | `force_change(:lock_version, item.lock_version)` in `update_item/4`, so stock-only saves also check the version |
+| `StockLock` | `stock: {:item_locations, :stock_version}` in `Item`'s section table, `:stock -> stock_changed?` in `edited_sections/2`, and `save_item/4` passing the edited sections to `lock_sections/2`, which calls `optimistic_lock(field)`. A save that changes stock checks `stock_version` |
+| `ForceVersionBump` | `force_change(field, Map.fetch!(changeset.data, field))` in `lock_sections/2`, so stock-only saves also update the row and check the version |
+| `SyncOnlyChangedStock` | `if stock_changed?, do: sync_stock(...)` in `save_item/4`, so a name or notes save never writes back the stock it started from |
 | `AgentReadsInTx` | `write_stock/4` calling `fetch_item_for_stock/1` inside `Repo.transact`, and `default_transaction_mode: :immediate` in `config/config.exs` |
 | `ChangeStockChecksBelowZero` | `new < 0 -> {:error, {:below_zero, current}}` in `changed_count/3` |
 | `ChangeStockChecksMax` | `new > DraftStock.max_quantity() -> {:error, :too_many}` in `changed_count/3` |
@@ -66,7 +67,7 @@ The script prints `code facts` first. Each is a model constant read from the cod
 | `SaveChecksMax` | `less_than_or_equal_to: DraftStock.max_quantity()` in the same `validate_number(:quantity, ...)`, so `update_item/4` refuses any count above the max |
 | `AdjustCapsAtMax` | `max_quantity` inside `DraftStock.put/3` |
 | `LocationDeleteChecksStock` | the `:empty?` step calling `location_has_items?` in `Locations.delete/2` |
-| `StaleReloadRaises` | `Items.get_item!(` right after `{:error, :stale} ->` in `EditItemLive`'s save handler. FALSE means the branch uses `Items.get_item/1`, and `show_stale/3` sends a deleted item's page to the items list |
+| `StaleReloadRaises` | `Items.get_item!(` anywhere in the `{:error, :stale} ->` branch of `EditItemLive`'s save handler. FALSE means the branch uses `Items.get_item/1`, and `reconcile/2` sends a deleted item's page to the items list |
 
 Some properties have two guards, so removing only one of them passes:
 
@@ -91,15 +92,16 @@ Each action is one SQLite transaction. The repo runs immediate transactions, so 
 | `Adjust` | `handle_event("adjust")` with `DraftStock.adjust/3` |
 | `EditFields` | typing a new name or notes |
 | `Save`, `Outcome`, `Commit` | `handle_event("save")` calling `Items.update_item/4`: Multi.update with the lock, `sync_stock/3`, `validate_locations_exist/3`, `ItemLocation.changeset/2` |
-| `Save` with a stale outcome | `show_stale/3`: the stale banner, or the items list when the item is gone |
-| `KeepMyEdits`, `LoadLatest` | `handle_event("keep_my_edits")`, `handle_event("load_latest")` |
+| `Save` with a stale outcome | `reconcile/2` after `{:error, :stale}`: the stock warning, or the items list when the item is gone |
+| `Notice` | `handle_info` for a `Pinventory.LiveEdits` notice, then `reconcile/2`: unedited stock reloads, edited stock shows the warning, a deleted item leaves for the list |
+| `KeepMyEdits`, `LoadLatest` | `handle_event("keep_my_edits")`, `handle_event("load_latest")` with `"section" => "stock"` |
 | `ChangeStock`, `ChangeCounts` | `Items.change_stock/4`, `changed_count/3`, `write_stock/4` |
 | `MoveStock`, `MoveCounts` | `Items.move_stock/5`, `moved_counts/4`, `write_stock/4` |
 | `AgentRead` | only when `AgentReadsInTx` is FALSE: the read runs in its own transaction |
 | `DeleteItem` | `Items.delete_item/2` with the `on_delete: :delete_all` cascade |
 | `DeleteLocation` | `Locations.delete/2` with the cascade |
 
-Two ghost variables exist only to state properties. `writes` counts committed changes, and each reader remembers the count it saw. `bad` records which properties a step broke.
+Two ghost variables exist only to state properties. `writes` counts committed writes to the stock, and each reader remembers the count it saw. `bad` records which properties a step broke.
 
 ## Bounds and assumptions
 
@@ -113,8 +115,8 @@ Two ghost variables exist only to state properties. `writes` counts committed ch
 
 ## Not covered
 
-- `create_item/3`, name and notes contents, and audit events. The model only tracks whether a save changed the name or notes.
-- `delete_item/2` deletes without checking `lock_version`. The model treats a delete as intended, not as a lost update.
+- `create_item/3`, name and notes contents, their section versions, and audit events. The model only tracks whether a save changed the name or notes. A name or notes save that loses to another save of the same section is a test case in `test/pinventory/items_test.exs`, not a model property.
+- `delete_item/2` deletes without checking any section version. The model treats a delete as intended, not as a lost update.
 - Floor plans, accounts, API tokens, search, and the LiveView's other events.
 - Anything beyond 2 writes, 2 pages, or 2 locations.
 
@@ -128,11 +130,12 @@ Sync commit: `32f109f9b861c8b1c66ec8096e0972572a2ad78c`
 
 Move the sync commit forward only after you confirm, at the new commit, that the model and the code facts still describe the code below. The script lists covered files changed since the sync commit.
 
-- `lib/pinventory/items.ex`: `update_item/4`, `change_stock/4`, `move_stock/5`, `changed_count/3`, `moved_counts/4`, `write_stock/4`, `fetch_item_for_stock/1`, `check_locations/1`, `delete_item/2`, `sync_stock/3`, `validate_locations_exist/3`, `normalize_desired_stock/1`, `unwrap_item_transaction/1`
+- `lib/pinventory/items.ex`: `update_item/4`, `save_item/4`, `edited_sections/2`, `lock_sections/2`, `change_stock/4`, `move_stock/5`, `changed_count/3`, `moved_counts/4`, `write_stock/4`, `fetch_item_for_stock/1`, `check_locations/1`, `delete_item/2`, `sync_stock/3`, `validate_locations_exist/3`, `normalize_desired_stock/1`, `unwrap_item_transaction/1`
+- `lib/pinventory/items/item.ex`: the section table
 - `lib/pinventory/items/draft_stock.ex`: `put/3`, `adjust/3`, `parse_quantity/1`, `max_quantity/0`
 - `lib/pinventory/items/item_location.ex`: `changeset/2`
 - `lib/pinventory/locations.ex`: `delete/2`
-- `lib/pinventory_web/live/edit_item_live.ex`: `handle_event/3` for `save`, `adjust`, `set_quantity`, `keep_my_edits`, `load_latest`, and `show_stale/3`
+- `lib/pinventory_web/live/edit_item_live.ex`: `handle_event/3` for `save`, `adjust`, `set_quantity`, `keep_my_edits`, `load_latest`, `handle_info/2` for `Pinventory.LiveEdits` notices, `reconcile/2`, and `load_section/3`
 - `lib/pinventory_web/mcp_router.ex`: the `change_stock` and `move_stock` tools
 - `config/config.exs`: `default_transaction_mode`
 - `priv/repo/migrations/20260223042150_create_locations_and_item_locations.exs`: the cascades and the quantity CHECK

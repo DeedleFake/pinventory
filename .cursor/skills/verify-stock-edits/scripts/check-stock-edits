@@ -73,7 +73,7 @@ if [[ $validates == TRUE || $db_check == TRUE ]]; then flag QuantityMustBePositi
 flag SaveChecksMax "$(anchor lib/pinventory/items/item_location.ex 'validate_number\(:quantity,(?:(?!\n    \|>).)*?less_than_or_equal_to: DraftStock\.max_quantity\(\)')"
 flag AdjustCapsAtMax "$(anchor lib/pinventory/items/draft_stock.ex 'def put\((?:(?!\n  def ).)*?max_quantity')"
 flag LocationDeleteChecksStock "$(anchor lib/pinventory/locations.ex 'def delete\((?:(?!\n  def ).)*?Multi\.run\(:empty\?, fn repo, _ ->\s*if location_has_items\?\(repo, location\.id\) do\s*\{:error, :location_has_items\}')"
-flag StaleReloadRaises "$(anchor lib/pinventory_web/live/edit_item_live.ex '\{:error, :stale\} ->\s*item = Items\.get_item!\(')"
+flag StaleReloadRaises "$(anchor lib/pinventory_web/live/edit_item_live.ex '\{:error, :stale\} ->(?:(?!\n      \{:error).)*?Items\.get_item!\(')"
 
 echo "code facts (model constants):"
 for k in "${FLAG_NAMES[@]}"; do
