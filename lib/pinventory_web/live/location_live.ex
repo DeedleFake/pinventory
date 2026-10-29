@@ -3,6 +3,7 @@ defmodule PinventoryWeb.LocationLive do
 
   alias Pinventory.Audit
   alias Pinventory.Items
+  alias Pinventory.LiveEdits
   alias Pinventory.Locations
 
   import PinventoryWeb.AuditHelpers,
@@ -10,10 +11,12 @@ defmodule PinventoryWeb.LocationLive do
       activity_event_line: 1,
       edit_heading: 1,
       format_event_time: 1,
+      edit_author: 1,
       linkable_item_id_for_edit: 1
     ]
 
   import PinventoryWeb.ConfirmDeleteComponents
+  import PinventoryWeb.LiveEditComponents
 
   @impl true
   def render(assigns) do
@@ -46,6 +49,21 @@ defmodule PinventoryWeb.LocationLive do
             </button>
           </div>
         </div>
+
+        <.stale_section
+          :if={@latest}
+          id="location-name-stale"
+          by={if @latest_edit, do: edit_author(@latest_edit), else: "Someone else"}
+          saved="a new name"
+          their_edit={@latest_edit && edit_heading(@latest_edit)}
+        >
+          <p id="location-name-stale-diff" class="text-sm">
+            <span class="opacity-70">Their name:</span>
+            <span class="font-medium">{@latest.name}</span>
+            <span class="opacity-70">· Yours:</span>
+            <span class="font-medium">{current_name(@form)}</span>
+          </p>
+        </.stale_section>
 
         <.form
           for={@form}
@@ -83,7 +101,7 @@ defmodule PinventoryWeb.LocationLive do
                 type="submit"
                 id="location-save"
                 class="btn btn-primary join-item shrink-0"
-                disabled={not @dirty?}
+                disabled={not @dirty? or @latest != nil}
               >
                 Save
               </button>
@@ -262,6 +280,8 @@ defmodule PinventoryWeb.LocationLive do
      |> assign(:delete_confirm_ready?, false)
      |> assign(:delete_blocked_reason, nil)
      |> assign(:location_edits, [])
+     |> assign(:latest, nil)
+     |> assign(:latest_edit, nil)
      |> stream_configure(:items, dom_id: &"location-item-#{&1.id}")}
   end
 
@@ -276,16 +296,13 @@ defmodule PinventoryWeb.LocationLive do
 
       location ->
         items = Items.list_items_at_location(location.id)
+        if connected?(socket), do: LiveEdits.subscribe({:location, location.id})
 
         {:noreply,
          socket
-         |> assign(:page_title, location.name)
-         |> assign(:location, location)
-         |> assign(:baseline_name, location.name)
-         |> assign(:form, to_location_form(Locations.change_location(location)))
+         |> show_location(location)
          |> assign(:total_quantity, total_quantity(items))
          |> assign(:has_items?, items != [])
-         |> assign(:location_edits, Audit.list_edits_for_location(location.id))
          |> stream(:items, items, reset: true)
          |> close_delete_modal()
          |> sync_dirty()}
@@ -313,13 +330,15 @@ defmodule PinventoryWeb.LocationLive do
       {:ok, location} ->
         {:noreply,
          socket
-         |> assign(:location, location)
-         |> assign(:baseline_name, location.name)
-         |> assign(:page_title, location.name)
-         |> assign(:form, to_location_form(Locations.change_location(location)))
-         |> assign(:location_edits, Audit.list_edits_for_location(location.id))
-         |> put_flash(:info, "Location saved")
-         |> sync_dirty()}
+         |> show_location(location)
+         |> put_flash(:info, "Location saved")}
+
+      {:error, :stale} ->
+        {:noreply,
+         socket
+         |> assign(:form, to_location_form(changeset))
+         |> sync_dirty()
+         |> reconcile(Locations.get(socket.assigns.location.id))}
 
       {:error, changeset} ->
         {:noreply,
@@ -327,6 +346,25 @@ defmodule PinventoryWeb.LocationLive do
          |> assign(:form, to_location_form(changeset, action: :validate))
          |> sync_dirty()}
     end
+  end
+
+  # The newer saved location becomes the baseline and the form keeps the
+  # user's name, so Save writes it on top of that version.
+  def handle_event("keep_my_edits", _params, socket) do
+    name = current_name(socket.assigns.form)
+
+    {:noreply,
+     socket
+     |> show_location(socket.assigns.latest)
+     |> assign(
+       :form,
+       to_location_form(Locations.change_location(socket.assigns.latest, %{"name" => name}))
+     )
+     |> sync_dirty()}
+  end
+
+  def handle_event("load_latest", _params, socket) do
+    {:noreply, show_location(socket, socket.assigns.latest)}
   end
 
   def handle_event("open_delete", _params, socket) do
@@ -376,12 +414,63 @@ defmodule PinventoryWeb.LocationLive do
     end
   end
 
+  @impl true
+  def handle_info({LiveEdits, {:location, id}, :saved}, socket) do
+    {:noreply, reconcile(socket, Locations.get(id))}
+  end
+
+  def handle_info({LiveEdits, {:location, _id}, :deleted}, socket) do
+    {:noreply, reconcile(socket, nil)}
+  end
+
+  # Brings the page up to the saved location. An unedited name reloads in
+  # place; an edited one keeps the user's text and shows the warning.
+  defp reconcile(socket, nil) do
+    socket
+    |> assign_dirty(false)
+    |> put_flash(:error, "Someone deleted this location.")
+    |> push_navigate(to: ~p"/locations")
+  end
+
+  defp reconcile(socket, latest) do
+    location = socket.assigns.location
+    edits = Audit.list_edits_for_location(location.id)
+
+    cond do
+      latest.lock_version == location.lock_version ->
+        assign(socket, :location_edits, edits)
+
+      not socket.assigns.name_dirty? ->
+        show_location(socket, latest)
+
+      true ->
+        socket
+        |> assign(:latest, latest)
+        |> assign(:latest_edit, Enum.find(edits, &renamed?/1))
+        |> assign(:location_edits, edits)
+    end
+  end
+
+  defp renamed?(edit), do: Enum.any?(edit.events, &(&1.action == "location.updated"))
+
+  defp show_location(socket, location) do
+    socket
+    |> assign(:page_title, location.name)
+    |> assign(:location, location)
+    |> assign(:baseline_name, location.name)
+    |> assign(:form, to_location_form(Locations.change_location(location)))
+    |> assign(:location_edits, Audit.list_edits_for_location(location.id))
+    |> assign(:latest, nil)
+    |> assign(:latest_edit, nil)
+    |> sync_dirty()
+  end
+
   defp to_location_form(changeset, opts \\ []) do
     to_form(changeset, Keyword.merge([as: :location, id: "location"], opts))
   end
 
   defp sync_dirty(socket) do
-    name = current_name(socket)
+    name = current_name(socket.assigns.form)
     name_dirty? = name != socket.assigns.baseline_name
 
     socket
@@ -423,7 +512,7 @@ defmodule PinventoryWeb.LocationLive do
   end
 
   defp unsaved_name?(socket) do
-    current_name(socket) != saved_name(socket)
+    current_name(socket.assigns.form) != saved_name(socket)
   end
 
   defp saved_name(%{assigns: %{location: %{name: name}}}) when is_binary(name), do: name
@@ -453,14 +542,8 @@ defmodule PinventoryWeb.LocationLive do
     end
   end
 
-  defp current_name(socket) do
-    case socket.assigns.form do
-      %Phoenix.HTML.Form{source: %Ecto.Changeset{} = changeset} ->
-        Ecto.Changeset.get_field(changeset, :name) || ""
-
-      _ ->
-        ""
-    end
+  defp current_name(%Phoenix.HTML.Form{source: %Ecto.Changeset{} = changeset}) do
+    Ecto.Changeset.get_field(changeset, :name) || ""
   end
 
   defp total_quantity(items) do

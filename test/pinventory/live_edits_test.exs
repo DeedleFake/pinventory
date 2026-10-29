@@ -58,6 +58,21 @@ defmodule Pinventory.LiveEditsTest do
     refute_received {LiveEdits, _, _}
   end
 
+  test "location renames and deletes notify the location's subscribers", %{scope: scope} do
+    {:ok, attic} = Locations.create(scope, %{name: "Attic"})
+    :ok = LiveEdits.subscribe({:location, attic.id})
+    record = {:location, attic.id}
+
+    {:ok, renamed} = Locations.update(scope, attic, %{name: "Loft"})
+    assert_received {LiveEdits, ^record, :saved}
+
+    assert Locations.update(scope, attic, %{name: "Roof"}) == {:error, :stale}
+    refute_received {LiveEdits, _, _}
+
+    {:ok, _} = Locations.delete(scope, renamed)
+    assert_received {LiveEdits, ^record, :deleted}
+  end
+
   test "a naming convention save notifies its subscribers", %{scope: scope} do
     :ok = LiveEdits.subscribe(:naming_convention)
 

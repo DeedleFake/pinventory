@@ -117,6 +117,14 @@ defmodule Pinventory.LocationsTest do
       assert {:error, changeset} = Locations.update(scope, location, %{name: "Taken"})
       assert %{name: [_ | _]} = errors_on(changeset)
     end
+
+    test "rejects a rename from an out-of-date copy", %{scope: scope} do
+      {:ok, location} = Locations.create(scope, %{name: "Garage"})
+      {:ok, _} = Locations.update(scope, location, %{name: "Shed"})
+
+      assert Locations.update(scope, location, %{name: "Attic"}) == {:error, :stale}
+      assert Locations.get!(location.id).name == "Shed"
+    end
   end
 
   describe "delete/2" do
