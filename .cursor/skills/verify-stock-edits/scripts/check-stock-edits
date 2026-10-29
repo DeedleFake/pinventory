@@ -56,10 +56,10 @@ FLAG_NAMES=()
 flag() { FLAG_NAMES+=("$1"); printf -v "FLAG_$1" %s "$2"; }
 stock_section=$(anchor lib/pinventory/items/item.ex 'stock: \{:item_locations, :stock_version\}')
 stock_edited=$(anchor $ITEMS 'defp edited_sections\((?:(?!\n  defp? ).)*?:stock -> stock_changed\?')
-locks=$(anchor $ITEMS 'def update_item\((?:(?!\n  defp? ).)*?lock_sections\(changeset, sections\).*?defp lock_sections\((?:(?!\n  defp? ).)*?\|> Ecto\.Changeset\.optimistic_lock\(field\)')
+locks=$(anchor $ITEMS 'defp save_item\((?:(?!\n  defp? ).)*?lock_sections\(changeset, sections\).*?defp lock_sections\((?:(?!\n  defp? ).)*?\|> Ecto\.Changeset\.optimistic_lock\(field\)')
 if [[ $stock_section == TRUE && $stock_edited == TRUE && $locks == TRUE ]]; then flag StockLock TRUE; else flag StockLock FALSE; fi
 flag ForceVersionBump "$(anchor $ITEMS 'defp lock_sections\((?:(?!\n  defp? ).)*?\|> Ecto\.Changeset\.force_change\(field, Map\.fetch!\(changeset\.data, field\)\)')"
-flag SyncOnlyChangedStock "$(anchor $ITEMS 'def update_item\((?:(?!\n  defp? ).)*?if stock_changed\?, do: sync_stock\(repo, updated\.id, desired\), else: \{:ok, before_stock\}')"
+flag SyncOnlyChangedStock "$(anchor $ITEMS 'defp save_item\((?:(?!\n  defp? ).)*?if stock_changed\?, do: sync_stock\(repo, updated\.id, desired\), else: \{:ok, before_stock\}')"
 in_tx=$(anchor $ITEMS 'defp write_stock\([^)]*\) do\s*Repo\.transact\(fn ->\s*with \{:ok, item\} <- fetch_item_for_stock\(item_id\),')
 immediate=$(anchor config/config.exs 'config :pinventory, Pinventory\.Repo, default_transaction_mode: :immediate')
 if [[ $in_tx == TRUE && $immediate == TRUE ]]; then flag AgentReadsInTx TRUE; else flag AgentReadsInTx FALSE; fi

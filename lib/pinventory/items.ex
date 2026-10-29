@@ -16,6 +16,7 @@ defmodule Pinventory.Items do
   alias Pinventory.Accounts.Scope
   alias Pinventory.Audit
   alias Pinventory.Audit.Event
+  alias Pinventory.LiveEdits
   alias Pinventory.Repo
 
   alias Pinventory.Items.DraftStock
@@ -252,9 +253,18 @@ defmodule Pinventory.Items do
   quantity → 0 when they previously had stock). Defaults to `%{}`, which
   clears all stock. Always pass the complete desired stock map when updating.
 
-  Returns the item as now saved, with every section current.
+  Returns the item as now saved, with every section current. Open pages
+  hear about the save through `Pinventory.LiveEdits`.
   """
   def update_item(%Scope{} = scope, %Item{} = item, attrs, quantities \\ %{}) do
+    scope
+    |> save_item(item, attrs, quantities)
+    |> tap(&broadcast_saved/1)
+  end
+
+  # The write without the notice, for callers inside a larger transaction.
+  # They broadcast once that transaction commits.
+  defp save_item(scope, item, attrs, quantities) do
     user_id = Audit.actor_id(scope)
     edit_id = Audit.new_edit_id()
     item = ensure_item_locations(item)
@@ -317,6 +327,13 @@ defmodule Pinventory.Items do
     end
   end
 
+  defp broadcast_saved({:ok, %Item{id: id}}), do: LiveEdits.broadcast({:item, id}, :saved)
+
+  defp broadcast_saved({:ok, %{item: %Item{id: id}}}),
+    do: LiveEdits.broadcast({:item, id}, :saved)
+
+  defp broadcast_saved(_result), do: :ok
+
   defp edited_sections(changeset, stock_changed?) do
     Enum.filter(Item.sections(), fn
       :stock -> stock_changed?
@@ -351,8 +368,9 @@ defmodule Pinventory.Items do
 
   `{:add, n}` adds `n`, which may be negative. `{:set, n}` replaces the count.
   The count is read fresh inside the write transaction, so a concurrent save
-  can't land between the read and the write. The change goes through
-  `update_item/4`, so it records in Activity like an edit-page save.
+  can't land between the read and the write. The change is saved like an
+  `update_item/4` stock save, so it records in Activity and notifies open
+  pages like an edit-page save.
 
   Returns the updated item and the count before and after. Nothing is
   written when the result would be below 0 or above
@@ -429,13 +447,14 @@ defmodule Pinventory.Items do
            :ok <- check_locations(location_ids),
            before = stock_map(item),
            {:ok, updates} <- compute.(before),
-           {:ok, updated} <- update_item(scope, item, %{}, Map.merge(before, updates)) do
+           {:ok, updated} <- save_item(scope, item, %{}, Map.merge(before, updates)) do
         counts =
           Map.new(updates, fn {id, to} -> {id, %{from: Map.get(before, id, 0), to: to}} end)
 
         {:ok, %{item: updated, counts: counts}}
       end
     end)
+    |> tap(&broadcast_saved/1)
   end
 
   defp fetch_item_for_stock(item_id) do
@@ -499,7 +518,7 @@ defmodule Pinventory.Items do
 
   @doc """
   Deletes an item and records an `item.deleted` audit event in the same
-  transaction.
+  transaction. Open pages hear about it through `Pinventory.LiveEdits`.
   """
   def delete_item(%Scope{} = scope, %Item{} = item) do
     user_id = Audit.actor_id(scope)
@@ -522,6 +541,10 @@ defmodule Pinventory.Items do
     |> Multi.run(:result, fn _repo, %{item: deleted} -> {:ok, deleted} end)
     |> Repo.transaction()
     |> unwrap_item_transaction()
+    |> tap(fn
+      {:ok, deleted} -> LiveEdits.broadcast({:item, deleted.id}, :deleted)
+      _ -> :ok
+    end)
   end
 
   @doc """
