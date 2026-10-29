@@ -520,6 +520,7 @@ defmodule Pinventory.Items do
   @doc """
   Deletes an item and records an `item.deleted` audit event in the same
   transaction. Open pages hear about it through `Pinventory.LiveEdits`.
+  Returns an error changeset when someone else already deleted it.
   """
   def delete_item(%Scope{} = scope, %Item{} = item) do
     user_id = Audit.actor_id(scope)
@@ -538,7 +539,7 @@ defmodule Pinventory.Items do
         )
       ])
     end)
-    |> Multi.delete(:item, item)
+    |> Multi.delete(:item, item, stale_error_field: :id)
     |> Multi.run(:result, fn _repo, %{item: deleted} -> {:ok, deleted} end)
     |> Repo.transaction()
     |> unwrap_item_transaction()

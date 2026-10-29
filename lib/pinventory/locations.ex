@@ -122,7 +122,8 @@ defmodule Pinventory.Locations do
   @doc """
   Deletes a location that has no stock and records `location.deleted`.
 
-  Returns `{:error, :location_has_items}` when the location still has items.
+  Returns `{:error, :location_has_items}` when the location still has items. Returns an
+  error changeset when someone else already deleted it.
   Does not move or discard stock. Open pages hear about it through
   `Pinventory.LiveEdits`.
   """
@@ -150,7 +151,7 @@ defmodule Pinventory.Locations do
         )
       ])
     end)
-    |> Multi.delete(:location, location)
+    |> Multi.delete(:location, location, stale_error_field: :id)
     |> Multi.run(:result, fn _repo, %{location: deleted} -> {:ok, deleted} end)
     |> Repo.transaction()
     |> unwrap_location_transaction(scope)

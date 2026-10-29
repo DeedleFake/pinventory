@@ -15,8 +15,7 @@ TLA_SHA256=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
 # Properties the current code is known to break, as RUN:PROPERTY. The check
 # expects each one to fail. Remove an entry once the code is fixed and the
 # check passes it.
-KNOWN_FINDINGS=(item:PagesNeverCrash location:PagesNeverCrash
-  convention:NoFalseConflict convention:WarningsMatchSaved)
+KNOWN_FINDINGS=(convention:NoFalseConflict convention:WarningsMatchSaved)
 
 STOCK_PROPERTIES=(NoLostUpdate StockNeverNegative AgentNeverStoresOverMax
   EditPageNeverStoresOverMax MoveKeepsTotal LocationDeleteKeepsStock

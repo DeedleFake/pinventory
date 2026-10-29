@@ -147,6 +147,13 @@ defmodule Pinventory.LocationsTest do
       end
     end
 
+    test "deleting a location someone else already deleted returns an error", %{scope: scope} do
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      assert {:ok, _} = Locations.delete(scope, garage)
+
+      assert {:error, _} = Locations.delete(scope, garage)
+    end
+
     test "refuses to delete a location that has items", %{scope: scope} do
       {:ok, garage} = Locations.create(scope, %{name: "Garage"})
       {:ok, _} = Items.create_item(scope, %{name: "Hammer"}, %{garage.id => 1})

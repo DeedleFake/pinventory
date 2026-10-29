@@ -525,6 +525,13 @@ defmodule Pinventory.ItemsTest do
       assert_raise Ecto.NoResultsError, fn -> Items.get_item!(item.id) end
       assert Repo.get_by(ItemLocation, item_id: item.id) == nil
     end
+
+    test "deleting an item someone else already deleted returns an error", %{scope: scope} do
+      {:ok, item} = Items.create_item(scope, %{name: "Disposable"}, %{})
+      assert {:ok, _} = Items.delete_item(scope, item)
+
+      assert {:error, _} = Items.delete_item(scope, item)
+    end
   end
 
   describe "list_items/1" do
