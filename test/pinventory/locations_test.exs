@@ -125,6 +125,14 @@ defmodule Pinventory.LocationsTest do
       assert Locations.update(scope, location, %{name: "Attic"}) == {:error, :stale}
       assert Locations.get!(location.id).name == "Shed"
     end
+
+    test "allows a rename after a rename and its undo", %{scope: scope} do
+      {:ok, location} = Locations.create(scope, %{name: "Garage"})
+      {:ok, shed} = Locations.update(scope, location, %{name: "Shed"})
+      {:ok, _} = Locations.update(scope, shed, %{name: "Garage"})
+
+      assert {:ok, %Location{name: "Attic"}} = Locations.update(scope, location, %{name: "Attic"})
+    end
   end
 
   describe "delete/2" do

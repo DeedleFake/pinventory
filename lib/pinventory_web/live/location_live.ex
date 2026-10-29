@@ -446,7 +446,7 @@ defmodule PinventoryWeb.LocationLive do
     edits = Audit.list_edits_for_location(location.id)
 
     cond do
-      latest.lock_version == location.lock_version ->
+      latest.name == location.name ->
         assign(socket, :location_edits, edits)
 
       not socket.assigns.name_dirty? ->

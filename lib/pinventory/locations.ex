@@ -88,9 +88,8 @@ defmodule Pinventory.Locations do
 
       true ->
         Multi.new()
-        |> Multi.update(:location, Ecto.Changeset.optimistic_lock(changeset, :lock_version),
-          stale_error_field: :lock_version
-        )
+        |> Multi.run(:current, fn repo, _ -> check_name(repo, changeset.data) end)
+        |> Multi.update(:location, changeset)
         |> Multi.run(:audit_events, fn repo, %{location: location} ->
           Audit.insert_events(
             repo,
@@ -231,6 +230,15 @@ defmodule Pinventory.Locations do
     repo.exists?(from il in ItemLocation, where: il.location_id == ^location_id)
   end
 
+  # The repo uses immediate transactions, so SQLite holds the write lock from
+  # this read until commit and no other rename can land in between.
+  defp check_name(repo, %Location{id: id, name: name}) do
+    case repo.get(Location, id) do
+      %Location{name: ^name} = current -> {:ok, current}
+      _ -> {:error, :stale}
+    end
+  end
+
   defp name_change_diff(%Ecto.Changeset{} = changeset) do
     case Ecto.Changeset.fetch_change(changeset, :name) do
       :error ->
@@ -254,9 +262,6 @@ defmodule Pinventory.Locations do
     case result do
       {:ok, %{result: location}} ->
         announce({:ok, location}, scope)
-
-      {:error, :location, %Ecto.Changeset{errors: [{:lock_version, _} | _]}, _} ->
-        {:error, :stale}
 
       {:error, :location, changeset, _} ->
         {:error, changeset}

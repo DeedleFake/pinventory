@@ -6,7 +6,6 @@ defmodule Pinventory.Locations.Location do
   @foreign_key_type :binary_id
   schema "locations" do
     field :name, :string
-    field :lock_version, :integer, default: 1
     field :item_count, :integer, virtual: true, default: 0
     # Populated by list helpers when a floor plan exists; nil means not loaded / not placed.
     field :floor_name, :string, virtual: true

@@ -591,8 +591,7 @@ defmodule PinventoryWeb.LocationLiveTest do
       # A rename whose notice hasn't reached the page yet, as when two saves cross.
       Pinventory.Repo.update_all(
         from(l in Pinventory.Locations.Location, where: l.id == ^garage.id),
-        set: [name: "Shed"],
-        inc: [lock_version: 1]
+        set: [name: "Shed"]
       )
 
       mine |> form("#location-form", location: %{name: "Attic"}) |> render_submit()
