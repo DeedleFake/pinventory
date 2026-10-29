@@ -240,13 +240,19 @@ defmodule Pinventory.Items do
   own `item.notes_changed` event with the full old and new text, so the audit
   log is the note's version history (see `note_versions/1`).
 
-  `item` must be the copy the user started editing. If another save changed
-  the item since then, nothing is written and `{:error, :stale}` is returned.
+  `item` is the copy the user started editing. Its sections (see
+  `Pinventory.Items.Item`) may come from different reads. Only the sections
+  this save changes are written and checked: when another save changed one of
+  them since `item` was read, nothing is written and `{:error, :stale}` is
+  returned. A save to the other sections still goes through, so a quantity
+  change succeeds after someone else's rename.
 
   `quantities` is a **full replacement** map of `location_id => quantity`.
   Locations omitted from the map or set to 0 are cleared (and audited as
   quantity → 0 when they previously had stock). Defaults to `%{}`, which
   clears all stock. Always pass the complete desired stock map when updating.
+
+  Returns the item as now saved, with every section current.
   """
   def update_item(%Scope{} = scope, %Item{} = item, attrs, quantities \\ %{}) do
     user_id = Audit.actor_id(scope)
@@ -256,26 +262,21 @@ defmodule Pinventory.Items do
     desired = normalize_desired_stock(quantities)
     changeset = change_item(item, attrs)
     field_events = item_field_events(changeset)
+    stock_changed? = stock_changed?(before_stock, desired)
+    sections = edited_sections(changeset, stock_changed?)
 
     cond do
       not changeset.valid? ->
         {:error, changeset}
 
-      field_events == [] and not stock_changed?(before_stock, desired) ->
+      sections == [] ->
         {:ok, item}
 
       true ->
-        # Stock-only saves leave the item row unchanged, and optimistic_lock
-        # skips unchanged rows, so force the version bump to check every save.
-        changeset =
-          changeset
-          |> Ecto.Changeset.force_change(:lock_version, item.lock_version)
-          |> Ecto.Changeset.optimistic_lock(:lock_version)
-
         Multi.new()
-        |> Multi.update(:item, changeset, stale_error_field: :lock_version)
+        |> Multi.update(:item, lock_sections(changeset, sections), stale_error_field: :version)
         |> Multi.run(:stock, fn repo, %{item: updated} ->
-          sync_stock(repo, updated.id, desired)
+          if stock_changed?, do: sync_stock(repo, updated.id, desired), else: {:ok, before_stock}
         end)
         |> Multi.run(:audit_events, fn repo, %{item: updated} ->
           location_names = location_names(repo, Map.keys(before_stock) ++ Map.keys(desired))
@@ -309,11 +310,31 @@ defmodule Pinventory.Items do
           Audit.insert_events(repo, Audit.with_actor(item_events ++ stock_events, scope))
         end)
         |> Multi.run(:result, fn repo, %{item: updated} ->
-          {:ok, repo.preload(updated, :item_locations, force: true)}
+          {:ok, Item |> repo.get!(updated.id) |> repo.preload(:item_locations)}
         end)
         |> Repo.transaction()
         |> unwrap_item_transaction()
     end
+  end
+
+  defp edited_sections(changeset, stock_changed?) do
+    Enum.filter(Item.sections(), fn
+      :stock -> stock_changed?
+      field -> field_change(changeset, field) != nil
+    end)
+  end
+
+  # A stock-only save leaves the item row unchanged, and optimistic_lock
+  # skips unchanged rows, so force each edited section's version into the
+  # update. The row is then written only if all of them are still current.
+  defp lock_sections(changeset, sections) do
+    Enum.reduce(sections, changeset, fn section, changeset ->
+      field = Item.version_field(section)
+
+      changeset
+      |> Ecto.Changeset.force_change(field, Map.fetch!(changeset.data, field))
+      |> Ecto.Changeset.optimistic_lock(field)
+    end)
   end
 
   @type stock_error ::
@@ -528,7 +549,7 @@ defmodule Pinventory.Items do
   defp unwrap_item_transaction(result) do
     case result do
       {:ok, %{result: item}} -> {:ok, item}
-      {:error, :item, %Ecto.Changeset{errors: [{:lock_version, _} | _]}, _} -> {:error, :stale}
+      {:error, :item, %Ecto.Changeset{errors: [{:version, _} | _]}, _} -> {:error, :stale}
       {:error, :item, changeset, _} -> {:error, changeset}
       {:error, :stock, reason, _} -> {:error, reason}
       {:error, :audit_events, reason, _} -> {:error, reason}

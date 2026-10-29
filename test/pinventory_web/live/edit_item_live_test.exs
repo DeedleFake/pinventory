@@ -955,7 +955,7 @@ defmodule PinventoryWeb.EditItemLiveTest do
 
       {:ok, _} =
         Items.update_item(Pinventory.Accounts.Scope.for_api_token(sam, token), item, %{
-          name: "Oat milk"
+          notes: "Their note"
         })
 
       view |> form("#item-form", item: %{notes: "My note"}) |> render_submit()

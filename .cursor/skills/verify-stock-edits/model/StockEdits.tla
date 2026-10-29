@@ -25,11 +25,16 @@ CONSTANTS
     Max,        \* stands for DraftStock.max_quantity() (1_000_000)
     MaxWrites,  \* bound on committed writes, for a finite state space
 
-    \* Items.update_item/4 calls optimistic_lock(:lock_version).
-    OptimisticLock,
-    \* Items.update_item/4 calls force_change(:lock_version, ...), so a
-    \* stock-only save still updates the item row and checks the version.
+    \* Items.update_item/4 treats stock as an edited section when the stock
+    \* changed and locks each edited section with optimistic_lock, so a save
+    \* that changes stock checks items.stock_version.
+    StockLock,
+    \* lock_sections/2 calls force_change on each edited section's version,
+    \* so a stock-only save still updates the item row and checks the version.
     ForceVersionBump,
+    \* update_item/4 runs sync_stock/3 only when the stock changed, so a
+    \* name or notes save never writes the stock it started from.
+    SyncOnlyChangedStock,
     \* Items.write_stock/4 reads the item inside Repo.transact under
     \* immediate transactions, so change_stock/move_stock read and write
     \* in one step.
@@ -71,12 +76,12 @@ Total(f) == SumOver(f, Locs)
 
 VARIABLES
     itemExists,  \* the items row exists
-    version,     \* items.lock_version
+    version,     \* items.stock_version
     stock,       \* item_locations quantities, 0 = no row
     locExists,   \* locations rows
     page,        \* per edit-page session state (socket assigns)
     agent,       \* MCP read snapshot, used only when ~AgentReadsInTx
-    writes,      \* ghost: number of committed changes to the item
+    writes,      \* ghost: number of committed writes to the item's stock
     bad          \* ghost: which properties some step has broken
 
 vars == <<itemExists, version, stock, locExists, page, agent, writes, bad>>
@@ -100,18 +105,19 @@ Init ==
 
 (***************************************************************************)
 (* The write half of Items.update_item/4, one Multi in one transaction.    *)
-(*   issued: Multi.update sends an UPDATE for the items row. Ecto skips    *)
-(*           the UPDATE when the changeset has no changes, so a            *)
-(*           stock-only save issues it only with ForceVersionBump.         *)
-(*   base:   lock_version of the copy the caller started from.             *)
-(*   seen:   ghost writes count when the caller read that copy.            *)
+(*   issued:  Multi.update sends an UPDATE for the items row. Ecto skips   *)
+(*            the UPDATE when the changeset has no changes, so a           *)
+(*            stock-only save issues it only with ForceVersionBump.        *)
+(*   checked: the UPDATE filters on stock_version.                         *)
+(*   base:    stock_version of the copy the caller started from.           *)
+(*   seen:    ghost writes count when the caller read that copy.           *)
 (* Outcome is "ok", "stale" ({:error, :stale}) or "error" (any other       *)
 (* error; the transaction rolls back).                                     *)
 (***************************************************************************)
-Outcome(newStock, issued, base) ==
+Outcome(newStock, issued, checked, base) ==
     IF issued /\ ~itemExists THEN "stale"   \* UPDATE hits 0 rows
     ELSE IF ~itemExists THEN "error"        \* item_locations insert fails its FK
-    ELSE IF OptimisticLock /\ issued /\ base # version THEN "stale"
+    ELSE IF checked /\ base # version THEN "stale"
     ELSE IF \E l \in Locs : newStock[l] > 0 /\ ~locExists[l] THEN "error"
                                             \* validate_locations_exist/3
     ELSE IF QuantityMustBePositive /\ \E l \in Locs : newStock[l] < 0 THEN "error"
@@ -122,10 +128,11 @@ Outcome(newStock, issued, base) ==
 
 OverMaxChange(newStock) == \E l \in Locs : newStock[l] # stock[l] /\ newStock[l] > Max
 
-Commit(newStock, issued, seen) ==
-    /\ stock' = newStock
-    /\ version' = IF OptimisticLock /\ issued THEN version + 1 ELSE version
-    /\ writes' = writes + 1
+\* writesStock: sync_stock/3 runs and stores newStock.
+Commit(newStock, checked, writesStock) ==
+    /\ stock' = IF writesStock THEN newStock ELSE stock
+    /\ version' = IF checked THEN version + 1 ELSE version
+    /\ writes' = IF writesStock THEN writes + 1 ELSE writes
     /\ itemExists' = itemExists
     /\ locExists' = locExists
 
@@ -174,18 +181,21 @@ EditFields(p) ==
 Save(p) ==
     LET pg == page[p]
         newStock == pg.draft
-        issued == pg.fields \/ ForceVersionBump
-        out == Outcome(newStock, issued, pg.base)
+        stockChanged == newStock # pg.baseStock
+        issued == pg.fields \/ (stockChanged /\ ForceVersionBump)
+        checked == StockLock /\ stockChanged /\ issued
+        writesStock == stockChanged \/ ~SyncOnlyChangedStock
+        out == Outcome(newStock, issued, checked, pg.base)
     IN /\ pg.state = "editing"
-       /\ (pg.fields \/ newStock # pg.baseStock)  \* else update_item returns {:ok, item} unwritten
+       /\ (pg.fields \/ stockChanged)  \* else update_item returns {:ok, item} unwritten
        /\ \/ /\ out = "ok"
-             /\ Commit(newStock, issued, pg.seen)
-             /\ bad' = [bad EXCEPT !.lostUpdate = @ \/ pg.seen # writes,
+             /\ Commit(newStock, checked, writesStock)
+             /\ bad' = [bad EXCEPT !.lostUpdate = @ \/ (writesStock /\ pg.seen # writes),
                                    !.pageOverMax = @ \/ OverMaxChange(newStock)]
-             \* show_item/2 with the saved item
+             \* show_item/2 with the saved item, read back with every section current
              /\ page' = [page EXCEPT ![p] = [ClosedPage EXCEPT
                             !.state = "editing", !.base = version', !.seen = writes',
-                            !.baseStock = newStock, !.draft = newStock]]
+                            !.baseStock = stock', !.draft = stock']]
           \/ /\ out = "stale"
              /\ page' = [page EXCEPT ![p] =
                    IF ~itemExists /\ StaleReloadRaises
@@ -198,6 +208,23 @@ Save(p) ==
           \/ /\ out = "error"
              /\ UNCHANGED <<itemExists, version, stock, locExists, page, writes, bad>>
        /\ UNCHANGED agent
+
+\* handle_info for a Pinventory.LiveEdits notice: the page refetches the item.
+\* A deleted item sends the page to the items list. A newer stock section
+\* reloads in place when the page's stock is unedited, and otherwise shows
+\* the stock conflict, which a later notice keeps up to date.
+Notice(p) ==
+    LET pg == page[p]
+    IN /\ pg.state = "editing"
+       /\ ~itemExists \/ version # IF pg.stale THEN pg.staleBase ELSE pg.base
+       /\ page' = [page EXCEPT ![p] =
+             IF ~itemExists THEN ClosedPage
+             ELSE IF pg.stale \/ pg.draft # pg.baseStock
+             THEN [pg EXCEPT !.stale = TRUE, !.staleBase = version,
+                             !.staleSeen = writes, !.staleStock = stock]
+             ELSE [pg EXCEPT !.base = version, !.seen = writes,
+                             !.baseStock = stock, !.draft = stock]]
+       /\ UNCHANGED <<itemExists, version, stock, locExists, agent, writes, bad>>
 
 \* handle_event("keep_my_edits"): the stale_item fetched at the stale error
 \* becomes the baseline; the draft stays.
@@ -225,11 +252,11 @@ LoadLatest(p) ==
 \* counts at the touched locations.
 AgentWrite(snap, base, seen, touched, updates, isMove) ==
     LET newStock == [l \in Locs |-> IF l \in touched THEN updates[l] ELSE snap[l]]
-        out == Outcome(newStock, ForceVersionBump, base)
+        out == Outcome(newStock, ForceVersionBump, StockLock /\ ForceVersionBump, base)
     IN /\ itemExists /\ \A l \in touched : locExists[l]  \* fetch_item_for_stock, check_locations
        /\ newStock # snap                                  \* else update_item is a no-op
        /\ \/ /\ out = "ok"
-             /\ Commit(newStock, ForceVersionBump, seen)
+             /\ Commit(newStock, StockLock /\ ForceVersionBump, TRUE)
              /\ bad' = [bad EXCEPT !.lostUpdate = @ \/ seen # writes,
                                    !.agentOverMax = @ \/ OverMaxChange(newStock),
                                    !.moveTotal = @ \/ (isMove /\ Total(newStock) # Total(stock))]
@@ -307,7 +334,7 @@ DeleteLocation(l) ==
 -----------------------------------------------------------------------------
 Next ==
     \/ \E p \in Pages :
-        \/ Open(p) \/ Close(p) \/ EditFields(p) \/ Save(p)
+        \/ Open(p) \/ Close(p) \/ EditFields(p) \/ Save(p) \/ Notice(p)
         \/ KeepMyEdits(p) \/ LoadLatest(p)
         \/ \E l \in Locs : \/ \E n \in 0..Max : Type(p, l, n)
                            \/ \E d \in {-1, 1} : Adjust(p, l, d)

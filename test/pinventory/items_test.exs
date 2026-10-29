@@ -203,12 +203,42 @@ defmodule Pinventory.ItemsTest do
       assert length(Items.note_versions(item.id)) == 2
     end
 
-    test "a stock-only save also detects an out-of-date copy", %{scope: scope} do
+    test "a stock-only save detects someone else's stock save", %{scope: scope} do
       {:ok, garage} = Locations.create(scope, %{name: "Garage"})
       {:ok, item} = Items.create_item(scope, %{name: "Milk"})
-      {:ok, _} = Items.update_item(scope, item, %{notes: "Newer"})
+      {:ok, _} = Items.update_item(scope, item, %{}, %{garage.id => 5})
 
       assert Items.update_item(scope, item, %{}, %{garage.id => 2}) == {:error, :stale}
+      assert Items.stock_map(Items.get_item!(item.id)) == %{garage.id => 5}
+    end
+
+    test "a save to one section goes through after someone else saved another", %{scope: scope} do
+      other = user_scope_fixture()
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, item} = Items.create_item(scope, %{name: "Milk", notes: "Old"}, %{garage.id => 1})
+      {:ok, _} = Items.update_item(other, item, %{name: "Whole milk"}, Items.stock_map(item))
+
+      assert {:ok, saved} = Items.update_item(scope, item, %{}, %{garage.id => 4})
+      assert {saved.name, Items.stock_map(saved)} == {"Whole milk", %{garage.id => 4}}
+
+      assert {:ok, saved} = Items.update_item(scope, item, %{notes: "New"}, %{garage.id => 1})
+
+      assert {saved.name, saved.notes, Items.stock_map(saved)} ==
+               {"Whole milk", "New", %{garage.id => 4}}
+
+      assert Items.update_item(scope, item, %{name: "Skim milk"}, %{garage.id => 1}) ==
+               {:error, :stale}
+    end
+
+    test "a save fails whole when any section it changes is out of date", %{scope: scope} do
+      other = user_scope_fixture()
+      {:ok, garage} = Locations.create(scope, %{name: "Garage"})
+      {:ok, item} = Items.create_item(scope, %{name: "Milk"})
+      {:ok, _} = Items.update_item(other, item, %{name: "Whole milk"})
+
+      assert Items.update_item(scope, item, %{name: "Skim milk"}, %{garage.id => 3}) ==
+               {:error, :stale}
+
       assert Items.stock_map(Items.get_item!(item.id)) == %{}
     end
   end
