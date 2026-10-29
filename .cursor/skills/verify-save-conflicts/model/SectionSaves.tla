@@ -4,14 +4,15 @@
 (*                                                                         *)
 (* One model, three configurations, one per page:                          *)
 (*   item:       PinventoryWeb.EditItemLive and Items.update_item/4,       *)
-(*               sections name, notes, stock                               *)
+(*               sections name and stock (notes runs the name's code)      *)
 (*   location:   PinventoryWeb.LocationLive and Locations.update/2,        *)
 (*               section name                                              *)
 (*   convention: PinventoryWeb.NamingConventionLive and                    *)
 (*               NamingConvention.save/3, section text                     *)
 (*                                                                         *)
-(* A section's value is abstract: 0 or 1. Typing a value and typing it     *)
-(* back is enough to reach every case the save checks care about.          *)
+(* A section's value is abstract, one of three interchangeable values.     *)
+(* Three are the fewest that let a save overwrite someone else's change    *)
+(* with a third value, and let a change be undone.                         *)
 (*                                                                         *)
 (* Each save, delete, and MCP write is one SQLite transaction. The repo    *)
 (* runs immediate transactions, so each is one atomic step here.           *)
@@ -23,6 +24,8 @@ EXTENDS Integers, FiniteSets, TLC
 
 CONSTANTS
     Pages,           \* open edit-page sessions
+    Vals,            \* interchangeable section values
+    NoVal,           \* a closed page's empty fields, not in Vals
     Sections,        \* the record's independently saved sections
     AgentSections,   \* sections an MCP tool edits from an earlier read
     AtomicSections,  \* sections an MCP tool reads and writes in one step
@@ -52,9 +55,8 @@ CONSTANTS
     \* the delete raises Ecto.StaleEntryError and the page crashes.
     DeleteToleratesMissing
 
-Vals == {0, 1}
-
-ASSUME /\ CheckMode \in {"value", "revision", "none"}
+ASSUME /\ NoVal \notin Vals
+       /\ CheckMode \in {"value", "revision", "none"}
        /\ ReconcileMode \in {"value", "revision"}
        /\ AgentSections \subseteq Sections /\ AtomicSections \subseteq Sections
 
@@ -70,7 +72,7 @@ VARIABLES
 vars == <<exists, db, rev, page, agent, writes, bad>>
 
 NoWarn == [s \in Sections |-> FALSE]
-Zero == [s \in Sections |-> 0]
+Zero == [s \in Sections |-> NoVal]
 
 \* base:   the saved copy the page's edits start from (socket.assigns.item,
 \*         .location, or .base), with baseRev its version number
@@ -285,7 +287,7 @@ Next ==
 
 Spec == Init /\ [][Next]_vars
 
-Symmetry == Permutations(Pages)
+Symmetry == Permutations(Pages) \cup Permutations(Vals)
 
 StateBound == writes <= MaxWrites
 
@@ -297,9 +299,10 @@ TypeOK ==
     /\ db \in [Sections -> Vals]
     /\ rev \in Nat
     /\ page \in [Pages -> [state : {"closed", "editing", "crashed"},
-                           base : [Sections -> Vals], baseRev : Nat,
-                           draft : [Sections -> Vals], warn : [Sections -> BOOLEAN],
-                           latest : [Sections -> Vals], latestRev : Nat]]
+                           base : [Sections -> Vals \cup {NoVal}], baseRev : Nat,
+                           draft : [Sections -> Vals \cup {NoVal}],
+                           warn : [Sections -> BOOLEAN],
+                           latest : [Sections -> Vals \cup {NoVal}], latestRev : Nat]]
 
 \* No save overwrites a saved value its writer never saw.
 NoLostUpdate == ~bad.lostUpdate

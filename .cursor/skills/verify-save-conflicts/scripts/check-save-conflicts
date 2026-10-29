@@ -89,7 +89,10 @@ if [[ $splits == TRUE && $stock_dirty == TRUE ]]; then flag stock ReconcileKeeps
 
 
 # SectionSaves.tla, item page.
-flag item Sections "{name, notes, stock}"
+# Notes is edited, checked, and reconciled by the same code as name: the
+# generic field clause in edited_sections/2 and the notes_dirty? clause of
+# section_dirty?/2, both read below. So the model runs name and stock.
+flag item Sections "{name, stock}"
 flag item AgentSections "{name}"   # rename_item
 flag item AtomicSections "{stock}" # change_stock, move_stock
 flag item Deletable TRUE
@@ -173,6 +176,8 @@ write_cfg() {
       echo "  Max = 1"
       echo "  MaxWrites = 2"
     else
+      echo "  Vals = {v1, v2, v3}"
+      echo "  NoVal = none"
       echo "  MaxWrites = $([[ $r == item ]] && echo 2 || echo 3)"
     fi
     eval "names=(\"\${NAMES_$r[@]}\")"

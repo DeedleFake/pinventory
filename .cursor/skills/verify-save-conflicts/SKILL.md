@@ -9,7 +9,7 @@ Two TLA+ models check that racing saves never lose a change, never refuse a save
 
 - `model/StockEdits.tla` checks an item's stock counts: the edit page, `change_stock`, `move_stock`, and item and location deletes. This is the `stock` run.
 - `model/SectionSaves.tla` checks the save, reconcile, and warning logic that every edit page shares. It runs three times, once per page:
-  - `item`: `EditItemLive` with its three sections (name, notes, stock), MCP `rename_item`, and `change_stock` and `move_stock` as one-step stock writes.
+  - `item`: `EditItemLive` with its name and stock sections, MCP `rename_item`, and `change_stock` and `move_stock` as one-step stock writes. Notes is edited, checked, and reconciled by the same code as the name, so the name stands for both.
   - `location`: `LocationLive` with its name, and MCP `rename_location`.
   - `convention`: `NamingConventionLive` with its text, and MCP `edit_naming_convention`.
 
@@ -23,7 +23,7 @@ From the repo root:
 ./.cursor/skills/verify-save-conflicts/scripts/check-save-conflicts
 ```
 
-It needs Java 11 or newer, `perl`, and `curl`. The first run downloads `tla2tools.jar` 1.7.4 to `~/.cache/pinventory/` and checks its sha256. Use a full release here. The v1.8.0 tag is a pre-release that upstream's nightly build re-uploads, so its hash changes. Set `TLA2TOOLS_JAR` to use another copy. A run takes about 30 seconds on 8 cores, most of it the `item` run. `TLC_WORKERS=2` limits the cores it uses.
+It needs Java 11 or newer, `perl`, and `curl`. The first run downloads `tla2tools.jar` 1.7.4 to `~/.cache/pinventory/` and checks its sha256. Use a full release here. The v1.8.0 tag is a pre-release that upstream's nightly build re-uploads, so its hash changes. Set `TLA2TOOLS_JAR` to use another copy. A run takes about 16 seconds on 8 cores. `TLC_WORKERS=2` limits the cores it uses.
 
 To check one property of one run alone, ignoring the known findings list:
 
@@ -110,7 +110,6 @@ Some properties have two guards, so removing only one of them passes:
 - `AgentNeverStoresOverMax` fails only when `SaveChecksMax` and `ChangeStockChecksMax` (or `MoveStockChecksMax`) are both FALSE.
 - `EditPageNeverStoresOverMax` fails only when `SaveChecksMax` and `AdjustCapsAtMax` are both FALSE.
 - `StockNeverNegative` fails only when `QuantityMustBePositive` and `ChangeStockChecksBelowZero` (or `MoveStockChecksEnough`) are both FALSE.
-- In `item`, `NoLostUpdate` fails only when `CheckMode` is `"none"` or `WritesOnlyEdited` is FALSE.
 
 When a check fails, compare the facts with a run on `master`:
 
@@ -120,7 +119,7 @@ When a check fails, compare the facts with a run on `master`:
 
 ## Where SectionSaves comes from
 
-A section's value is abstract, 0 or 1. Typing a value and typing it back reaches every case the checks care about, including a change that someone undoes before another person saves.
+A section's value is abstract, one of three interchangeable values. Three are the fewest that let a save overwrite someone else's change with a different value, and let a change be undone before another person saves. With two, a draft that differs from its base always equals any other change, so an overwrite can't be expressed.
 
 | Model action | item | location | convention |
 |---|---|---|---|
@@ -167,8 +166,9 @@ Two ghost variables exist only for checking. `writes` counts committed writes to
 
 `SectionSaves.tla`:
 
-- Two edit pages and one MCP agent per run. Pages are interchangeable.
-- At most 2 committed writes in `item` and 3 in `location` and `convention`, deletes included. Page opens, drafts, warnings, and refused saves are not limited. Two writes are enough for a change and its undo before a third person saves.
+- Two edit pages and one MCP agent per run. Pages are interchangeable, and so are values.
+- The item run models the name and stock sections. Notes uses the name's code: the generic field clause in `edited_sections/2`, `notes_dirty?` in `section_dirty?/2`, and the `:notes` branch of `load_section/3`.
+- At most 2 committed writes in `item` and 3 in `location` and `convention`, deletes included. Page opens, drafts, warnings, and refused saves are not limited. Two writes are enough for a change and its undo before a third person saves, and for a change followed by an overwrite. `item` at 3 writes takes 80 seconds and finds nothing more.
 - A page counts a section as edited when its draft differs from its base. The item page's name is trimmed before the save compares it, so typing only trailing spaces looks edited on the page and unedited to the save. The model leaves that out.
 - Notices can arrive at any time and in any order. The model lets a page reconcile at any moment, and does not track the PubSub message itself.
 - Deletes compare nothing. Deleting is a confirmed action, so the model treats it as intended, not as a lost update. The other editor is sent to the list with a message.
@@ -199,7 +199,7 @@ Each finding below is in `KNOWN_FINDINGS` in the script, as `run:property`.
 
 ## Coverage
 
-Sync commit: `8477f7c3bfd9e69986e7e3a64c34f088c9c33979`
+Sync commit: `4e01bf4a8bd51d275c09837dc9848dba9b4e4d2b`
 
 Move the sync commit forward only after you confirm, at the new commit, that the models and the code facts still describe the code below. The script lists covered files changed since the sync commit.
 
