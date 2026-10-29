@@ -61,7 +61,7 @@ Run before the first drive, after any failed drive, and whenever the UI looks wr
 It reads the ports from `state.json`, so it checks whatever `--port` / `--cdp-port` launch used. The list below shows the defaults. It must print `ok` for all of:
 
 - `mix phx.server` PID still alive
-- Chromium PID still alive
+- Chromium PID still alive, and each started person's Chromium
 - `GET http://127.0.0.1:4010/user/log-in` → 200
 - CDP `GET http://127.0.0.1:5010/json/version` → 200
 - SQLite file exists and contains `verify@example.com` (needs the `sqlite3` CLI on PATH)
@@ -101,13 +101,21 @@ $H browser click-box '[data-wall-id]' 0.7 0.5
 $H browser hover '#location-<id>'
 ```
 
-Set `PINVENTORY_TAB=<n>` on any `browser` command to run it in tab `n` (default 1). The harness opens missing tabs, pins each number to its Chromium tab in `state.json`, and brings the tab to the front, since a background tab cannot take a screenshot. Tabs share the login, so two tabs act as two people on the same page.
+Set `PINVENTORY_TAB=<n>` on any `browser` command to run it in tab `n` (default 1). The harness opens missing tabs, pins each number to its Chromium tab in `state.json`, and brings the tab to the front, since a background tab cannot take a screenshot. Tabs share the login. Each tab is another viewer for live saves and the floor plan, but `Also editing` lists other users only, so two tabs never show it.
 
 ```bash
 PINVENTORY_TAB=2 $H browser goto /locations/floor-plan
 ```
 
-`browser login` opens `/user/log-in`, fills `#user_email` / `#user_password`, submits `#login_form_password`, and waits for `#items-page`.
+Set `PINVENTORY_PERSON=<n>` to run a `browser` command in person `n`'s own Chromium (default 1, the one launch started). Person 2 and up start on first use with their own profile and cookies, so they can log in as another user. `PINVENTORY_TAB` works inside each person. Make the second user first; launch seeds only `verify@example.com`.
+
+```bash
+DATABASE_PATH=tmp/verify-pinventory/run/pinventory.db mix pinventory.user sam@example.com verify-pass-12
+PINVENTORY_PERSON=2 $H browser login sam@example.com verify-pass-12
+PINVENTORY_PERSON=2 $H browser goto /item/<item-id>
+```
+
+`browser login [email password]` opens `/`. If that lands on `#items-page`, it prints `ok already logged in` and does nothing else. Otherwise it fills `#user_email` / `#user_password` (default `verify@example.com` / `verify-pass-12`), submits `#login_form_password`, and waits for `#items-page`. It does not open `/user/log-in` first, because a logged-in session gets the `Confirm your password` form there.
 
 `goto` paths are origin-relative (`/locations`, `/item`, `/user/settings`). After LiveView clicks, `wait` the destination root id. Do not sleep a fixed number of seconds except for documented debounce (name/filter `phx-debounce="300"`). After those fills, wait 400ms by running `browser wait-enabled` or `browser wait` on the result.
 
@@ -178,7 +186,7 @@ Do not call context functions from IEx as proof. Do not hit `/dev/dashboard`. Ma
 ./.cursor/skills/verify-pinventory/scripts/verify-pinventory cleanup
 ```
 
-Kills the recorded server process group and Chromium process group. Deletes `tmp/verify-pinventory/run/`. Leaves `tmp/verify-pinventory/artifacts/` in place.
+Kills the recorded server process group and every recorded Chromium process group, people 2 and up included. Deletes `tmp/verify-pinventory/run/`. Leaves `tmp/verify-pinventory/artifacts/` in place.
 
 After cleanup, confirm artifacts still exist before declaring the run done. A cleanup that removes proof has failed.
 
@@ -192,6 +200,7 @@ Executable: `.cursor/skills/verify-pinventory/scripts/verify-pinventory`
 ./.cursor/skills/verify-pinventory/scripts/verify-pinventory launch
 ./.cursor/skills/verify-pinventory/scripts/verify-pinventory doctor
 ./.cursor/skills/verify-pinventory/scripts/verify-pinventory browser login
+PINVENTORY_PERSON=2 ./.cursor/skills/verify-pinventory/scripts/verify-pinventory browser login sam@example.com verify-pass-12
 ./.cursor/skills/verify-pinventory/scripts/verify-pinventory browser click-at '#floor-plan-canvas [data-floor-plan-svg]' 150 220
 ./.cursor/skills/verify-pinventory/scripts/verify-pinventory browser click-confirm '#revoke-api-token-<token-id>'
 ./.cursor/skills/verify-pinventory/scripts/verify-pinventory browser value '#convention-text'
@@ -213,4 +222,4 @@ The harness has no select-option, current-URL, or JS-eval command. For the items
 
 Chromium binary order: `PINVENTORY_CHROME`, then `~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome`, then `/usr/bin/chromium`, `/usr/bin/google-chrome`, `/usr/bin/google-chrome-stable`.
 
-State file: `tmp/verify-pinventory/run/state.json` (PID, URL, DB path, seeded password). Scratch. Not evidence.
+State file: `tmp/verify-pinventory/run/state.json` (PIDs, URL, DB path, seeded password, tab pins, and each extra person's Chromium PID and CDP port under `people`). Scratch. Not evidence.
