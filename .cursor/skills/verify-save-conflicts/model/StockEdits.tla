@@ -13,9 +13,9 @@
 (* A stock map is a function Locs -> Int where 0 means no item_locations   *)
 (* row, matching Items.stock_map/1 and normalize_desired_stock/1.          *)
 (*                                                                         *)
-(* The boolean constants are code facts. scripts/check-stock-edits derives *)
-(* each one from the code, so a change that removes a guard flips its      *)
-(* constant and the checker shows the consequence.                         *)
+(* The boolean constants are code facts. scripts/check-save-conflicts     *)
+(* derives each one from the code, so a change that removes a guard flips  *)
+(* its constant and the checker shows the consequence.                     *)
 (***************************************************************************)
 EXTENDS Integers, TLC
 
@@ -360,7 +360,7 @@ StateBound ==
     /\ \A p \in Pages, l \in Locs : page[p].draft[l] <= Max + 1
 
 -----------------------------------------------------------------------------
-(* Properties. Each is checked on its own by scripts/check-stock-edits.    *)
+(* Properties. Each is checked by scripts/check-save-conflicts.            *)
 
 TypeOK ==
     /\ itemExists \in BOOLEAN

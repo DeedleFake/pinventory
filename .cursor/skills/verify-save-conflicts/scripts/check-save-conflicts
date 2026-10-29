@@ -1,0 +1,251 @@
+#!/usr/bin/env bash
+# Model-checks the TLA+ models in .cursor/skills/verify-save-conflicts/model
+# with TLC: StockEdits.tla once, and SectionSaves.tla once per edit page.
+# The models' guard constants are read from the code, so removing a guard in
+# the code turns its constant FALSE and the check shows what that breaks.
+set -euo pipefail
+
+die() { echo "error: $*" >&2; exit 2; }
+
+# A full release, not v1.8.0: that tag is a pre-release that upstream's
+# nightly build re-uploads, so its tla2tools.jar changes every night.
+TLA_VERSION=1.7.4
+TLA_SHA256=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
+
+# Properties the current code is known to break, as RUN:PROPERTY. The check
+# expects each one to fail. Remove an entry once the code is fixed and the
+# check passes it.
+KNOWN_FINDINGS=(item:PagesNeverCrash location:PagesNeverCrash location:WarningsMatchSaved
+  convention:NoFalseConflict convention:WarningsMatchSaved)
+
+STOCK_PROPERTIES=(NoLostUpdate StockNeverNegative AgentNeverStoresOverMax
+  EditPageNeverStoresOverMax MoveKeepsTotal LocationDeleteKeepsStock
+  StaleSaveNeverCrashes UnsavedStockSurvives)
+SECTION_PROPERTIES=(NoLostUpdate NoFalseConflict UnsavedEditsSurvive
+  WarningsMatchSaved PagesNeverCrash)
+RUNS=(stock item location convention)
+
+ONLY=
+if [[ ${1:-} == --only ]]; then
+  ONLY=${2:?usage: check-save-conflicts [--only RUN:PROPERTY]}
+  [[ $ONLY == *:* ]] || die "--only takes RUN:PROPERTY, with RUN one of ${RUNS[*]}"
+fi
+
+ROOT=$(git rev-parse --show-toplevel)
+SKILL_DIR="$ROOT/.cursor/skills/verify-save-conflicts"
+OUT="$ROOT/tmp/verify-save-conflicts"
+WORKERS=${TLC_WORKERS:-auto}
+
+command -v java >/dev/null || die "java not found. Install a JDK 11 or newer (for example: mise use java@temurin-21)."
+command -v perl >/dev/null || die "perl not found."
+
+JAR=${TLA2TOOLS_JAR:-"${XDG_CACHE_HOME:-$HOME/.cache}/pinventory/tla2tools-$TLA_VERSION.jar"}
+if [[ ! -f "$JAR" ]]; then
+  mkdir -p "$(dirname "$JAR")"
+  echo "downloading tla2tools.jar $TLA_VERSION to $JAR"
+  curl -fsSL -o "$JAR.part" "https://github.com/tlaplus/tlaplus/releases/download/v$TLA_VERSION/tla2tools.jar"
+  mv "$JAR.part" "$JAR"
+fi
+if command -v sha256sum >/dev/null; then
+  sum=$(sha256sum "$JAR" | cut -d' ' -f1)
+else
+  sum=$(shasum -a 256 "$JAR" | cut -d' ' -f1)
+fi
+[[ "$sum" == "$TLA_SHA256" ]] || die "$JAR has sha256 $sum, expected $TLA_SHA256. Delete it and rerun."
+
+# anchor FILE REGEX: TRUE when REGEX (Perl, /s) matches FILE.
+anchor() {
+  perl -0777 -ne "exit(/$2/s ? 0 : 1)" "$ROOT/$1" && echo TRUE || echo FALSE
+}
+
+# StockEdits.tla: one regex per model constant. A FALSE means the guard is gone from the code,
+# or the code moved and the regex needs updating. SKILL.md says how to tell.
+ITEMS=lib/pinventory/items.ex
+ITEM_LIVE=lib/pinventory_web/live/edit_item_live.ex
+# flag stock RUN NAME VALUE sets model constant NAME for RUN.
+flag() { eval "NAMES_$1+=(\"\$2\")"; printf -v "FLAG_$1_$2" %s "$3"; }
+both() { [[ $1 == TRUE && $2 == TRUE ]] && echo TRUE || echo FALSE; }
+immediate=$(anchor config/config.exs 'config :pinventory, Pinventory\.Repo, default_transaction_mode: :immediate')
+stock_section=$(anchor lib/pinventory/items/item.ex '@sections \[name: :name, notes: :notes, stock: :item_locations\]')
+stock_edited=$(anchor $ITEMS 'defp edited_sections\((?:(?!\n  defp? ).)*?:stock -> stock_changed\?')
+checks=$(anchor $ITEMS 'defp save_item\((?:(?!\n  defp? ).)*?Multi\.new\(\)\s*\|> Multi\.run\(:current, fn repo, _ -> check_sections\(repo, item, sections\) end\).*?defp check_sections\((?:(?!\n  defp? ).)*?Enum\.any\?\(Item\.changed_sections\(base, current\), &\(&1 in sections\)\)')
+if [[ $stock_section == TRUE && $stock_edited == TRUE && $checks == TRUE && $immediate == TRUE ]]; then flag stock StockLock TRUE; else flag stock StockLock FALSE; fi
+flag stock SyncOnlyChangedStock "$(anchor $ITEMS 'defp save_item\((?:(?!\n  defp? ).)*?if stock_changed\?, do: sync_stock\(repo, updated\.id, desired\), else: \{:ok, before_stock\}')"
+in_tx=$(anchor $ITEMS 'defp write_stock\([^)]*\) do\s*Repo\.transact\(fn ->\s*with \{:ok, item\} <- fetch_item_for_stock\(item_id\),')
+if [[ $in_tx == TRUE && $immediate == TRUE ]]; then flag stock AgentReadsInTx TRUE; else flag stock AgentReadsInTx FALSE; fi
+flag stock ChangeStockChecksBelowZero "$(anchor $ITEMS 'defp changed_count\((?:(?!\n  defp? ).)*?new < 0 -> \{:error, \{:below_zero, current\}\}')"
+flag stock ChangeStockChecksMax "$(anchor $ITEMS 'defp changed_count\((?:(?!\n  defp? ).)*?new > DraftStock\.max_quantity\(\) -> \{:error, :too_many\}')"
+flag stock MoveStockChecksMax "$(anchor $ITEMS 'defp moved_counts\((?:(?!\n  defp? ).)*?to \+ quantity > DraftStock\.max_quantity\(\) -> \{:error, :too_many\}')"
+flag stock MoveStockChecksEnough "$(anchor $ITEMS 'defp moved_counts\((?:(?!\n  defp? ).)*?quantity > from -> \{:error, \{:not_enough, from\}\}')"
+validates=$(anchor lib/pinventory/items/item_location.ex 'validate_number\(:quantity,\s*greater_than: 0[,)]')
+db_check=$(anchor priv/repo/migrations/20260223042150_create_locations_and_item_locations.exs 'check: %\{name: "quantity_must_be_positive", expr: "quantity > 0"\}')
+if [[ $validates == TRUE || $db_check == TRUE ]]; then flag stock QuantityMustBePositive TRUE; else flag stock QuantityMustBePositive FALSE; fi
+flag stock SaveChecksMax "$(anchor lib/pinventory/items/item_location.ex 'validate_number\(:quantity,(?:(?!\n    \|>).)*?less_than_or_equal_to: DraftStock\.max_quantity\(\)')"
+flag stock AdjustCapsAtMax "$(anchor lib/pinventory/items/draft_stock.ex 'def put\((?:(?!\n  def ).)*?max_quantity')"
+flag stock LocationDeleteChecksStock "$(anchor lib/pinventory/locations.ex 'def delete\((?:(?!\n  def ).)*?Multi\.run\(:empty\?, fn repo, _ ->\s*if location_has_items\?\(repo, location\.id\) do\s*\{:error, :location_has_items\}')"
+flag stock StaleReloadRaises "$(anchor $ITEM_LIVE '\{:error, :stale\} ->(?:(?!\n      \{:error).)*?Items\.get_item!\(')"
+splits=$(anchor $ITEM_LIVE 'defp reconcile\(socket, %Item\{\} = latest\) do(?:(?!\n  defp? ).)*?Enum\.split_with\(&section_dirty\?\(socket\.assigns, &1\)\)\s*reloads\s*\|> Enum\.reduce\(socket, &load_section\(&2, latest, &1\)\)')
+stock_dirty=$(anchor $ITEM_LIVE 'defp section_dirty\?\(assigns, :stock\),\s*do: assigns\.stock_total_mode != :clean')
+if [[ $splits == TRUE && $stock_dirty == TRUE ]]; then flag stock ReconcileKeepsEditedStock TRUE; else flag stock ReconcileKeepsEditedStock FALSE; fi
+
+
+# SectionSaves.tla, item page.
+flag item Sections "{name, notes, stock}"
+flag item AgentSections "{name}"   # rename_item
+flag item AtomicSections "{stock}" # change_stock, move_stock
+flag item Deletable TRUE
+value_check=$(anchor $ITEMS 'defp check_sections\((?:(?!\n  defp? ).)*?Item\.changed_sections\(base, current\)')
+
+if [[ $value_check == TRUE && $immediate == TRUE ]]; then flag item CheckMode '"value"'
+else flag item CheckMode '"none"'; fi
+names_edited=$(anchor $ITEMS 'defp edited_sections\((?:(?!\n  defp? ).)*?field -> field_change\(changeset, field\) != nil')
+only_edited=$(anchor $ITEMS 'defp check_sections\((?:(?!\n  defp? ).)*?&\(&1 in sections\)')
+flag item CheckOnlyEdited "$(both "$(both "$stock_edited" "$names_edited")" "$only_edited")"
+changes_only=$(anchor $ITEMS 'defp save_item\((?:(?!\n  defp? ).)*?changeset = change_item\(item, attrs\).*?Multi\.update\(:item, changeset\)')
+flag item WritesOnlyEdited "$(both "$changes_only" "$FLAG_stock_SyncOnlyChangedStock")"
+by_value=$(anchor $ITEM_LIVE 'defp reconcile\(socket, %Item\{\} = latest\) do(?:(?!\n  defp? ).)*?\|> Item\.changed_sections\(latest\)')
+if [[ $by_value == TRUE ]]; then flag item ReconcileMode '"value"'; else flag item ReconcileMode '"revision"'; fi
+fields_dirty=$(anchor $ITEM_LIVE 'defp section_dirty\?\(assigns, :name\), do: assigns\.name_dirty\?\s*defp section_dirty\?\(assigns, :notes\), do: assigns\.notes_dirty\?')
+flag item ReconcileKeepsDirty "$(both "$FLAG_stock_ReconcileKeepsEditedStock" "$fields_dirty")"
+flag item ReconcileClearsWarning "$(anchor $ITEM_LIVE 'defp reconcile\(socket, %Item\{\} = latest\) do(?:(?!\n  defp? ).)*?\|> assign\(:conflicts, conflicts\)')"
+nil_page=$(anchor $ITEM_LIVE 'defp reconcile\(socket, nil\) do')
+stale_get=$(anchor $ITEM_LIVE '\{:error, :stale\} ->(?:(?!\n      \{:error).)*?reconcile\(Items\.get_item\(')
+flag item StaleNilSafe "$(both "$nil_page" "$stale_get")"
+flag item DeleteToleratesMissing "$(anchor $ITEMS 'def delete_item\((?:(?!\n  def ).)*?Multi\.delete\(:item, item, stale_error_field: :id\)')"
+
+# SectionSaves.tla, location page.
+LOCATIONS=lib/pinventory/locations.ex
+LOCATION_LIVE=lib/pinventory_web/live/location_live.ex
+flag location Sections "{name}"
+flag location AgentSections "{name}" # rename_location
+flag location AtomicSections "{}"
+flag location Deletable TRUE
+name_check=$(anchor $LOCATIONS 'Multi\.run\(:current, fn repo, _ -> check_name\(repo, changeset\.data\) end\)\s*\|> Multi\.update\(:location, changeset\).*?defp check_name\(repo, %Location\{id: id, name: name\}\) do\s*case repo\.get\(Location, id\) do\s*%Location\{name: \^name\} = current -> \{:ok, current\}')
+if [[ $name_check == TRUE && $immediate == TRUE ]]; then flag location CheckMode '"value"'; else flag location CheckMode '"none"'; fi
+flag location CheckOnlyEdited TRUE   # one section
+flag location WritesOnlyEdited TRUE  # one section
+if [[ $(anchor $LOCATION_LIVE 'defp reconcile\(socket, latest\) do(?:(?!\n  defp? ).)*?latest\.name == location\.name ->') == TRUE ]]; then
+  flag location ReconcileMode '"value"'; else flag location ReconcileMode '"revision"'; fi
+flag location ReconcileKeepsDirty "$(anchor $LOCATION_LIVE 'defp reconcile\(socket, latest\) do(?:(?!\n  defp? ).)*?not socket\.assigns\.name_dirty\? ->\s*show_location\(socket, latest\)\s*true ->\s*socket\s*\|> assign\(:latest, latest\)')"
+flag location ReconcileClearsWarning "$(anchor $LOCATION_LIVE 'defp reconcile\(socket, latest\) do(?:(?!\n  defp? ).)*?latest\.name == location\.name ->\s*socket\s*\|> assign\(:latest, nil\)')"
+loc_nil=$(anchor $LOCATION_LIVE 'defp reconcile\(socket, nil\) do')
+loc_stale_get=$(anchor $LOCATION_LIVE '\{:error, :stale\} ->(?:(?!\n      \{:error).)*?reconcile\(Locations\.get\(')
+flag location StaleNilSafe "$(both "$loc_nil" "$loc_stale_get")"
+flag location DeleteToleratesMissing "$(anchor $LOCATIONS 'def delete\((?:(?!\n  def ).)*?Multi\.delete\(:location, location, stale_error_field: :id\)')"
+
+# SectionSaves.tla, naming convention page.
+CONVENTION=lib/pinventory/naming_convention.ex
+CONVENTION_LIVE=lib/pinventory_web/live/naming_convention_live.ex
+flag convention Sections "{text}"
+flag convention AgentSections "{text}" # edit_naming_convention
+flag convention AtomicSections "{}"
+flag convention Deletable FALSE
+rev_check=$(anchor $CONVENTION 'Repo\.transaction\(fn ->\s*newest = current\(\)\s*cond do\s*newest\.number != base -> Repo\.rollback\(\{:stale, newest\}\)')
+if [[ $rev_check == TRUE && $immediate == TRUE ]]; then flag convention CheckMode '"revision"'; else flag convention CheckMode '"none"'; fi
+flag convention CheckOnlyEdited TRUE
+flag convention WritesOnlyEdited TRUE
+if [[ $(anchor $CONVENTION_LIVE 'defp reconcile\(socket, newest\) do\s*cond do\s*newest\.number == socket\.assigns\.base\.number ->') == TRUE ]]; then
+  flag convention ReconcileMode '"revision"'; else flag convention ReconcileMode '"value"'; fi
+flag convention ReconcileKeepsDirty "$(anchor $CONVENTION_LIVE 'defp reconcile\(socket, newest\) do(?:(?!\n  defp? ).)*?socket\.assigns\.dirty\? ->\s*socket\s*\|> assign\(:stale, newest\)')"
+flag convention ReconcileClearsWarning FALSE # the unchanged branch returns the socket as it is
+flag convention StaleNilSafe TRUE            # the convention is never deleted
+flag convention DeleteToleratesMissing TRUE
+
+echo "code facts (model constants):"
+for r in "${RUNS[@]}"; do
+  echo "  $r:"
+  eval "names=(\"\${NAMES_$r[@]}\")"
+  for k in "${names[@]}"; do v="FLAG_${r}_$k"; printf '    %-26s %s\n' "$k" "${!v}"; done
+done
+
+rm -rf "$OUT" && mkdir -p "$OUT"
+cp "$SKILL_DIR"/model/*.tla "$OUT/"
+
+module_for() { [[ $1 == stock ]] && echo StockEdits || echo SectionSaves; }
+
+write_cfg() {
+  local r=$1 name=$2; shift 2
+  {
+    echo "SPECIFICATION Spec"
+    echo "CONSTANTS"
+    echo "  Pages = {p1, p2}"
+    if [[ $r == stock ]]; then
+      echo "  Locs = {l1, l2}"
+      echo "  Max = 1"
+      echo "  MaxWrites = 2"
+    else
+      echo "  MaxWrites = $([[ $r == item ]] && echo 2 || echo 3)"
+    fi
+    eval "names=(\"\${NAMES_$r[@]}\")"
+    for k in "${names[@]}"; do v="FLAG_${r}_$k"; echo "  $k = ${!v}"; done
+    echo "CONSTRAINT StateBound"
+    echo "SYMMETRY Symmetry"
+    echo "CHECK_DEADLOCK FALSE"
+    echo "INVARIANT TypeOK $*"
+  } >"$OUT/$name.cfg"
+}
+
+# run RUN NAME INVARIANTS...: prints the violated invariant, "none", or "tool-error".
+run() {
+  local r=$1 name=$2; shift 2
+  write_cfg "$r" "$name" "$@"
+  (cd "$OUT" && java -XX:+UseParallelGC -cp "$JAR" tlc2.TLC -config "$name.cfg" \
+    -workers "$WORKERS" -metadir "$OUT/meta-$name" -nowarning "$(module_for "$r").tla") >"$OUT/$name.out" 2>&1 || true
+  if grep -q '^Model checking completed. No error has been found.' "$OUT/$name.out"; then
+    echo none
+  elif v=$(grep -oE '^Error: Invariant [A-Za-z]+ is violated' "$OUT/$name.out" | awk '{print $3}'); [[ -n $v ]]; then
+    echo "$v"
+  else
+    echo tool-error
+  fi
+}
+
+is_known() { local x; for x in "${KNOWN_FINDINGS[@]}"; do [[ $x == "$1" ]] && return 0; done; return 1; }
+
+if [[ -n $ONLY ]]; then
+  RUNS=("${ONLY%%:*}")
+  KNOWN_FINDINGS=()
+fi
+
+status=0
+start=$SECONDS
+for r in "${RUNS[@]}"; do
+  if [[ $r == stock ]]; then props=("${STOCK_PROPERTIES[@]}"); else props=("${SECTION_PROPERTIES[@]}"); fi
+  expected=()
+  for p in "${props[@]}"; do is_known "$r:$p" || expected+=("$p"); done
+  [[ -n $ONLY ]] && expected=("${ONLY#*:}")
+  result=$(run "$r" "$r" "${expected[@]}")
+  case $result in
+    none) echo "PASS  $r: ${expected[*]}" ;;
+    tool-error) echo "TOOL ERROR, see $OUT/$r.out"; status=2 ;;
+    *) echo "FAIL  $r:$result (counterexample: $OUT/$r.out)"; [[ $status == 0 ]] && status=1 ;;
+  esac
+done
+
+for f in "${KNOWN_FINDINGS[@]}"; do
+  r=${f%%:*} p=${f#*:} name=${f/:/-}
+  got=$(run "$r" "$name" "$p")
+  case $got in
+    "$p") echo "KNOWN FINDING still present: $f (counterexample: $OUT/$name.out)" ;;
+    none) echo "FIXED? $f now passes. Confirm the fix with a test, then remove it from KNOWN_FINDINGS and the findings in SKILL.md."; status=1 ;;
+    tool-error) echo "TOOL ERROR, see $OUT/$name.out"; status=2 ;;
+    *) echo "FAIL  $r:$got while checking $f (counterexample: $OUT/$name.out)"; [[ $status == 0 ]] && status=1 ;;
+  esac
+done
+echo "models checked in $((SECONDS - start))s"
+
+# Coverage drift: covered code changed since the sync commit in SKILL.md.
+sync=$(sed -n 's/^Sync commit: `\([0-9a-f]*\)`.*/\1/p' "$SKILL_DIR/SKILL.md")
+covered=$(sed -n 's/^- `\([^`]*\)`:.*/\1/p' "$SKILL_DIR/SKILL.md" | sort -u)
+if [[ -n $sync ]] && git -C "$ROOT" cat-file -e "$sync^{commit}" 2>/dev/null; then
+  # shellcheck disable=SC2086
+  drift=$(cd "$ROOT" && git diff --name-only "$sync" -- $covered)
+  if [[ -n $drift ]]; then
+    echo "covered code changed since sync commit $sync, so recheck the models against it:"
+    echo "$drift" | sed 's/^/  /'
+  fi
+else
+  echo "warning: sync commit '$sync' from SKILL.md is not in this clone; cannot check coverage drift."
+fi
+
+exit $status
