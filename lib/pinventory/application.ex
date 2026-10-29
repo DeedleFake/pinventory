@@ -12,6 +12,7 @@ defmodule Pinventory.Application do
       Pinventory.Repo,
       {DNSCluster, query: Application.get_env(:pinventory, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Pinventory.PubSub},
+      PinventoryWeb.Presence,
       # Start a worker by calling: Pinventory.Worker.start_link(arg)
       # {Pinventory.Worker, arg},
       # Start to serve requests, typically the last entry

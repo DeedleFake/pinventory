@@ -610,5 +610,21 @@ defmodule PinventoryWeb.LocationLiveTest do
       assert path == ~p"/locations"
       assert flash["error"] =~ "deleted"
     end
+
+    test "shows who else has the location open", %{conn: conn, sam: sam, garage: garage} do
+      {:ok, mine, _html} = live(conn, ~p"/location/#{garage.id}")
+      {:ok, _theirs, _html} = live(log_in_user(build_conn(), sam), ~p"/location/#{garage.id}")
+
+      assert_eventually(fn -> has_element?(mine, "#location-editors", "sam@example.com") end)
+    end
+  end
+
+  # Presence diffs reach the page a moment after the other page joins.
+  defp assert_eventually(fun, tries \\ 50) do
+    cond do
+      fun.() -> true
+      tries == 0 -> flunk("condition never became true")
+      true -> Process.sleep(20) && assert_eventually(fun, tries - 1)
+    end
   end
 end

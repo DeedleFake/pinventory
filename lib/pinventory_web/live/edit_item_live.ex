@@ -8,6 +8,7 @@ defmodule PinventoryWeb.EditItemLive do
   alias Pinventory.LiveEdits
   alias Pinventory.Locations
   alias Pinventory.NamingConvention
+  alias PinventoryWeb.Presence
 
   import PinventoryWeb.AuditHelpers,
     only: [
@@ -73,6 +74,8 @@ defmodule PinventoryWeb.EditItemLive do
             </.button>
           </div>
         </div>
+
+        <.editors :if={@live_action == :edit} id="item-editors" editors={@editors} />
 
         <%!-- Name lives in its own form so stock Enter keys do not submit Save. --%>
         <.form
@@ -619,6 +622,7 @@ defmodule PinventoryWeb.EditItemLive do
      |> assign(:note_history, nil)
      |> assign(:latest, nil)
      |> assign(:conflicts, [])
+     |> assign(:editors, [])
      |> assign(:delete_modal?, false)
      |> assign(:delete_form, delete_form(""))
      |> assign(:delete_confirm_ready?, false)
@@ -918,6 +922,10 @@ defmodule PinventoryWeb.EditItemLive do
     {:noreply, clear_suggestions(socket)}
   end
 
+  def handle_info(%Phoenix.Socket.Broadcast{event: "presence_diff"}, socket) do
+    {:noreply, Presence.refresh_editors(socket)}
+  end
+
   def handle_info({LiveEdits, {:item, id}, :saved}, socket) do
     {:noreply, reconcile(socket, Items.get_item(id))}
   end
@@ -1020,6 +1028,7 @@ defmodule PinventoryWeb.EditItemLive do
 
         socket
         |> assign(:live_action, :edit)
+        |> Presence.track_editor({:item, item.id})
         |> assign(:locations, Locations.list())
         |> show_item(item)
         |> close_delete_modal()

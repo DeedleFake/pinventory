@@ -5,6 +5,7 @@ defmodule PinventoryWeb.LocationLive do
   alias Pinventory.Items
   alias Pinventory.LiveEdits
   alias Pinventory.Locations
+  alias PinventoryWeb.Presence
 
   import PinventoryWeb.AuditHelpers,
     only: [
@@ -49,6 +50,8 @@ defmodule PinventoryWeb.LocationLive do
             </button>
           </div>
         </div>
+
+        <.editors id="location-editors" editors={@editors} />
 
         <.stale_section
           :if={@latest}
@@ -282,6 +285,7 @@ defmodule PinventoryWeb.LocationLive do
      |> assign(:location_edits, [])
      |> assign(:latest, nil)
      |> assign(:latest_edit, nil)
+     |> assign(:editors, [])
      |> stream_configure(:items, dom_id: &"location-item-#{&1.id}")}
   end
 
@@ -301,6 +305,7 @@ defmodule PinventoryWeb.LocationLive do
         {:noreply,
          socket
          |> show_location(location)
+         |> Presence.track_editor({:location, location.id})
          |> assign(:total_quantity, total_quantity(items))
          |> assign(:has_items?, items != [])
          |> stream(:items, items, reset: true)
@@ -415,6 +420,10 @@ defmodule PinventoryWeb.LocationLive do
   end
 
   @impl true
+  def handle_info(%Phoenix.Socket.Broadcast{event: "presence_diff"}, socket) do
+    {:noreply, Presence.refresh_editors(socket)}
+  end
+
   def handle_info({LiveEdits, {:location, id}, :saved}, socket) do
     {:noreply, reconcile(socket, Locations.get(id))}
   end

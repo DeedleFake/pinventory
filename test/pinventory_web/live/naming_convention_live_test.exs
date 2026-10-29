@@ -162,6 +162,14 @@ defmodule PinventoryWeb.NamingConventionLiveTest do
     assert has_element?(view, "#convention-save[disabled]")
   end
 
+  test "shows who else has the convention open", %{conn: conn} do
+    sam = user_fixture(%{email: "sam@example.com"})
+    {:ok, view, _html} = live(conn, ~p"/items/naming-convention")
+    {:ok, _theirs, _html} = live(log_in_user(build_conn(), sam), ~p"/items/naming-convention")
+
+    assert_eventually(fn -> has_element?(view, "#convention-editors", "sam@example.com") end)
+  end
+
   test "a save that crosses another save warns instead of overwriting", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/items/naming-convention")
 
@@ -205,5 +213,14 @@ defmodule PinventoryWeb.NamingConventionLiveTest do
   defp item_fixture do
     {:ok, item} = Pinventory.Items.create_item(user_scope_fixture(), %{name: "Light bulbs"})
     item
+  end
+
+  # Presence diffs reach the page a moment after the other page joins.
+  defp assert_eventually(fun, tries \\ 50) do
+    cond do
+      fun.() -> true
+      tries == 0 -> flunk("condition never became true")
+      true -> Process.sleep(20) && assert_eventually(fun, tries - 1)
+    end
   end
 end

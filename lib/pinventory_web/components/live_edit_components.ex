@@ -5,6 +5,9 @@ defmodule PinventoryWeb.LiveEditComponents do
 
   The LiveView handles `"load_latest"` and `"keep_my_edits"`, each with a
   `"section"` value when the page has more than one section.
+
+  `editors/1` lists the other people who have the page open, from
+  `PinventoryWeb.Presence`.
   """
 
   use PinventoryWeb, :html
@@ -60,6 +63,23 @@ defmodule PinventoryWeb.LiveEditComponents do
         </button>
       </div>
     </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :editors, :list, required: true, doc: "labels of the other people editing"
+
+  def editors(assigns) do
+    ~H"""
+    <p
+      :if={@editors != []}
+      id={@id}
+      class="flex items-center gap-1.5 text-xs opacity-70"
+      title="These people have this page open too. You'll see their saves as they happen."
+    >
+      <.icon name="hero-users" class="size-4 shrink-0" />
+      <span>Also editing: {Enum.join(@editors, ", ")}</span>
+    </p>
     """
   end
 end

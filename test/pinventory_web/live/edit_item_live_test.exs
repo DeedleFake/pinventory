@@ -1087,6 +1087,17 @@ defmodule PinventoryWeb.EditItemLiveTest do
       assert flash["error"] =~ "deleted"
     end
 
+    test "shows who else has the item open", %{conn: conn, sam: sam, item: item} do
+      {:ok, mine, _html} = live(conn, ~p"/item/#{item}")
+      refute has_element?(mine, "#item-editors")
+
+      {:ok, theirs, _html} = live(log_in_user(build_conn(), sam), ~p"/item/#{item}")
+
+      assert_eventually(fn -> has_element?(mine, "#item-editors", "sam@example.com") end)
+      assert_eventually(fn -> has_element?(theirs, "#item-editors") end)
+      refute has_element?(theirs, "#item-editors", "sam@example.com")
+    end
+
     test "a new naming convention shows in the panel", %{conn: conn, scope: scope, item: item} do
       {:ok, mine, _html} = live(conn, ~p"/item/#{item}")
 
@@ -1098,6 +1109,15 @@ defmodule PinventoryWeb.EditItemLiveTest do
         )
 
       assert has_element?(mine, "#item-naming-convention-body", "Say the unit")
+    end
+  end
+
+  # Presence diffs reach the page a moment after the other page joins.
+  defp assert_eventually(fun, tries \\ 50) do
+    cond do
+      fun.() -> true
+      tries == 0 -> flunk("condition never became true")
+      true -> Process.sleep(20) && assert_eventually(fun, tries - 1)
     end
   end
 

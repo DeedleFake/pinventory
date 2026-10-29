@@ -4,6 +4,7 @@ defmodule PinventoryWeb.NamingConventionLive do
   alias Pinventory.LiveEdits
   alias Pinventory.Markdown
   alias Pinventory.NamingConvention
+  alias PinventoryWeb.Presence
 
   import PinventoryWeb.LiveEditComponents
   import PinventoryWeb.MarkdownComponents
@@ -50,6 +51,8 @@ defmodule PinventoryWeb.NamingConventionLive do
             </.button>
           </div>
         </div>
+
+        <.editors id="convention-editors" editors={@editors} />
 
         <.stale_section
           :if={@stale}
@@ -414,7 +417,8 @@ defmodule PinventoryWeb.NamingConventionLive do
      |> assign(:history, nil)
      |> assign(:format_status, nil)
      |> show_version(NamingConvention.current())
-     |> tap(fn socket -> if connected?(socket), do: LiveEdits.subscribe(:naming_convention) end)}
+     |> tap(fn socket -> if connected?(socket), do: LiveEdits.subscribe(:naming_convention) end)
+     |> Presence.track_editor(:naming_convention)}
   end
 
   @impl true
@@ -493,6 +497,10 @@ defmodule PinventoryWeb.NamingConventionLive do
   end
 
   @impl true
+  def handle_info(%Phoenix.Socket.Broadcast{event: "presence_diff"}, socket) do
+    {:noreply, Presence.refresh_editors(socket)}
+  end
+
   def handle_info({LiveEdits, :naming_convention, :saved}, socket) do
     {:noreply, reconcile(socket, NamingConvention.current())}
   end
