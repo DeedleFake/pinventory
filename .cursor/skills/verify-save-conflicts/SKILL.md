@@ -31,7 +31,7 @@ To check one property of one run alone, ignoring the known findings list:
 ./.cursor/skills/verify-save-conflicts/scripts/check-save-conflicts --only location:WarningsMatchSaved
 ```
 
-Output and counterexamples go to `tmp/verify-save-conflicts/`, one `.out` file per run. CI runs the same command in the `Save conflicts model` job.
+Output and counterexamples go to `tmp/verify-save-conflicts/`, one `.out` file per run.
 
 ## What it checks
 

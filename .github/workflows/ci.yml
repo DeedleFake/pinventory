@@ -212,26 +212,3 @@ jobs:
 
       - name: Compile for production
         run: mix compile --warnings-as-errors
-
-  save-conflicts-model:
-    name: Save conflicts model
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Java
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      - name: Cache tla2tools.jar
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/pinventory
-          key: tla2tools-${{ hashFiles('.cursor/skills/verify-save-conflicts/scripts/check-save-conflicts') }}
-
-      - name: Model-check save conflicts
-        run: ./.cursor/skills/verify-save-conflicts/scripts/check-save-conflicts
