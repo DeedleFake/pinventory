@@ -84,6 +84,7 @@ The script prints `code facts` first, per run. Each is a model constant read fro
 | `ReconcileClearsWarning` | `reconcile/2` assigning `:conflicts` fresh each time | the `latest.name == location.name` branch assigning `:latest` to nil | FALSE: the unchanged branch returns the socket as it is |
 | `StaleNilSafe` | the `{:error, :stale}` branch calling `reconcile(Items.get_item(...))`, with a `reconcile(socket, nil)` clause | the same with `Locations.get` | TRUE, never deleted |
 | `DeleteToleratesMissing` | `Multi.delete(:item, item, stale_error_field: :id)` in `delete_item/2` | `Multi.delete(:location, location, stale_error_field: :id)` in `delete/2` | TRUE, never deleted |
+| `AgentChecksItsRead` | `edit_notes` passing `%{item \| notes: read_notes}` to `Items.update_item/4`, so the check compares the agent's `read_notes`, not the copy the tool fetches. `rename_item`'s read is that fetch | TRUE: `rename_location`'s read is the fetch just before its write | `edit_naming_convention` passing the agent's `version` to `NamingConvention.save/3` |
 
 `CheckMode` and the `stock` fact `StockLock` also need `default_transaction_mode: :immediate` in `config/config.exs`, so the check and the write are one step.
 
@@ -158,8 +159,6 @@ Each action is one SQLite transaction. The repo runs immediate transactions, so 
 
 The MCP `rename_item` tool is a name-only `update_item/4` that reads the item in its own transaction first. Under `SyncOnlyChangedStock` it writes no stock, and otherwise it behaves like a page that opens, edits the name, and saves.
 
-The MCP `rename_item` tool is a name-only `update_item/4` that reads the item in its own transaction first. Under `SyncOnlyChangedStock` it writes no stock, and otherwise it behaves like a page that opens, edits the name, and saves.
-
 Two ghost variables exist only for checking. `writes` counts committed writes to the stock, to bound the state space. `bad` records which properties a step broke. A save breaks `NoLostUpdate` when it writes stock while the stored stock differs from the stock its writer started from, so a change that was undone before the save is not a lost update.
 
 ## Bounds and assumptions
@@ -189,6 +188,7 @@ Two ghost variables exist only for checking. `writes` counts committed writes to
 - `create_item/3`, `Locations.create/2`, `Locations.restore/2`, and audit events.
 - What a warning shows. The model checks whether a section warns, not the names, counts, or diff in it.
 - "Also editing" presence, accounts, API tokens, and search.
+- The leave-page warning (`unsaved_changes.js`, fed by `dirty?` in `EditItemLive.sync_dirty/1`). It is page-local and has no ordering to check, so a test fits it better than a model.
 - Anything beyond the bounds above.
 
 ## Findings
@@ -199,7 +199,7 @@ Each finding below is in `KNOWN_FINDINGS` in the script, as `run:property`.
 
 ## Coverage
 
-Sync commit: `4e01bf4a8bd51d275c09837dc9848dba9b4e4d2b`
+Sync commit: `f2154b6fd6e95309198b2a5aa338521208772306`
 
 Move the sync commit forward only after you confirm, at the new commit, that the models and the code facts still describe the code below. The script lists covered files changed since the sync commit.
 

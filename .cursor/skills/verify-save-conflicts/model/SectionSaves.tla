@@ -53,7 +53,11 @@ CONSTANTS
     StaleNilSafe,
     \* Deleting a record that is already gone returns an error. When FALSE
     \* the delete raises Ecto.StaleEntryError and the page crashes.
-    DeleteToleratesMissing
+    DeleteToleratesMissing,
+    \* The MCP write checks against the value the agent read earlier. When
+    \* FALSE the tool checks against a copy it fetches just before the
+    \* write, so a change made since the agent's read is not seen.
+    AgentChecksItsRead
 
 ASSUME /\ NoVal \notin Vals
        /\ CheckMode \in {"value", "revision", "none"}
@@ -247,24 +251,32 @@ Delete(p) ==
 (* MCP tools                                                               *)
 
 \* rename_item, rename_location: get the record, then save in a later
-\* transaction. edit_notes: the base notes come from an earlier list_items. edit_naming_convention: the version and text come from an
-\* earlier get_naming_convention.
+\* transaction. edit_notes: the base notes are the agent's read_notes, from
+\* an earlier list_items. edit_naming_convention: the version and text come
+\* from an earlier get_naming_convention.
 AgentRead ==
     /\ AgentSections # {} /\ agent.phase = "idle" /\ exists
     /\ agent' = [phase |-> "read", snap |-> db, snapRev |-> rev]
     /\ UNCHANGED <<exists, db, rev, page, writes, bad>>
 
+\* seen: what the agent read. base: what the write is checked against,
+\* which is a fresh fetch when AgentChecksItsRead is FALSE.
 AgentWrite(s, v) ==
-    LET base == agent.snap
+    LET seen == agent.snap
+        base == IF AgentChecksItsRead THEN seen ELSE db
+        baseRev == IF AgentChecksItsRead THEN agent.snapRev ELSE rev
         draft == [base EXCEPT ![s] = v]
         edited == Edited(base, draft)
         newDb == Saved(base, draft, edited)
-    IN /\ agent.phase = "read" /\ s \in AgentSections /\ v # base[s]
-       /\ IF ~Stale(base, agent.snapRev, edited) THEN
+    IN /\ agent.phase = "read" /\ s \in AgentSections /\ v # seen[s]
+       /\ IF edited = {} THEN
+             \* the edit matches the saved value: nothing to write
+             UNCHANGED <<db, rev, writes, bad>>
+          ELSE IF ~Stale(base, baseRev, edited) THEN
              /\ db' = newDb /\ rev' = rev + 1 /\ writes' = writes + 1
-             /\ bad' = [bad EXCEPT !.lostUpdate = @ \/ Overwrites(base, newDb)]
+             /\ bad' = [bad EXCEPT !.lostUpdate = @ \/ Overwrites(seen, newDb)]
           ELSE
-             /\ bad' = [bad EXCEPT !.falseConflict = @ \/ FalseConflict(base, edited)]
+             /\ bad' = [bad EXCEPT !.falseConflict = @ \/ FalseConflict(seen, edited)]
              /\ UNCHANGED <<db, rev, writes>>
        /\ agent' = [phase |-> "idle", snap |-> Zero, snapRev |-> 0]
        /\ UNCHANGED <<exists, page>>
