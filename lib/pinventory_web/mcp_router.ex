@@ -1,9 +1,9 @@
 defmodule PinventoryWeb.MCPRouter do
   @moduledoc """
   MCP server that lets an agent read the inventory, create and rename items,
-  rename locations, change stock counts of items at existing locations, and
-  read and edit the item naming convention, acting as the user who owns the
-  API token.
+  edit item notes, rename locations, change stock counts of items at existing
+  locations, and read and edit the item naming convention, acting as the user
+  who owns the API token.
 
   The agent decides which item and location the user means. The server only
   checks what it can know for certain: the ids exist, counts stay within
@@ -21,7 +21,8 @@ defmodule PinventoryWeb.MCPRouter do
   - To add a new item, search with list_items first so you don't make a duplicate, then create_item, then change_stock to record how many and where.
   - Item names follow this inventory's naming convention. Call get_naming_convention before you create or rename an item, and name it the way the convention says. Call it again rather than relying on an earlier read, because anyone can change it.
   - To change the naming convention, call get_naming_convention, then edit_naming_convention with the full new text and the version you read.
-  - You can only change counts at existing locations. Deleting items, creating or deleting locations, and editing notes of existing items happen in the Pinventory web UI. Send the user the item's or location's url.
+  - To change an item's notes, use edit_notes with the item's complete new notes and the notes exactly as list_items returned them. If someone saved other notes since, nothing is changed: read the item again with list_items, apply your edit to its current notes, and retry. Edit notes only when the user asks, and keep every detail the user didn't ask you to remove or change.
+  - You can only change counts at existing locations. Deleting items and creating or deleting locations happen in the Pinventory web UI. Send the user the item's or location's url.
   """
 
   use Phantom.Router,
@@ -164,6 +165,39 @@ defmodule PinventoryWeb.MCPRouter do
     else
       :error -> {:reply, Tool.error(error_message(:item_not_found, nil)), session}
       {:error, :stale} -> {:reply, Tool.error(error_message(:stale, nil)), session}
+      {:error, changeset} -> {:reply, Tool.error(changeset_message(changeset)), session}
+    end
+  end
+
+  @description """
+  Replace one existing item's notes. Only change notes when the user asks you to. Send the complete new notes, not just the change, and keep every detail the user didn't ask you to remove or change. An empty string clears the notes.
+  Also send read_notes: the item's notes exactly as list_items returned them when you read them. If someone saved other notes since, nothing is changed; call list_items again, apply your edit to the current notes, and try again. The name and stock stay as they are.
+  Use the id from list_items. Returns the item like list_items does.
+  """
+  tool :edit_notes, idempotent: true, destructive: false do
+    field :item_id, :string, required: true, description: "Item id from list_items."
+    field :notes, :string, required: true, description: "The complete new notes."
+
+    field :read_notes, :string,
+      required: true,
+      description: "The item's notes exactly as list_items returned them. Empty if it had none."
+  end
+
+  def edit_notes(%{"item_id" => item_id, "notes" => notes, "read_notes" => read_notes}, session) do
+    with {:ok, item} <- fetch(item_id, &Items.get_item/1),
+         :ok <- if(notes == read_notes, do: {:error, :same_notes}, else: :ok),
+         {:ok, saved} <-
+           Items.update_item(
+             session.assigns.scope,
+             %{item | notes: read_notes},
+             %{"notes" => notes},
+             Items.stock_map(item)
+           ) do
+      {:reply, Tool.structured(%{item: stock_item_json(saved)}), session}
+    else
+      :error -> {:reply, Tool.error(error_message(:item_not_found, nil)), session}
+      {:error, :same_notes} -> {:reply, Tool.error(error_message(:same_notes, nil)), session}
+      {:error, :stale} -> {:reply, Tool.error(error_message(:notes_stale, nil)), session}
       {:error, changeset} -> {:reply, Tool.error(changeset_message(changeset)), session}
     end
   end
@@ -315,6 +349,14 @@ defmodule PinventoryWeb.MCPRouter do
 
   defp error_message(:stale, _),
     do: "The item changed while renaming it. Nothing was changed. Try again."
+
+  defp error_message(:notes_stale, _),
+    do:
+      "The notes changed since you read them. Nothing was changed. " <>
+        "Call list_items again, apply your edit to the current notes, and try again."
+
+  defp error_message(:same_notes, _),
+    do: "notes is the same as read_notes, so there is nothing to change."
 
   defp error_message(:location_stale, _),
     do: "The location changed while renaming it. Nothing was changed. Try again."
