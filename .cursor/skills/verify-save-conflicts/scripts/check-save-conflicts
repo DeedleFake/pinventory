@@ -93,7 +93,7 @@ if [[ $splits == TRUE && $stock_dirty == TRUE ]]; then flag stock ReconcileKeeps
 # generic field clause in edited_sections/2 and the notes_dirty? clause of
 # section_dirty?/2, both read below. So the model runs name and stock.
 flag item Sections "{name, stock}"
-flag item AgentSections "{name}"   # rename_item
+flag item AgentSections "{name}"   # rename_item, edit_notes
 flag item AtomicSections "{stock}" # change_stock, move_stock
 flag item Deletable TRUE
 value_check=$(anchor $ITEMS 'defp check_sections\((?:(?!\n  defp? ).)*?Item\.changed_sections\(base, current\)')
@@ -114,6 +114,10 @@ nil_page=$(anchor $ITEM_LIVE 'defp reconcile\(socket, nil\) do')
 stale_get=$(anchor $ITEM_LIVE '\{:error, :stale\} ->(?:(?!\n      \{:error).)*?reconcile\(Items\.get_item\(')
 flag item StaleNilSafe "$(both "$nil_page" "$stale_get")"
 flag item DeleteToleratesMissing "$(anchor $ITEMS 'def delete_item\((?:(?!\n  def ).)*?Multi\.delete\(:item, item, stale_error_field: :id\)')"
+# rename_item's read is the fetch just before its write. edit_notes must check
+# against the agent's read_notes, not that fetch.
+MCP=lib/pinventory_web/mcp_router.ex
+flag item AgentChecksItsRead "$(anchor $MCP 'def edit_notes\((?:(?!\n  def ).)*?Items\.update_item\(\s*session\.assigns\.scope,\s*%\{item \| notes: read_notes\},\s*%\{"notes" => notes\}')"
 
 # SectionSaves.tla, location page.
 LOCATIONS=lib/pinventory/locations.ex
@@ -134,6 +138,7 @@ loc_nil=$(anchor $LOCATION_LIVE 'defp reconcile\(socket, nil\) do')
 loc_stale_get=$(anchor $LOCATION_LIVE '\{:error, :stale\} ->(?:(?!\n      \{:error).)*?reconcile\(Locations\.get\(')
 flag location StaleNilSafe "$(both "$loc_nil" "$loc_stale_get")"
 flag location DeleteToleratesMissing "$(anchor $LOCATIONS 'def delete\((?:(?!\n  def ).)*?Multi\.delete\(:location, location, stale_error_field: :id\)')"
+flag location AgentChecksItsRead TRUE # rename_location's read is the fetch just before its write
 
 # SectionSaves.tla, naming convention page.
 CONVENTION=lib/pinventory/naming_convention.ex
@@ -152,6 +157,7 @@ flag convention ReconcileKeepsDirty "$(anchor $CONVENTION_LIVE 'defp reconcile\(
 flag convention ReconcileClearsWarning FALSE # the unchanged branch returns the socket as it is
 flag convention StaleNilSafe TRUE            # the convention is never deleted
 flag convention DeleteToleratesMissing TRUE
+flag convention AgentChecksItsRead "$(anchor $MCP 'def edit_naming_convention\((?:(?!\n  def ).)*?NamingConvention\.save\(session\.assigns\.scope, version, text\)')"
 
 echo "code facts (model constants):"
 for r in "${RUNS[@]}"; do

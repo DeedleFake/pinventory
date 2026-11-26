@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# Model-checks .cursor/skills/verify-floor-plan-session/model/FloorPlanSession.tla
+# with TLC, twice: "race" lets a user act while a notice to their page is in
+# flight, "prompt" assumes every notice lands before the user's next event.
+# The model's guard constants are read from the code, so removing a guard in
+# the code turns its constant FALSE and the check shows what that breaks.
+set -euo pipefail
+
+die() { echo "error: $*" >&2; exit 2; }
+
+# Same tla2tools release and cache as verify-save-conflicts.
+TLA_VERSION=1.7.4
+TLA_SHA256=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
+
+# Rules the current code is known to break, as RUN:RULE. The check expects
+# each one to fail. Remove an entry once the code is fixed and the check
+# passes it.
+KNOWN_FINDINGS=(race:UndoKeepsOthersChanges race:RestoreBringsBackAll race:ConfirmOnlyWithPlan)
+
+# What each run checks. "prompt" checks only the rules the guards are meant
+# to give when notices are prompt; RestoreBringsBackAll and
+# ConfirmOnlyWithPlan break there too, for the same reasons as in "race".
+RULES_race=(UndoKeepsOthersChanges RestoreBringsBackAll ConfirmOnlyWithPlan BannerMatchesPlan)
+RULES_prompt=(UndoKeepsOthersChanges BannerMatchesPlan)
+RUNS=(race prompt)
+
+ONLY=
+if [[ ${1:-} == --only ]]; then
+  ONLY=${2:?usage: check-floor-plan-session [--only RUN:RULE]}
+  [[ $ONLY == *:* ]] || die "--only takes RUN:RULE, with RUN one of ${RUNS[*]}"
+fi
+
+ROOT=$(git rev-parse --show-toplevel)
+SKILL_DIR="$ROOT/.cursor/skills/verify-floor-plan-session"
+OUT="$ROOT/tmp/verify-floor-plan-session"
+WORKERS=${TLC_WORKERS:-auto}
+
+command -v java >/dev/null || die "java not found. Install a JDK 11 or newer (for example: mise use java@temurin-21)."
+command -v perl >/dev/null || die "perl not found."
+
+JAR=${TLA2TOOLS_JAR:-"${XDG_CACHE_HOME:-$HOME/.cache}/pinventory/tla2tools-$TLA_VERSION.jar"}
+if [[ ! -f "$JAR" ]]; then
+  mkdir -p "$(dirname "$JAR")"
+  echo "downloading tla2tools.jar $TLA_VERSION to $JAR"
+  curl -fsSL -o "$JAR.part" "https://github.com/tlaplus/tlaplus/releases/download/v$TLA_VERSION/tla2tools.jar"
+  mv "$JAR.part" "$JAR"
+fi
+if command -v sha256sum >/dev/null; then sum=$(sha256sum "$JAR" | cut -d' ' -f1); else sum=$(shasum -a 256 "$JAR" | cut -d' ' -f1); fi
+[[ "$sum" == "$TLA_SHA256" ]] || die "$JAR has sha256 $sum, expected $TLA_SHA256. Delete it and rerun."
+
+# anchor FILE REGEX: TRUE when REGEX (Perl, /s) matches FILE.
+anchor() { perl -0777 -ne "exit(/$2/s ? 0 : 1)" "$ROOT/$1" && echo TRUE || echo FALSE; }
+
+# Code facts: one regex per model constant. A FALSE means the guard is gone,
+# or the code moved and the regex needs updating. SKILL.md says how to tell.
+LIVE=lib/pinventory_web/live/floor_plan_live.ex
+calls=$(anchor $LIVE 'defp apply_remote_change\((?:(?!\n  defp? ).)*?\|> drop_stale_history\(before\.floors, floors\)')
+clears=$(anchor $LIVE 'defp drop_stale_history\((?:(?!\n  defp? ).)*?plan_geometry_snapshot\(previous_floors\) !=\s*FloorPlans\.plan_geometry_snapshot\(floors\) do\s*socket\s*\|> assign\(:undo_stack, \[\]\)\s*\|> assign\(:redo_stack, \[\]\)')
+[[ $calls == TRUE && $clears == TRUE ]] && HistoryDropsOnRemoteChange=TRUE || HistoryDropsOnRemoteChange=FALSE
+DeletionsFilterStillDeleted=$(anchor $LIVE 'defp track_deletions\((?:(?!\n  defp? ).)*?Enum\.filter\(new \+\+ kept, &still_deleted\?\(&1, socket\.assigns\)\)')
+# TRUE when some function other than mount/3 and the cancel_delete_plan
+# handler sets :delete_plan? to false. Read that code to confirm it runs on
+# a remote change that leaves no plan before trusting a pass.
+RemoteDeleteClosesConfirm=$(perl -0777 -ne '
+  my @fns = split /\n(?=  (?:def|defp) )/;
+  my $hit = grep { /:delete_plan\?, false/ && !/^  def mount\(/ && !/^  def handle_event\("cancel_delete_plan"/ } @fns;
+  print($hit ? "TRUE" : "FALSE")' "$ROOT/$LIVE")
+FACTS=(HistoryDropsOnRemoteChange DeletionsFilterStillDeleted RemoteDeleteClosesConfirm)
+
+echo "code facts (model constants):"
+for k in "${FACTS[@]}"; do printf '  %-28s %s\n' "$k" "${!k}"; done
+
+rm -rf "$OUT" && mkdir -p "$OUT"
+cp "$SKILL_DIR"/model/*.tla "$OUT/"
+
+write_cfg() {
+  local r=$1 name=$2; shift 2
+  {
+    echo "SPECIFICATION Spec"
+    echo "CONSTANTS"
+    echo "  Pages = {p1, p2, p3}"
+    echo "  Elems = {e1, e2}"
+    echo "  UndoMax = 1"
+    echo "  MaxWrites = 4"
+    echo "  Racing = $([[ $r == race ]] && echo TRUE || echo FALSE)"
+    for k in "${FACTS[@]}"; do echo "  $k = ${!k}"; done
+    echo "CONSTRAINT StateBound"
+    echo "SYMMETRY Symmetry"
+    echo "CHECK_DEADLOCK FALSE"
+    echo "INVARIANT TypeOK $*"
+  } >"$OUT/$name.cfg"
+}
+
+# run RUN NAME RULES...: prints the violated rule, "none", or "tool-error".
+run() {
+  local r=$1 name=$2; shift 2
+  write_cfg "$r" "$name" "$@"
+  (cd "$OUT" && java -XX:+UseParallelGC -cp "$JAR" tlc2.TLC -config "$name.cfg" \
+    -workers "$WORKERS" -metadir "$OUT/meta-$name" -nowarning FloorPlanSession.tla) >"$OUT/$name.out" 2>&1 || true
+  if grep -q '^Model checking completed. No error has been found.' "$OUT/$name.out"; then echo none
+  elif v=$(grep -oE '^Error: Invariant [A-Za-z]+ is violated' "$OUT/$name.out" | awk '{print $3}'); [[ -n $v ]]; then echo "$v"
+  else echo tool-error; fi
+}
+
+is_known() { local x; for x in "${KNOWN_FINDINGS[@]}"; do [[ $x == "$1" ]] && return 0; done; return 1; }
+
+if [[ -n $ONLY ]]; then RUNS=("${ONLY%%:*}"); KNOWN_FINDINGS=(); fi
+
+status=0
+start=$SECONDS
+for r in "${RUNS[@]}"; do
+  eval "rules=(\"\${RULES_$r[@]}\")"
+  expected=()
+  for p in "${rules[@]}"; do is_known "$r:$p" || expected+=("$p"); done
+  [[ -n $ONLY ]] && expected=("${ONLY#*:}")
+  result=$(run "$r" "$r" "${expected[@]}")
+  case $result in
+    none) echo "PASS  $r: ${expected[*]}" ;;
+    tool-error) echo "TOOL ERROR, see $OUT/$r.out"; status=2 ;;
+    *) echo "FAIL  $r:$result (counterexample: $OUT/$r.out)"; [[ $status == 0 ]] && status=1 ;;
+  esac
+done
+
+for f in "${KNOWN_FINDINGS[@]}"; do
+  r=${f%%:*} p=${f#*:} name=${f/:/-}
+  got=$(run "$r" "$name" "$p")
+  case $got in
+    "$p") echo "KNOWN FINDING still present: $f (counterexample: $OUT/$name.out)" ;;
+    none) echo "FIXED? $f now passes. Confirm the fix with a test, then remove it from KNOWN_FINDINGS and the findings in SKILL.md."; status=1 ;;
+    tool-error) echo "TOOL ERROR, see $OUT/$name.out"; status=2 ;;
+    *) echo "FAIL  $r:$got while checking $f (counterexample: $OUT/$name.out)"; [[ $status == 0 ]] && status=1 ;;
+  esac
+done
+echo "model checked in $((SECONDS - start))s"
+
+# Coverage drift: covered code changed since the sync commit in SKILL.md.
+sync=$(sed -n 's/^Sync commit: `\([0-9a-f]*\)`.*/\1/p' "$SKILL_DIR/SKILL.md")
+covered=$(sed -n 's/^- `\([^`]*\)`:.*/\1/p' "$SKILL_DIR/SKILL.md" | sort -u)
+if [[ -n $sync ]] && git -C "$ROOT" cat-file -e "$sync^{commit}" 2>/dev/null; then
+  # shellcheck disable=SC2086
+  drift=$(cd "$ROOT" && git diff --name-only "$sync" -- $covered)
+  if [[ -n $drift ]]; then
+    echo "covered code changed since sync commit $sync, so recheck the model against it:"
+    echo "$drift" | sed 's/^/  /'
+  fi
+else
+  echo "warning: sync commit '$sync' from SKILL.md is not in this clone; cannot check coverage drift."
+fi
+
+exit $status

@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# Model-checks .cursor/skills/verify-passkey-ceremony/model/PasskeyCeremony.tla
+# with TLC, once per page: "login" (signed out), "reauth" (sudo reauth on the
+# login page), and "register" (adding a passkey in settings). The model's
+# guard constants are read from the code, so removing a guard in the code
+# turns its constant FALSE and the check shows what that breaks.
+set -euo pipefail
+
+die() { echo "error: $*" >&2; exit 2; }
+
+# Same tla2tools release and cache as verify-save-conflicts.
+TLA_VERSION=1.7.4
+TLA_SHA256=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
+
+# Rules the current code is known to break, as RUN:RULE. The check expects
+# each one to fail. Remove an entry once the code is fixed and the check
+# passes it.
+KNOWN_FINDINGS=(login:CompletedPromptWorks reauth:CompletedPromptWorks register:CompletedPromptWorks)
+
+# What each run checks.
+RULES_login=(CeremonyUsedOnce TokenWorksOnce TokenStaysInBrowser CompletedPromptWorks ButtonNeverStuck)
+RULES_reauth=(CeremonyUsedOnce ReauthStaysSessionUser TokenWorksOnce TokenStaysInBrowser CompletedPromptWorks ButtonNeverStuck)
+RULES_register=(CeremonyUsedOnce PasskeyAddedOnlyInSudo CompletedPromptWorks ButtonNeverStuck)
+RUNS=(login reauth register)
+
+ONLY=
+if [[ ${1:-} == --only ]]; then
+  ONLY=${2:?usage: check-passkey-ceremony [--only RUN:RULE]}
+  [[ $ONLY == *:* ]] || die "--only takes RUN:RULE, with RUN one of ${RUNS[*]}"
+fi
+
+ROOT=$(git rev-parse --show-toplevel)
+SKILL_DIR="$ROOT/.cursor/skills/verify-passkey-ceremony"
+OUT="$ROOT/tmp/verify-passkey-ceremony"
+WORKERS=${TLC_WORKERS:-auto}
+
+command -v java >/dev/null || die "java not found. Install a JDK 11 or newer (for example: mise use java@temurin-21)."
+command -v perl >/dev/null || die "perl not found."
+
+JAR=${TLA2TOOLS_JAR:-"${XDG_CACHE_HOME:-$HOME/.cache}/pinventory/tla2tools-$TLA_VERSION.jar"}
+if [[ ! -f "$JAR" ]]; then
+  mkdir -p "$(dirname "$JAR")"
+  echo "downloading tla2tools.jar $TLA_VERSION to $JAR"
+  curl -fsSL -o "$JAR.part" "https://github.com/tlaplus/tlaplus/releases/download/v$TLA_VERSION/tla2tools.jar"
+  mv "$JAR.part" "$JAR"
+fi
+if command -v sha256sum >/dev/null; then sum=$(sha256sum "$JAR" | cut -d' ' -f1); else sum=$(shasum -a 256 "$JAR" | cut -d' ' -f1); fi
+[[ "$sum" == "$TLA_SHA256" ]] || die "$JAR has sha256 $sum, expected $TLA_SHA256. Delete it and rerun."
+
+# anchor FILE REGEX: TRUE when REGEX (Perl, /s) matches FILE.
+anchor() { perl -0777 -ne "exit(/$2/s ? 0 : 1)" "$ROOT/$1" && echo TRUE || echo FALSE; }
+both() { [[ $1 == TRUE && $2 == TRUE ]] && echo TRUE || echo FALSE; }
+fn_has() { # fn_has FILE HEAD REGEX: TRUE when the clause starting with HEAD matches REGEX
+  perl -0777 -ne 'BEGIN { $h = shift @ARGV; $r = shift @ARGV }
+    for my $c (split /\n(?=  (?:def|defp) )/) { if (index($c, $h) >= 0 && $c =~ /$r/s) { print "TRUE"; exit } }
+    print "FALSE"' "$2" "$3" "$ROOT/$1"
+}
+
+# Code facts: one or more regexes per model constant. A FALSE means the guard
+# is gone, or the code moved and the regex needs updating. SKILL.md says how
+# to tell. Page facts are read from the page's LiveView.
+LOGIN=lib/pinventory_web/live/user_live/login.ex
+SETTINGS=lib/pinventory_web/live/user_live/settings.ex
+ACCOUNTS=lib/pinventory/accounts.ex
+TOKEN=lib/pinventory/accounts/user_token.ex
+CONTROLLER=lib/pinventory_web/controllers/user_session_controller.ex
+
+page_facts() { # page_facts FILE START_EVENT RESPONSE_EVENT
+  local f=$1 start=$2 resp=$3
+  StartIgnoredWhilePending=$(fn_has "$f" "def handle_event(\"$start\"" 'passkey_ceremony\s*(?:!=|==)\s*nil|%Accounts\.Passkey\.Ceremony\{\}\s*=\s*socket\.assigns\.passkey_ceremony')
+  ConsumesCeremony=$(fn_has "$f" "def handle_event(\"$resp\"" 'ceremony = socket\.assigns\.passkey_ceremony\s*socket = assign\(socket, :passkey_ceremony, nil\)\s*with ')
+  CancelClears=$(fn_has "$f" 'def handle_event("passkey_cancel"' '\{:noreply, assign\(socket, :passkey_ceremony, nil\)\}')
+}
+
+binds_begin=$(anchor $LOGIN 'if socket\.assigns\.reauth\?, do: \[user: socket\.assigns\.current_scope\.user\]')
+binds_finish=$(anchor $ACCOUNTS 'true <- is_nil\(bound_user_id\) or cred\.user_id == bound_user_id')
+ReauthBindsUser=$(both "$binds_begin" "$binds_finish")
+ControllerChecksSessionUser=$(anchor $CONTROLLER '\{user, %\{current_scope: %\{user: %\{id: session_id\}\}\}\} when session_id != user\.id ->\s*passkey_failed\(conn\)')
+TokenOneTime=$(anchor $ACCOUNTS 'def consume_passkey_login_token\((?:(?!\n  def ).)*?\{1, _\} <- Repo\.delete_all\(from t in UserToken, where: t\.id == \^row\.id\)')
+hash_binds=$(anchor $TOKEN 'defp passkey_login_hash\(token, binding\),\s*do: :crypto\.hash\(\@hash_algorithm, \[token, :crypto\.hash\(\@hash_algorithm, binding\)\]\)')
+posts_binding=$(anchor $CONTROLLER 'consume_passkey_login_token\(token, get_session\(conn, :passkey_binding\)\)')
+TokenBound=$(both "$hash_binds" "$posts_binding")
+SudoAtStart=$(fn_has $SETTINGS 'def handle_event("passkey_register"' '^\s*def handle_event\("passkey_register", _params, socket\) do\s*user = [^\n]*\n\s*if sudo\?\(socket\) do')
+SudoAtFinish=$(fn_has $SETTINGS 'def handle_event("passkey_attestation"' 'with true <- sudo\?\(socket\) \|\| :sudo,')
+GLOBAL_FACTS=(ReauthBindsUser ControllerChecksSessionUser TokenOneTime TokenBound SudoAtStart SudoAtFinish)
+PAGE_FACTS=(StartIgnoredWhilePending ConsumesCeremony CancelClears)
+
+declare -A PF
+for r in login reauth register; do
+  if [[ $r == register ]]; then page_facts $SETTINGS passkey_register passkey_attestation
+  else page_facts $LOGIN passkey_start passkey_assertion; fi
+  for k in "${PAGE_FACTS[@]}"; do PF[$r:$k]=${!k}; done
+done
+
+echo "code facts (model constants):"
+for k in "${GLOBAL_FACTS[@]}"; do printf '  %-28s %s\n' "$k" "${!k}"; done
+for r in login reauth register; do
+  for k in "${PAGE_FACTS[@]}"; do printf '  %-28s %s\n' "$r:$k" "${PF[$r:$k]}"; done
+done
+
+rm -rf "$OUT" && mkdir -p "$OUT"
+cp "$SKILL_DIR"/model/*.tla "$OUT/"
+
+write_cfg() {
+  local r=$1 name=$2; shift 2
+  {
+    echo "SPECIFICATION Spec"
+    echo "CONSTANTS"
+    echo "  Kind = \"$r\""
+    echo "  Me = me"
+    echo "  Other = other"
+    echo "  MaxC = 2"
+    echo "  MaxMsgs = 2"
+    for k in "${GLOBAL_FACTS[@]}"; do echo "  $k = ${!k}"; done
+    for k in "${PAGE_FACTS[@]}"; do echo "  $k = ${PF[$r:$k]}"; done
+    echo "CONSTRAINT StateBound"
+    echo "CHECK_DEADLOCK FALSE"
+    echo "INVARIANT TypeOK $*"
+  } >"$OUT/$name.cfg"
+}
+
+# run RUN NAME RULES...: prints the violated rule, "none", or "tool-error".
+run() {
+  local r=$1 name=$2; shift 2
+  write_cfg "$r" "$name" "$@"
+  (cd "$OUT" && java -XX:+UseParallelGC -cp "$JAR" tlc2.TLC -config "$name.cfg" \
+    -workers "$WORKERS" -metadir "$OUT/meta-$name" -nowarning PasskeyCeremony.tla) >"$OUT/$name.out" 2>&1 || true
+  if grep -q '^Model checking completed. No error has been found.' "$OUT/$name.out"; then echo none
+  elif v=$(grep -oE '^Error: Invariant [A-Za-z]+ is violated' "$OUT/$name.out" | awk '{print $3}'); [[ -n $v ]]; then echo "$v"
+  else echo tool-error; fi
+}
+
+is_known() { local x; for x in "${KNOWN_FINDINGS[@]}"; do [[ $x == "$1" ]] && return 0; done; return 1; }
+
+if [[ -n $ONLY ]]; then RUNS=("${ONLY%%:*}"); KNOWN_FINDINGS=(); fi
+
+status=0
+start=$SECONDS
+for r in "${RUNS[@]}"; do
+  eval "rules=(\"\${RULES_$r[@]}\")"
+  expected=()
+  for p in "${rules[@]}"; do is_known "$r:$p" || expected+=("$p"); done
+  [[ -n $ONLY ]] && expected=("${ONLY#*:}")
+  result=$(run "$r" "$r" "${expected[@]}")
+  case $result in
+    none) echo "PASS  $r: ${expected[*]}" ;;
+    tool-error) echo "TOOL ERROR, see $OUT/$r.out"; status=2 ;;
+    *) echo "FAIL  $r:$result (counterexample: $OUT/$r.out)"; [[ $status == 0 ]] && status=1 ;;
+  esac
+done
+
+for f in "${KNOWN_FINDINGS[@]}"; do
+  r=${f%%:*} p=${f#*:} name=${f/:/-}
+  got=$(run "$r" "$name" "$p")
+  case $got in
+    "$p") echo "KNOWN FINDING still present: $f (counterexample: $OUT/$name.out)" ;;
+    none) echo "FIXED? $f now passes. Confirm the fix with a test, then remove it from KNOWN_FINDINGS and the findings in SKILL.md."; status=1 ;;
+    tool-error) echo "TOOL ERROR, see $OUT/$name.out"; status=2 ;;
+    *) echo "FAIL  $r:$got while checking $f (counterexample: $OUT/$name.out)"; [[ $status == 0 ]] && status=1 ;;
+  esac
+done
+echo "model checked in $((SECONDS - start))s"
+
+# Coverage drift: covered code changed since the sync commit in SKILL.md.
+sync=$(sed -n 's/^Sync commit: `\([0-9a-f]*\)`.*/\1/p' "$SKILL_DIR/SKILL.md")
+covered=$(sed -n 's/^- `\([^`]*\)`:.*/\1/p' "$SKILL_DIR/SKILL.md" | sort -u)
+if [[ -n $sync ]] && git -C "$ROOT" cat-file -e "$sync^{commit}" 2>/dev/null; then
+  # shellcheck disable=SC2086
+  drift=$(cd "$ROOT" && git diff --name-only "$sync" -- $covered)
+  if [[ -n $drift ]]; then
+    echo "covered code changed since sync commit $sync, so recheck the model against it:"
+    echo "$drift" | sed 's/^/  /'
+  fi
+else
+  echo "warning: sync commit '$sync' from SKILL.md is not in this clone; cannot check coverage drift."
+fi
+
+exit $status
