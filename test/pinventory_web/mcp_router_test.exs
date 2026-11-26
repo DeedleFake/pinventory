@@ -110,6 +110,7 @@ defmodule PinventoryWeb.MCPRouterTest do
       assert result["instructions"] =~ ~s("towel" finds "Paper Towels")
       assert result["instructions"] =~ "ask the user. Don't guess."
       assert result["instructions"] =~ "happen in the Pinventory web UI"
+      assert result["instructions"] =~ "use edit_notes with the item's complete new notes"
       assert result["instructions"] =~ "Call get_naming_convention before you create or rename"
     end
 
@@ -117,7 +118,7 @@ defmodule PinventoryWeb.MCPRouterTest do
       names = rpc(secret, "tools/list")["tools"] |> Enum.map(& &1["name"]) |> Enum.sort()
 
       assert names ==
-               ~w[change_stock create_item edit_naming_convention get_naming_convention list_items list_locations move_stock rename_item rename_location]
+               ~w[change_stock create_item edit_naming_convention edit_notes get_naming_convention list_items list_locations move_stock rename_item rename_location]
     end
   end
 
@@ -328,6 +329,149 @@ defmodule PinventoryWeb.MCPRouterTest do
 
       assert event_count() == before
       assert Items.get_item!(batteries.id).name == "AA batteries"
+    end
+  end
+
+  describe "edit_notes" do
+    test "replaces the notes, keeps name and stock, and records a note version via the agent", %{
+      secret: secret,
+      user: user,
+      towels: towels,
+      garage: garage
+    } do
+      Pinventory.LiveEdits.subscribe({:item, towels.id})
+
+      %{"item" => item} =
+        call(secret, "edit_notes", %{
+          item_id: towels.id,
+          notes: "Bounty, 6-roll packs\nBuy at Costco",
+          read_notes: "Bounty, 6-roll packs"
+        })["structuredContent"]
+
+      assert item["notes"] == "Bounty, 6-roll packs\nBuy at Costco"
+      assert item["name"] == "Paper towels"
+      assert [%{"quantity" => 4}] = item["stock"]
+      assert stock(towels) == %{garage.id => 4}
+      assert_received {Pinventory.LiveEdits, {:item, _}, :saved}
+
+      assert [%{number: 1}, %{number: 2, text: "Bounty, 6-roll packs\nBuy at Costco"}] =
+               tl(Items.note_versions(towels.id))
+
+      [edit | _] = Audit.list_edits_for_item(towels.id, limit: 1)
+      assert AuditHelpers.edit_heading(edit) =~ "#{user.email} via Claude on phone"
+
+      assert Enum.map(edit.events, &{&1.action, &1.changes}) == [
+               {"item.notes_changed",
+                %{
+                  "notes" => %{
+                    "from" => "Bounty, 6-roll packs",
+                    "to" => "Bounty, 6-roll packs\nBuy at Costco"
+                  }
+                }}
+             ]
+    end
+
+    test "sets notes on an item that has none, and clears them with an empty string", %{
+      secret: secret,
+      batteries: batteries
+    } do
+      %{"item" => item} =
+        call(secret, "edit_notes", %{item_id: batteries.id, notes: "Eneloop", read_notes: ""})[
+          "structuredContent"
+        ]
+
+      assert item["notes"] == "Eneloop"
+
+      %{"item" => item} =
+        call(secret, "edit_notes", %{item_id: batteries.id, notes: "", read_notes: "Eneloop"})[
+          "structuredContent"
+        ]
+
+      assert item["notes"] == ""
+      assert Enum.map(Items.note_versions(batteries.id), & &1.text) == ["", "Eneloop", ""]
+    end
+
+    test "refuses notes that changed since the agent read them, and writes nothing", %{
+      secret: secret,
+      user: user,
+      towels: towels,
+      garage: garage
+    } do
+      scope = user_scope_fixture(user)
+
+      {:ok, _} =
+        Items.update_item(scope, Items.get_item!(towels.id), %{"notes" => "Now Brawny"}, %{
+          garage.id => 4
+        })
+
+      before = event_count()
+
+      result =
+        call(secret, "edit_notes", %{
+          item_id: towels.id,
+          notes: "Bounty, 6-roll packs\nBuy at Costco",
+          read_notes: "Bounty, 6-roll packs"
+        })
+
+      assert result["isError"]
+
+      assert text(result) ==
+               "The notes changed since you read them. Nothing was changed. " <>
+                 "Call list_items again, apply your edit to the current notes, and try again."
+
+      assert event_count() == before
+      assert Items.get_item!(towels.id).notes == "Now Brawny"
+    end
+
+    test "still saves when only the name or stock changed since the agent read the item", %{
+      secret: secret,
+      user: user,
+      towels: towels
+    } do
+      scope = user_scope_fixture(user)
+      read = Items.get_item!(towels.id)
+
+      {:ok, _} = Items.update_item(scope, read, %{"name" => "Kitchen towels"}, %{})
+
+      %{"item" => item} =
+        call(secret, "edit_notes", %{
+          item_id: towels.id,
+          notes: "Bounty",
+          read_notes: read.notes
+        })["structuredContent"]
+
+      assert item["notes"] == "Bounty"
+      assert item["name"] == "Kitchen towels"
+      assert item["stock"] == []
+    end
+
+    test "refuses an unknown item, unchanged notes, or missing arguments, and writes nothing", %{
+      secret: secret,
+      towels: towels
+    } do
+      before = event_count()
+
+      for {args, message} <- [
+            {%{item_id: Ecto.UUID.generate(), notes: "x", read_notes: ""},
+             "No item has that id. Call list_items for ids."},
+            {%{item_id: "towels", notes: "x", read_notes: ""},
+             "No item has that id. Call list_items for ids."},
+            {%{
+               item_id: towels.id,
+               notes: "Bounty, 6-roll packs",
+               read_notes: "Bounty, 6-roll packs"
+             }, "notes is the same as read_notes, so there is nothing to change."}
+          ] do
+        result = call(secret, "edit_notes", args)
+        assert result["isError"]
+        assert text(result) == message
+      end
+
+      assert invalid_params(secret, "edit_notes", %{item_id: towels.id, notes: "x"}) =~
+               "read_notes"
+
+      assert event_count() == before
+      assert Items.get_item!(towels.id).notes == "Bounty, 6-roll packs"
     end
   end
 

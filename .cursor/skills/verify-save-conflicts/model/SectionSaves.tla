@@ -247,7 +247,7 @@ Delete(p) ==
 (* MCP tools                                                               *)
 
 \* rename_item, rename_location: get the record, then save in a later
-\* transaction. edit_naming_convention: the version and text come from an
+\* transaction. edit_notes: the base notes come from an earlier list_items. edit_naming_convention: the version and text come from an
 \* earlier get_naming_convention.
 AgentRead ==
     /\ AgentSections # {} /\ agent.phase = "idle" /\ exists

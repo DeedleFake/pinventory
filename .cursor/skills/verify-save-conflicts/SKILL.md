@@ -1,6 +1,6 @@
 ---
 name: verify-save-conflicts
-description: Model-check what happens when people and the MCP agent tools save, reload, and delete the same Pinventory record at once, on the item, location, and naming convention edit pages, using TLA+ models whose guard settings are read from the code. Use when a change touches Items.update_item, the Item section comparison, change_stock, move_stock, delete_item, Locations.update, Locations.delete, NamingConvention.save, DraftStock, an edit page's save, reconcile, keep_my_edits, load_latest, live-notice, or stale handling, the MCP rename or convention tools, item_locations constraints, or the repo's transaction mode, or when running /verify-save-conflicts.
+description: Model-check what happens when people and the MCP agent tools save, reload, and delete the same Pinventory record at once, on the item, location, and naming convention edit pages, using TLA+ models whose guard settings are read from the code. Use when a change touches Items.update_item, the Item section comparison, change_stock, move_stock, delete_item, Locations.update, Locations.delete, NamingConvention.save, DraftStock, an edit page's save, reconcile, keep_my_edits, load_latest, live-notice, or stale handling, the MCP rename, notes, or convention tools, item_locations constraints, or the repo's transaction mode, or when running /verify-save-conflicts.
 ---
 
 # Verify save conflicts
@@ -9,7 +9,7 @@ Two TLA+ models check that racing saves never lose a change, never refuse a save
 
 - `model/StockEdits.tla` checks an item's stock counts: the edit page, `change_stock`, `move_stock`, and item and location deletes. This is the `stock` run.
 - `model/SectionSaves.tla` checks the save, reconcile, and warning logic that every edit page shares. It runs three times, once per page:
-  - `item`: `EditItemLive` with its name and stock sections, MCP `rename_item`, and `change_stock` and `move_stock` as one-step stock writes. Notes is edited, checked, and reconciled by the same code as the name, so the name stands for both.
+  - `item`: `EditItemLive` with its name and stock sections, MCP `rename_item` and `edit_notes`, and `change_stock` and `move_stock` as one-step stock writes. Notes is edited, checked, and reconciled by the same code as the name, so the name stands for both.
   - `location`: `LocationLive` with its name, and MCP `rename_location`.
   - `convention`: `NamingConventionLive` with its text, and MCP `edit_naming_convention`.
 
@@ -130,7 +130,7 @@ A section's value is abstract, one of three interchangeable values. Three are th
 | `Notice` | `handle_info` for a `Pinventory.LiveEdits` `:saved` or `:deleted` notice | the same | the same, `:saved` only |
 | `KeepMyEdits`, `LoadLatest` | `handle_event("keep_my_edits")`, `handle_event("load_latest")` for one section, from `socket.assigns.latest` | the same, from `socket.assigns.latest` | the same, from `socket.assigns.stale` |
 | `Delete` | `handle_event("confirm_delete")` calling `Items.delete_item/2` | `handle_event("confirm_delete")` calling `Locations.delete/2` | none |
-| `AgentRead`, `AgentWrite` | MCP `rename_item`: `Items.get_item/1`, then a name-only `update_item/4` | MCP `rename_location`: `Locations.get/1`, then `Locations.update/3` | MCP `get_naming_convention`, then `edit_naming_convention` with its version |
+| `AgentRead`, `AgentWrite` | MCP `rename_item`: `Items.get_item/1`, then a name-only `update_item/4`. `edit_notes` is the same with the agent's `read_notes` as the base notes | MCP `rename_location`: `Locations.get/1`, then `Locations.update/3` | MCP `get_naming_convention`, then `edit_naming_convention` with its version |
 | `AtomicWrite` | `change_stock/4`, `move_stock/5` through `write_stock/4` | none | none |
 
 The Save button is disabled while a warning shows, but the server does not check, so the model lets a client save anyway. A save that edits nothing returns the base without writing, so the model leaves it out. Two ghost variables exist only for checking. `writes` counts committed writes, to bound the state space. `bad` records which properties a step broke.
@@ -212,6 +212,6 @@ Move the sync commit forward only after you confirm, at the new commit, that the
 - `lib/pinventory_web/live/edit_item_live.ex`: `handle_event/3` for `save`, `adjust`, `set_quantity`, `keep_my_edits`, `load_latest`, `confirm_delete`, `handle_info/2` for `Pinventory.LiveEdits` notices, `reconcile/2`, `section_dirty?/2`, `load_section/3`, `show_item/2`, `assign_base/2`
 - `lib/pinventory_web/live/location_live.ex`: `handle_event/3` for `save`, `keep_my_edits`, `load_latest`, `confirm_delete`, `handle_info/2` for `Pinventory.LiveEdits` notices, `reconcile/2`, `show_location/2`, `sync_dirty/1`
 - `lib/pinventory_web/live/naming_convention_live.ex`: `handle_event/3` for `save`, `keep_my_edits`, `load_latest`, `handle_info/2` for `Pinventory.LiveEdits` notices, `reconcile/2`, `show_version/2`, `put_text/3`
-- `lib/pinventory_web/mcp_router.ex`: the `change_stock`, `move_stock`, `rename_item`, `rename_location`, and `edit_naming_convention` tools
+- `lib/pinventory_web/mcp_router.ex`: the `change_stock`, `move_stock`, `rename_item`, `edit_notes`, `rename_location`, and `edit_naming_convention` tools
 - `config/config.exs`: `default_transaction_mode`
 - `priv/repo/migrations/20260223042150_create_locations_and_item_locations.exs`: the cascades and the quantity CHECK
